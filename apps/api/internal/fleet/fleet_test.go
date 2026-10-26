@@ -75,7 +75,9 @@ func newHarness(t *testing.T) *harness {
 	key, _ := secrets.ParseKey(secrets.NewKey())
 	keyring, _ := secrets.New(key)
 	aws := fake.New(cloud.AWS)
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, fleet.DefaultConfig(), slog.New(slog.DiscardHandler))
+	cfg := fleet.DefaultConfig()
+	cfg.PublicURL = "https://api.test"
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, cfg, slog.New(slog.DiscardHandler))
 	if _, err := svc.SaveInstallation(ctx, inst); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +298,10 @@ func TestHappyPath(t *testing.T) {
 		t.Fatalf("launched = %d, want 2", len(launched))
 	}
 	wantStates(t, h, "running", "running")
-	first := launched[0].Launch
+	// Launches run in parallel, so pick the machine of the first runner row.
+	firstRunner := h.runners()[0]
+	i := slices.IndexFunc(launched, func(l fake.Instance) bool { return l.Launch.RunnerID == firstRunner.ID.String() })
+	first := launched[i].Launch
 	registered, ok := h.gh.RunnerByJIT(first.Boot.JITConfig)
 	if !ok || registered.Repo != repoName || registered.Name != first.RunnerName {
 		t.Fatalf("jit config does not match a registration: %+v", registered)
@@ -325,7 +330,7 @@ func TestHappyPath(t *testing.T) {
 	h.complete(job, &first.RunnerName, "success")
 	wantStates(t, h, "finished:completed", "running")
 	// The machine is gone without waiting for a reconcile pass.
-	if left := h.aws.Instances(); len(left) != 1 || left[0].ID == launched[0].ID {
+	if left := h.aws.Instances(); len(left) != 1 || left[0].ID == launched[i].ID {
 		t.Fatalf("finished runner's instance not terminated: %+v", left)
 	}
 	h.reconcile()
@@ -752,5 +757,51 @@ func TestEventsAreRecorded(t *testing.T) {
 	}
 	if !slices.Contains(kinds, "runner.launched") || !slices.Contains(kinds, "cloud.connected") {
 		t.Fatalf("events = %v", kinds)
+	}
+}
+
+// extra_config.cache: true gives the machine a token; its cache proxy
+// trades it for credentials scoped to the repository's prefix, for as
+// long as the runner lives.
+func TestCacheGrant(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.setConfig(headSHA, strings.ReplaceAll(baseConfig, "extra_config:", "extra_config:\n      cache: true"))
+	job := h.queue()
+	launched := h.launch()
+	if len(launched) != 1 || launched[0].Launch.Boot.Cache == nil {
+		t.Fatalf("cache boot missing: %+v", launched)
+	}
+	boot := launched[0].Launch.Boot.Cache
+	if boot.ControlPlaneURL != "https://api.test" || !strings.HasPrefix(boot.Token, fleet.CacheTokenPrefix) {
+		t.Fatalf("cache boot = %+v", boot)
+	}
+	if buckets := h.aws.Buckets(); len(buckets) != 1 || !strings.HasPrefix(buckets[0], "airship-cache-us-east-1-") {
+		t.Fatalf("buckets = %v", buckets)
+	}
+
+	grant, err := h.svc.CacheGrant(h.ctx, boot.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant.Prefix != repoName || grant.Region != region || grant.Bucket != h.aws.Buckets()[0] || grant.AccessKeyID == "" {
+		t.Fatalf("grant = %+v", grant)
+	}
+	if _, err := h.svc.CacheGrant(h.ctx, "asr_forged"); !errors.Is(err, fleet.ErrNoCacheGrant) {
+		t.Fatalf("forged token = %v", err)
+	}
+
+	// A second cache-enabled launch in the same region reuses the bucket.
+	h.queue()
+	h.launch()
+	if buckets := h.aws.Buckets(); len(buckets) != 1 {
+		t.Fatalf("bucket ensured again: %v", buckets)
+	}
+
+	// Once the runner is done its token is dead.
+	h.start(job, launched[0].Launch.RunnerName)
+	h.complete(job, &launched[0].Launch.RunnerName, "success")
+	if _, err := h.svc.CacheGrant(h.ctx, boot.Token); !errors.Is(err, fleet.ErrNoCacheGrant) {
+		t.Fatalf("finished runner's token still works: %v", err)
 	}
 }

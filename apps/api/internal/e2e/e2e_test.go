@@ -57,7 +57,9 @@ func newEnv(t *testing.T) *env {
 	key, _ := secrets.ParseKey(secrets.NewKey())
 	keyring, _ := secrets.New(key)
 	aws := fake.New(cloud.AWS)
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, fleet.DefaultConfig(), logger)
+	cfg := fleet.DefaultConfig()
+	cfg.PublicURL = "http://api.test"
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, cfg, logger)
 
 	app := gh.App(t)
 	oauth := github.NewOAuth(github.OAuthConfig{ClientID: fakegithub.ClientID, ClientSecret: "secret", WebURL: gh.URL, APIURL: gh.URL})

@@ -92,6 +92,7 @@ func run(ctx context.Context) error {
 	fleetCfg.RunnerVersion = cfg.RunnerVersion
 	fleetCfg.MaxLifetime = cfg.RunnerMaxLifetime
 	fleetCfg.IdleTimeout = cfg.RunnerIdleTimeout
+	fleetCfg.PublicURL = cfg.PublicURL
 	var gh fleet.GitHub = unconfiguredGitHub{}
 	if app != nil {
 		gh = fleet.AppGitHub{App: app}

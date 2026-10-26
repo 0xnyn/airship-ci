@@ -12,6 +12,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
 	"github.com/wizenheimer/airship/apps/api/internal/health"
+	"github.com/wizenheimer/airship/apps/api/internal/runnerapi"
 	"github.com/wizenheimer/airship/apps/api/internal/webhook"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -69,6 +70,7 @@ func NewAPI(mux *http.ServeMux, deps Deps) huma.API {
 		Fleet: deps.Fleet,
 		Store: deps.Queries, Sessions: deps.Sessions, AllowedOrigins: deps.CORSOrigins, PublicURL: deps.PublicURL,
 	})
+	runnerapi.Register(api, deps.Fleet)
 
 	return api
 }

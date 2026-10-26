@@ -1,10 +1,14 @@
 # Airship
 
-Managed GitHub Actions runners with a bring-your-own-cloud data plane: a Go
-control plane and Next.js dashboard that we run, and a Go agent that runs in
-the customer's AWS account or Docker host. Read `docs/architecture.md` before
-changing the runner lifecycle, the agent protocol or anything in
-`internal/fleet`.
+Self-hosted GitHub Actions runners on the customer's AWS account, built to
+Cirun's model and file format (`.cirun.yml`, `cirun-` labels, the `.cirun`
+organization repository, cirun-py's API): a Go control plane that holds
+the customer's sealed access key and launches EC2 instances itself, a
+Next.js dashboard, and a cache proxy that runs on each machine. Read
+`docs/architecture.md` before changing the runner lifecycle or anything in
+`internal/fleet`, and `docs/cirun-yml.md` for what the config format must
+keep doing. Check the Cirun docs in `../reference/cirun/docs` before
+changing user-facing behaviour: parity with them is the goal.
 
 Go + TypeScript monorepo run by Turborepo and pnpm. The Go API is the source
 of truth for every type that crosses the network; the TypeScript client is
@@ -14,12 +18,11 @@ generated from it and must never be edited by hand.
 
 | Path | What it is |
 | --- | --- |
-| `apps/api` | Go control plane (`cmd/api`) and data plane agent (`cmd/agent`): Huma v2 on `net/http`, pgx, sqlc, goose |
+| `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2 |
 | `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
 | `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
 | `packages/typescript-config` | Shared `tsconfig` presets |
-| `deploy/aws` | CloudFormation template that runs the agent in a customer account; `test:policy` simulates its IAM policy (needs uv) |
 
 ## How types flow
 
@@ -79,24 +82,30 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   the database can change without changing the API.
 - Feature packages depend on a narrow `Store` interface, not `*db.Queries`.
 - Tests that touch SQL run against real Postgres (`internal/testsupport/pgtest`,
-  one database per test, needs `TEST_DATABASE_URL`) and a fake GitHub
-  (`internal/testsupport/fakegithub`); `internal/e2e` drives the whole HTTP
-  surface. Races and lifecycle edge cases belong in `internal/fleet` tests.
+  one database per test, needs `TEST_DATABASE_URL`), a fake GitHub
+  (`internal/testsupport/fakegithub`) and a fake cloud (`internal/cloud/fake`);
+  `internal/e2e` drives the whole HTTP surface. Races and lifecycle edge
+  cases belong in `internal/fleet` tests. The EC2 provider also runs
+  against moto (`TestAgainstEmulator`, needs `AIRSHIP_AWS_ENDPOINT`).
 - Every state change to `runners` is a conditional UPDATE on the expected
-  state; never read-then-write. Capacity (the data plane's and each
-  profile's `max_runners`) is enforced under a row lock on the data plane.
-- Runner config files (`.airship.yml`) are parsed in `internal/runnerconfig`
-  (pure, no I/O) and planned in `internal/fleet/config.go`; see
-  `docs/runner-config.md` for the format and `docs/architecture.md` for the
-  trust rules.
+  state; never read-then-write. Capacity (`installations.max_runners`) is
+  enforced under a row lock on the installation.
+- Config files are parsed in `internal/runnerconfig` (pure, no I/O) and
+  planned in `internal/fleet/config.go`; see `docs/cirun-yml.md` for the
+  format and `docs/architecture.md` for the trust rules.
+- Cloud credentials are sealed with `internal/secrets` and opened only for
+  the duration of a provider call; never log or return them.
+- `internal/cloud` is the provider boundary: `fleet` must not import the
+  AWS SDK. A new cloud is a new `cloud.Provider` (and `cloud.Cacher` if it
+  has object storage).
 - Errors: return `huma.Error404NotFound(...)` and friends for client errors;
   wrap everything else with `fmt.Errorf("...: %w", err)`. Huma renders RFC 9457
   problem details, which the client exposes as `ApiError` / `error.detail`.
 - Go struct and type names become OpenAPI schema names and then TypeScript
   names (`Schemas["Profile"]`), so name them for API consumers.
 - Config is environment variables only (`internal/config`); local values live
-  in `apps/api/.env` (copy `.env.example`). The web app's env is declared and
-  typed in `apps/web/.env.schema` via varlock.
+  in `apps/api/.env` (copy `.env.example`). `CREDENTIALS_KEY` is required.
+  The web app's env is declared and typed in `apps/web/.env.schema` via varlock.
 - Never edit `apps/api/internal/db/*.go` (except `queries/`),
   `apps/api/openapi.json` or `packages/client/src/generated/`.
 - Go tools (sqlc, goose, golangci-lint, air) are pinned in

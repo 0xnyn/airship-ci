@@ -15,6 +15,9 @@ type Querier interface {
 	ActivateRepository(ctx context.Context, arg ActivateRepositoryParams) (Repository, error)
 	// Tokens of uninstalled or suspended installations do not authenticate.
 	AuthenticateAPIToken(ctx context.Context, tokenHash []byte) (AuthenticateAPITokenRow, error)
+	// A live runner's cache proxy, by its token. Finished runners and
+	// uninstalled or suspended installations get nothing.
+	AuthenticateRunnerCacheToken(ctx context.Context, cacheTokenHash []byte) (AuthenticateRunnerCacheTokenRow, error)
 	CancelPendingRunnersForJob(ctx context.Context, triggerJobID *int64) ([]Runner, error)
 	// Due retries; the next one is scheduled with exponential backoff, capped
 	// at an hour. Deliveries that keep failing are dropped after max_attempts.
@@ -191,6 +194,7 @@ type Querier interface {
 	SetJobRunner(ctx context.Context, arg SetJobRunnerParams) error
 	SetMembershipRole(ctx context.Context, arg SetMembershipRoleParams) error
 	SetRepositoryConfig(ctx context.Context, arg SetRepositoryConfigParams) error
+	SetRunnerCache(ctx context.Context, arg SetRunnerCacheParams) error
 	SetRunnerGitHubID(ctx context.Context, arg SetRunnerGitHubIDParams) error
 	SetRunnerProvisionSecret(ctx context.Context, arg SetRunnerProvisionSecretParams) error
 	SetWebhookWatermark(ctx context.Context, watermark int64) error

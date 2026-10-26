@@ -820,6 +820,47 @@
         ],
         "type": "object"
       },
+      "Grant": {
+        "additionalProperties": false,
+        "properties": {
+          "accessKeyId": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "cloud": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          },
+          "sessionToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cloud",
+          "bucket",
+          "region",
+          "prefix",
+          "accessKeyId",
+          "secretAccessKey",
+          "sessionToken",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
       "HealthStatus": {
         "additionalProperties": false,
         "properties": {
@@ -2371,6 +2412,75 @@
         ]
       }
     },
+    "/v1/assets/cacheproxy/{os}/{arch}": {
+      "get": {
+        "description": "Runner machines with extra_config.cache fetch this at boot.",
+        "operationId": "getCacheProxyBinary",
+        "parameters": [
+          {
+            "description": "Operating system",
+            "in": "path",
+            "name": "os",
+            "required": true,
+            "schema": {
+              "description": "Operating system",
+              "enum": [
+                "linux"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "CPU architecture",
+            "in": "path",
+            "name": "arch",
+            "required": true,
+            "schema": {
+              "description": "CPU architecture",
+              "enum": [
+                "x64",
+                "arm64"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "contentEncoding": "base64",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Download the cache proxy binary",
+        "tags": [
+          "Runner"
+        ]
+      }
+    },
     "/v1/auth/config": {
       "get": {
         "operationId": "getAuthConfig",
@@ -3580,6 +3690,49 @@
         "summary": "Update organization settings",
         "tags": [
           "Organization"
+        ]
+      }
+    },
+    "/v1/runner/cache-grant": {
+      "get": {
+        "description": "Called by the cache proxy on a runner machine with the token its boot script carries. The credentials are scoped to the runner's repository prefix in the installation's bucket and expire; the proxy refreshes them.",
+        "operationId": "runnerCacheGrant",
+        "parameters": [
+          {
+            "description": "Bearer runner cache token",
+            "in": "header",
+            "name": "Authorization",
+            "schema": {
+              "description": "Bearer runner cache token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Grant"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Fetch cache bucket credentials for a runner",
+        "tags": [
+          "Runner"
         ]
       }
     }

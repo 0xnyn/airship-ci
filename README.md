@@ -1,29 +1,66 @@
 # Airship
 
-Managed GitHub Actions runners that run in your own cloud account.
+Self-hosted GitHub Actions runners on your own AWS account, configured as
+code. Airship is built to work the way [Cirun](https://docs.cirun.io) does:
+connect your cloud once, activate a repository, commit a `.cirun.yml`, and
+write `runs-on: cirun-<label>--${{ github.run_id }}`. Every job gets a fresh
+EC2 instance that is destroyed when the job ends.
 
-Point a workflow at a profile (`runs-on: airship-4cpu`) and Airship starts a
-fresh machine for the job in your AWS account (or on your Docker host),
-registers it with GitHub for exactly one job, and destroys it afterwards. We
-run the control plane: webhooks, scheduling, the GitHub integration and the
-dashboard. You run the data plane: a small agent that only makes outbound
-HTTPS calls. Your code, secrets and build output never leave your account.
+```yaml
+# .cirun.yml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: [c7i.xlarge, m7i.xlarge]   # tried in order
+    machine_image: ami-0123456789abcdef0
+    region: us-east-1
+    preemptible: [true, false]
+    labels: [cirun-build]
+    extra_config:
+      cache: true                              # S3-backed actions/cache
+```
 
-Runners are defined either as profiles in the dashboard or in a
-`.airship.yml` committed to the repository, with fallback machine types and
-warm pools ([docs/runner-config.md](docs/runner-config.md)). See
-[docs/architecture.md](docs/architecture.md) for how it works, the design
-decisions and the known limitations.
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  test:
+    runs-on: cirun-build--${{ github.run_id }}
+```
+
+What is here, with Cirun's names and behaviour:
+
+- `.cirun.yml` per repository: fallback lists for instance type, image,
+  region and spot; `extra_config` for EBS volumes (`BlockDeviceMappings`),
+  `env_vars`, `cache`, `provision_via: pull_from_api`, Windows
+  (`run_as: interactive`, `runner_user`, `runner_path`); `gpu`.
+- One-line runners: `cirun-aws-c7g-xlarge-ubuntu2404-spot--${{ github.run_id }}`.
+- `--suffix` labels for unique runners per job.
+- Idle runners: `replicas`, `schedule` and `usage_based`.
+- Organization runners in a `.cirun` repository (`.cirun.global.yml`) with
+  `.access.yml` policies.
+- Developer API compatible with [cirun-py](https://github.com/AktechLabs/cirun-py):
+  `repo`, `cloud-connect`, `access-control`, `runner-provision`.
+- Caching: `extra_config.cache: true` runs a proxy on the machine that serves
+  `actions/cache`, `setup-*` and `docker/build-push-action` (`url_v2`) from an
+  S3 bucket in your account.
+- Dashboard: Repositories, Cloud, Runners, Jobs, API keys, Teams, Analytics,
+  Events, Settings.
+
+Only AWS is implemented. The cloud provider is an interface
+(`apps/api/internal/cloud`) so another can be added. See
+[docs/cirun-yml.md](docs/cirun-yml.md) for the file reference,
+[docs/caching.md](docs/caching.md) for the cache, and
+[docs/architecture.md](docs/architecture.md) for how it works and what is
+deliberately different from Cirun.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `apps/api` | Go: the control plane (`cmd/api`), the data plane agent (`cmd/agent`), migrations (`cmd/migrate`) |
+| `apps/api` | Go: the control plane (`cmd/api`), migrations (`cmd/migrate`), the runner-side cache proxy (`cmd/cacheproxy`) |
 | `apps/web` | Next.js 16 dashboard |
 | `packages/client` | TypeScript client generated from the API's OpenAPI document |
 | `packages/ui` | Shared shadcn/ui components |
-| `deploy/aws` | CloudFormation template that runs the agent in a customer's AWS account |
 
 The Go API is the source of truth for every type on the wire:
 
@@ -40,27 +77,24 @@ You need Go 1.27+, Node 24+, pnpm 11 and Docker.
 
 ```bash
 pnpm install
-cp apps/api/.env.example apps/api/.env   # DEV_LOGIN=true is set here
+cp apps/api/.env.example apps/api/.env   # DEV_LOGIN=true and a CREDENTIALS_KEY are set here
 pnpm db:up
 pnpm db:migrate
 pnpm dev
 ```
 
 Open http://localhost:3000 and choose **Development sign-in**. It signs you in
-as an admin of a demo organization, `acme`. From there you can create a data
-plane, connect an agent and create profiles. API docs are at
+as an admin of a demo organization, `acme`. API docs are at
 http://localhost:8080/docs.
 
-To connect a local agent that runs jobs as Docker containers:
+Jobs only arrive once a GitHub App is configured (below). Launches need real
+AWS credentials under **Cloud**; the tests use a fake cloud, and the EC2
+provider can be exercised against [moto](https://github.com/getmoto/moto):
 
 ```bash
-cd apps/api
-AIRSHIP_URL=http://localhost:8080 AIRSHIP_TOKEN=asd_... AIRSHIP_PROVIDER=docker \
-  AIRSHIP_DOCKER_SOCKET=$HOME/.docker/run/docker.sock go run ./cmd/agent
+uvx --from 'moto[server]' moto_server -p 5055 &
+cd apps/api && AIRSHIP_AWS_ENDPOINT=http://localhost:5055 go test -run TestAgainstEmulator ./internal/cloud/aws
 ```
-
-Jobs only arrive once a GitHub App is configured (below); without one,
-everything except GitHub sign-in, webhooks and launches works.
 
 ## Creating the GitHub App
 
@@ -70,17 +104,30 @@ Create an app at **GitHub → Settings → Developer settings → GitHub Apps**:
 - **Webhook URL**: `{PUBLIC_URL}/v1/github/webhook`, with a random secret.
   For local development, expose port 8080 with a tunnel (e.g. `cloudflared
   tunnel --url localhost:8080`) and use that as `PUBLIC_URL`.
-- **Repository permissions**: Administration read & write (to create and
+- **Repository permissions**: Administration read & write (to register and
   remove repository runners), Actions read (to look up jobs and runs),
-  Contents read (to read `.airship.yml`), Metadata read.
+  Contents read (to read `.cirun.yml`; write if the access-control API
+  should open pull requests on `.cirun`), Pull requests write (same),
+  Metadata read.
 - **Organization permissions**: Members read (to tell admins from members,
   and for team rules in `.access.yml`).
-- **Subscribe to events**: Workflow job, Push (to refresh warm pools when
-  `.airship.yml` changes), Repository (renames and visibility changes).
+- **Subscribe to events**: Workflow job, Push (to refresh idle runners when
+  `.cirun.yml` changes), Repository (renames and visibility changes).
 
 Then set `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `GITHUB_WEBHOOK_SECRET` and `GITHUB_PRIVATE_KEY_FILE` (or
 `GITHUB_PRIVATE_KEY`) in `apps/api/.env`.
+
+## Connecting AWS
+
+Under **Cloud**, paste an IAM user's access key. The user needs
+`AmazonEC2FullAccess`; for `extra_config.cache` it also needs S3 bucket
+management on `airship-cache-*` and `sts:GetFederationToken` (the exact
+policy is in [docs/caching.md](docs/caching.md)). Credentials are verified
+with STS, sealed with `CREDENTIALS_KEY` and never shown again. Runners
+launch in the region a definition names, or the default region you pick
+(Cirun's default is `eu-west-1`), into the region's default VPC with an
+egress-only security group Airship creates.
 
 ## Scripts
 
@@ -108,31 +155,19 @@ The control plane is one container plus Postgres:
 ```bash
 docker build -t airship-api apps/api
 docker run --rm --entrypoint migrate -e DATABASE_URL=... airship-api up   # once per release
-docker run -p 8080:8080 -e DATABASE_URL=... -e PUBLIC_URL=https://... airship-api
+docker run -p 8080:8080 -e DATABASE_URL=... -e PUBLIC_URL=https://... -e CREDENTIALS_KEY=... airship-api
 ```
 
-In production `PUBLIC_URL` must be https and the GitHub App must be
-configured. Several API replicas can run at once: the reconciler elects a
-leader through a Postgres advisory lock. Serve the dashboard (`apps/web`,
-`NEXT_PUBLIC_API_URL` set to the API) on the same site as the API, e.g.
-`app.example.com` and `api.example.com`, so the session cookie is sent.
+In production `PUBLIC_URL` must be https (runner machines fetch the cache
+proxy and its credentials from it), `CREDENTIALS_KEY` must be a base64
+32-byte key you keep (`openssl rand -base64 32`; losing it loses every
+connected cloud), and the GitHub App must be configured. Several API
+replicas can run at once: launchers claim runners with row locks, and the
+reconciler elects a leader through a Postgres advisory lock. Serve the
+dashboard (`apps/web`, `NEXT_PUBLIC_API_URL` set to the API) on the same site
+as the API, e.g. `app.example.com` and `api.example.com`, so the session
+cookie is sent.
 
-The agent image is the `agent` target of the same Dockerfile
-(`docker build --target agent`). CI publishes both images to GHCR from
-`main` and print each image's digest in the run summary. Customers deploy
-the agent with `deploy/aws/data-plane.yaml`; the dashboard shows the exact
-command when a data plane is created. Pin `AgentImage` by digest in
-production. Runners may only use AMIs owned by Canonical or the customer's
-account unless `ImageOwners` says otherwise.
-
-Without an AWS account, CI checks the AWS side against emulators:
-
-```bash
-# cfn-lint, deploy the template into moto, simulate the agent's IAM policy
-pnpm --filter @airship/deploy-aws test:policy
-# the EC2 provider's SDK calls against a moto server
-uvx --from 'moto[server]' moto_server -p 5055 &
-cd apps/api && AIRSHIP_AWS_ENDPOINT=http://localhost:5055 go test -run TestAgainstEmulator ./internal/agent/aws
-```
-
-Both need [uv](https://docs.astral.sh/uv/).
+The image embeds the cache proxy for `linux/amd64` and `linux/arm64`; a
+`go build` of the API alone leaves it out, and cache-enabled runners then
+run their jobs without acceleration.

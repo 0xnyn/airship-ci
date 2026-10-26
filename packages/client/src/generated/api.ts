@@ -125,6 +125,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/assets/cacheproxy/{os}/{arch}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the cache proxy binary
+         * @description Runner machines with extra_config.cache fetch this at boot.
+         */
+        get: operations["getCacheProxyBinary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/config": {
         parameters: {
             query?: never;
@@ -488,6 +508,26 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/v1/runner/cache-grant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch cache bucket credentials for a runner
+         * @description Called by the cache proxy on a runner machine with the token its boot script carries. The credentials are scoped to the runner's repository prefix in the installation's bucket and expire; the proxy refreshes them.
+         */
+        get: operations["runnerCacheGrant"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -806,6 +846,17 @@ export interface components {
             items: components["schemas"]["Event"][] | null;
             /** @description Pass as cursor to get the next page */
             nextCursor: string | null;
+        };
+        Grant: {
+            accessKeyId: string;
+            bucket: string;
+            cloud: string;
+            /** Format: date-time */
+            expiresAt: string;
+            prefix: string;
+            region: string;
+            secretAccessKey: string;
+            sessionToken: string;
         };
         HealthStatus: {
             /**
@@ -1578,6 +1629,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getCacheProxyBinary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operating system */
+                os: "linux";
+                /** @description CPU architecture */
+                arch: "x64" | "arm64";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
             };
             /** @description Error */
             default: {
@@ -2368,6 +2454,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    runnerCacheGrant: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Bearer runner cache token */
+                Authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
                 };
             };
             /** @description Error */

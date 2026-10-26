@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wizenheimer/airship/apps/api/internal/cacheproxy"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
 	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 )
@@ -140,4 +141,45 @@ func TestProvisionViaAPI(t *testing.T) {
 	e.scriptText(token, "/api/runner-provision?runner_name="+instance.Launch.RunnerName, http.StatusNotFound)
 	e.scriptText(token, "/api/runner-provision?runner_name=airship-unknown", http.StatusNotFound)
 	e.scriptText("asa_wrong", "/api/runner-provision?runner_name="+instance.Launch.RunnerName, http.StatusUnauthorized)
+}
+
+// The cache proxy on a machine fetches its bucket credentials with the
+// token from its boot script; nothing else can.
+func TestCacheGrantEndpoint(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	repo := github.Repository{ID: 5, FullName: "acme/api", Private: true, DefaultBranch: "main"}
+	e.gh.AddRepository(1, repo)
+	config := strings.ReplaceAll(poolConfig, "    idle:\n      replicas: 1\n", "    extra_config:\n      cache: true\n")
+	e.gh.SetFile("acme/api", "abc123", runnerconfig.RepoFile, []byte(config))
+	e.gh.SetRunAttempt("acme/api", github.RunAttempt{ID: 3, RunAttempt: 1, Event: "push", Repository: repo, HeadRepository: &repo, Actor: &github.Actor{Login: "alice"}})
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	e.connectAWS()
+	e.call(http.MethodPut, "/v1/orgs/acme/repositories/5/activation", map[string]any{}, http.StatusOK)
+
+	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"cirun-build"}, Status: "queued", CreatedAt: time.Now()}
+	e.webhook("queued", job)
+	eventually(t, "runner launched", func() bool { return len(e.aws.Instances()) == 1 })
+	boot := e.aws.Instances()[0].Launch.Boot.Cache
+	if boot == nil {
+		t.Fatal("no cache boot")
+	}
+	grant := e.script(boot.Token, http.MethodGet, cacheproxy.GrantPath, nil, http.StatusOK)
+	if grant["prefix"] != "acme/api" || grant["region"] != "us-east-1" || grant["accessKeyId"] == "" || !strings.HasPrefix(grant["bucket"].(string), "airship-cache-") {
+		t.Fatalf("grant = %v", grant)
+	}
+	e.script("asr_nope", http.MethodGet, cacheproxy.GrantPath, nil, http.StatusUnauthorized)
+	e.script("", http.MethodGet, cacheproxy.GrantPath, nil, http.StatusUnauthorized)
+	// The proxy binary is served when this build embeds it (pnpm build),
+	// and refused with a clear message otherwise.
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, e.api.URL+"/v1/assets/cacheproxy/linux/x64", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("asset = %d", resp.StatusCode)
+	}
+	e.scriptText("", "/v1/assets/cacheproxy/windows/x64", http.StatusUnprocessableEntity)
 }

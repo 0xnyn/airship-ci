@@ -29,6 +29,8 @@ var (
 	windowsPathPattern = regexp.MustCompile(`^[A-Za-z]:\\[A-Za-z0-9_.\\-]{1,200}$`)
 	windowsUserPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,20}$`)
 	passwordPattern    = regexp.MustCompile(`^[A-Za-z0-9]{16,64}$`)
+	urlPattern         = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$`)
+	tokenPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{8,128}$`)
 )
 
 // DefaultWindowsPath is where the runner is installed on Windows.
@@ -153,6 +155,41 @@ fi
 # .env at startup; the content is base64 so nothing in it is shell.
 echo '{{.EnvFile}}' | base64 -d >> "$RUNNER_DIR/.env"
 {{- end}}
+{{- if .CacheURL}}
+
+# Cache acceleration: a local proxy serves GitHub's cache API from an S3
+# bucket in this account. It is trusted only on this machine; if any step
+# fails the job still runs, just without the accelerator.
+if (
+  set -e
+  mkdir -p /etc/airship
+  curl --fail --silent --show-error --location --retry 5 \
+    -o /usr/local/bin/airship-cacheproxy "{{.CacheURL}}/v1/assets/cacheproxy/linux/${RUNNER_ARCH}"
+  chmod 0755 /usr/local/bin/airship-cacheproxy
+  AIRSHIP_URL='{{.CacheURL}}' AIRSHIP_RUNNER_TOKEN='{{.CacheToken}}' \
+    setsid nohup /usr/local/bin/airship-cacheproxy -ca-out /etc/airship/cacheproxy-ca.pem \
+    > /var/log/airship-cacheproxy.log 2>&1 &
+  for _ in $(seq 1 50); do
+    [ -s /etc/airship/cacheproxy-ca.pem ] && curl -fsS http://127.0.0.1:6420/healthz > /dev/null && break
+    sleep 0.2
+  done
+  [ -s /etc/airship/cacheproxy-ca.pem ]
+  cp /etc/airship/cacheproxy-ca.pem /usr/local/share/ca-certificates/airship-cacheproxy.crt
+  update-ca-certificates > /dev/null
+  {
+    echo 'HTTPS_PROXY=http://127.0.0.1:6421'
+    echo 'https_proxy=http://127.0.0.1:6421'
+    echo 'NO_PROXY=127.0.0.1,localhost,169.254.169.254'
+    echo 'no_proxy=127.0.0.1,localhost,169.254.169.254'
+    echo 'NODE_EXTRA_CA_CERTS=/etc/airship/cacheproxy-ca.pem'
+    echo 'ACTIONS_CACHE_URL=http://127.0.0.1:6420/'
+  } >> "$RUNNER_DIR/.env"
+); then
+  echo "cache proxy ready"
+else
+  echo "cache proxy unavailable; continuing without it" >&2
+fi
+{{- end}}
 chown -R runner:runner "$RUNNER_DIR"
 
 # The runner reads ACTIONS_RUNNER_INPUT_JITCONFIG as its --jitconfig
@@ -170,6 +207,8 @@ type linuxParams struct {
 	DeadlineMinutes int
 	EnvFile         string
 	GPU             bool
+	CacheURL        string
+	CacheToken      string
 }
 
 // Linux renders the boot script for a Linux image.
@@ -188,6 +227,16 @@ func Linux(boot cloud.Boot, arch string) (string, error) {
 		DeadlineMinutes: max(boot.MaxLifetimeSeconds/60, 1),
 		EnvFile:         env,
 		GPU:             boot.GPU,
+	}
+	if boot.Cache != nil {
+		if !urlPattern.MatchString(boot.Cache.ControlPlaneURL) {
+			return "", fmt.Errorf("invalid control plane url %q", boot.Cache.ControlPlaneURL)
+		}
+		if !tokenPattern.MatchString(boot.Cache.Token) {
+			return "", errors.New("invalid cache token")
+		}
+		params.CacheURL = strings.TrimRight(boot.Cache.ControlPlaneURL, "/")
+		params.CacheToken = boot.Cache.Token
 	}
 	var out bytes.Buffer
 	if err := linuxTemplate.Execute(&out, params); err != nil {

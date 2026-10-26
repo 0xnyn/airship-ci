@@ -4,7 +4,8 @@
   "private": true,
   "description": "Go HTTP API. Its OpenAPI document is the source of truth for @airship/client.",
   "scripts": {
-    "build": "go build -trimpath -ldflags=\"-s -w\" -o bin/ ./cmd/...",
+    "build": "pnpm run build:cacheproxy && go build -trimpath -ldflags=\"-s -w\" -o bin/ ./cmd/api ./cmd/migrate ./cmd/openapi",
+    "build:cacheproxy": "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags=\"-s -w\" -o internal/assets/bin/cacheproxy-linux-amd64 ./cmd/cacheproxy && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags=\"-s -w\" -o internal/assets/bin/cacheproxy-linux-arm64 ./cmd/cacheproxy",
     "db:migrate": "go run ./cmd/migrate up",
     "db:new": "go tool -modfile=tools/go.mod goose -s -dir migrations create",
     "db:rollback": "go run ./cmd/migrate down",

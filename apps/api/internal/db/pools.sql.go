@@ -102,7 +102,7 @@ func (q *Queries) DeleteIdlePoolsExcept(ctx context.Context, arg DeleteIdlePools
 const detachPoolRunner = `-- name: DetachPoolRunner :one
 update runners set pool_id = null
 where id = $1 and pool_id is not null and trigger_job_id is null and state = 'running'
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 // Takes an idle runner out of its pool before it is trimmed.
@@ -143,6 +143,8 @@ func (q *Queries) DetachPoolRunner(ctx context.Context, id uuid.UUID) (Runner, e
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
@@ -273,7 +275,7 @@ func (q *Queries) ListRepositoryIdlePools(ctx context.Context, repositoryID int6
 }
 
 const listSurplusPoolRunners = `-- name: ListSurplusPoolRunners :many
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
 where pool_id = $1 and trigger_job_id is null and state in ('pending', 'running')
 order by state = 'pending' desc, created_at desc
 limit $2
@@ -330,6 +332,8 @@ func (q *Queries) ListSurplusPoolRunners(ctx context.Context, arg ListSurplusPoo
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -376,7 +380,7 @@ where id = (
     limit 1
     for update skip locked
 )
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 type ReserveIdleRunnerParams struct {
@@ -423,6 +427,8 @@ func (q *Queries) ReserveIdleRunner(ctx context.Context, arg ReserveIdleRunnerPa
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }

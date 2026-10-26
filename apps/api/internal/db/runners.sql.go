@@ -12,12 +12,81 @@ import (
 	"github.com/google/uuid"
 )
 
+const authenticateRunnerCacheToken = `-- name: AuthenticateRunnerCacheToken :one
+select runners.id, runners.installation_id, runners.definition, runners.source, runners.cloud, runners.credential_id, runners.region, runners.spec, runners.labels, runners.attempt, runners.pool_id, runners.repository_id, runners.repository_full_name, runners.trigger_job_id, runners.name, runners.state, runners.finish_reason, runners.github_runner_id, runners.instance_id, runners.error, runners.lease_expires_at, runners.not_before, runners.created_at, runners.launching_at, runners.running_at, runners.busy_at, runners.finished_at, runners.instance_seen_at, runners.instance_gone_at, runners.terminate_requested_at, runners.deregistered_at, runners.provision_secret, runners.provisioned_at, runners.cache_token_hash, runners.cache_bucket, installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at
+from runners
+join installations on installations.id = runners.installation_id
+where runners.cache_token_hash = $1
+    and runners.state in ('launching', 'running', 'busy')
+    and installations.deleted_at is null
+    and installations.suspended_at is null
+`
+
+type AuthenticateRunnerCacheTokenRow struct {
+	Runner       Runner
+	Installation Installation
+}
+
+// A live runner's cache proxy, by its token. Finished runners and
+// uninstalled or suspended installations get nothing.
+func (q *Queries) AuthenticateRunnerCacheToken(ctx context.Context, cacheTokenHash []byte) (AuthenticateRunnerCacheTokenRow, error) {
+	row := q.db.QueryRow(ctx, authenticateRunnerCacheToken, cacheTokenHash)
+	var i AuthenticateRunnerCacheTokenRow
+	err := row.Scan(
+		&i.Runner.ID,
+		&i.Runner.InstallationID,
+		&i.Runner.Definition,
+		&i.Runner.Source,
+		&i.Runner.Cloud,
+		&i.Runner.CredentialID,
+		&i.Runner.Region,
+		&i.Runner.Spec,
+		&i.Runner.Labels,
+		&i.Runner.Attempt,
+		&i.Runner.PoolID,
+		&i.Runner.RepositoryID,
+		&i.Runner.RepositoryFullName,
+		&i.Runner.TriggerJobID,
+		&i.Runner.Name,
+		&i.Runner.State,
+		&i.Runner.FinishReason,
+		&i.Runner.GithubRunnerID,
+		&i.Runner.InstanceID,
+		&i.Runner.Error,
+		&i.Runner.LeaseExpiresAt,
+		&i.Runner.NotBefore,
+		&i.Runner.CreatedAt,
+		&i.Runner.LaunchingAt,
+		&i.Runner.RunningAt,
+		&i.Runner.BusyAt,
+		&i.Runner.FinishedAt,
+		&i.Runner.InstanceSeenAt,
+		&i.Runner.InstanceGoneAt,
+		&i.Runner.TerminateRequestedAt,
+		&i.Runner.DeregisteredAt,
+		&i.Runner.ProvisionSecret,
+		&i.Runner.ProvisionedAt,
+		&i.Runner.CacheTokenHash,
+		&i.Runner.CacheBucket,
+		&i.Installation.ID,
+		&i.Installation.AccountID,
+		&i.Installation.AccountLogin,
+		&i.Installation.AccountType,
+		&i.Installation.MaxRunners,
+		&i.Installation.SuspendedAt,
+		&i.Installation.DeletedAt,
+		&i.Installation.CreatedAt,
+		&i.Installation.UpdatedAt,
+	)
+	return i, err
+}
+
 const cancelPendingRunnersForJob = `-- name: CancelPendingRunnersForJob :many
 update runners
 set state = 'finished', finish_reason = 'cancelled', finished_at = now(),
     instance_gone_at = now(), deregistered_at = coalesce(deregistered_at, now())
 where trigger_job_id = $1 and state = 'pending'
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 func (q *Queries) CancelPendingRunnersForJob(ctx context.Context, triggerJobID *int64) ([]Runner, error) {
@@ -63,6 +132,8 @@ func (q *Queries) CancelPendingRunnersForJob(ctx context.Context, triggerJobID *
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -87,7 +158,7 @@ where id in (
     limit $3
     for update skip locked
 )
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 type ClaimRunnersParams struct {
@@ -142,6 +213,8 @@ func (q *Queries) ClaimRunners(ctx context.Context, arg ClaimRunnersParams) ([]R
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -242,7 +315,7 @@ values (
     $13, $14
 )
 on conflict (trigger_job_id) where state <> 'finished' do nothing
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 type CreateRunnerParams struct {
@@ -315,6 +388,8 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
@@ -323,7 +398,7 @@ const expireRunnerLeases = `-- name: ExpireRunnerLeases :many
 update runners
 set state = 'finished', finish_reason = 'lease_expired', finished_at = now(), lease_expires_at = null
 where state = 'launching' and lease_expires_at < now()
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 // The instance may exist (the launcher died after the cloud call), so
@@ -373,6 +448,8 @@ func (q *Queries) ExpireRunnerLeases(ctx context.Context) ([]Runner, error) {
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -390,7 +467,7 @@ set state = 'finished', finish_reason = 'deleted', finished_at = now(), lease_ex
     instance_gone_at = case when instance_id is null then now() else instance_gone_at end,
     deregistered_at = coalesce(deregistered_at, now())
 where installation_id = $1 and state <> 'finished'
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 // The app was uninstalled: nothing more will run, so every runner ends and
@@ -438,6 +515,8 @@ func (q *Queries) FinishInstallationRunners(ctx context.Context, installationID 
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -462,7 +541,7 @@ set state = 'finished',
         else deregistered_at
     end
 where id = $4 and state = any($5::text[])
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 type FinishRunnerParams struct {
@@ -518,12 +597,14 @@ func (q *Queries) FinishRunner(ctx context.Context, arg FinishRunnerParams) (Run
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
 
 const getInstallationRunner = `-- name: GetInstallationRunner :one
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners where installation_id = $1 and id = $2
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners where installation_id = $1 and id = $2
 `
 
 type GetInstallationRunnerParams struct {
@@ -568,12 +649,14 @@ func (q *Queries) GetInstallationRunner(ctx context.Context, arg GetInstallation
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
 
 const getRunner = `-- name: GetRunner :one
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners where id = $1
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners where id = $1
 `
 
 func (q *Queries) GetRunner(ctx context.Context, id uuid.UUID) (Runner, error) {
@@ -613,12 +696,14 @@ func (q *Queries) GetRunner(ctx context.Context, id uuid.UUID) (Runner, error) {
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
 
 const getRunnerByName = `-- name: GetRunnerByName :one
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners where installation_id = $1 and name = $2
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners where installation_id = $1 and name = $2
 `
 
 type GetRunnerByNameParams struct {
@@ -663,6 +748,8 @@ func (q *Queries) GetRunnerByName(ctx context.Context, arg GetRunnerByNameParams
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
@@ -679,7 +766,7 @@ func (q *Queries) JobHasLiveRunner(ctx context.Context, triggerJobID *int64) (bo
 }
 
 const listIdleRunners = `-- name: ListIdleRunners :many
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
 where state = 'running' and running_at < $1::timestamptz
     and (pool_id is null or trigger_job_id is not null)
 order by running_at
@@ -736,6 +823,8 @@ func (q *Queries) ListIdleRunners(ctx context.Context, arg ListIdleRunnersParams
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -813,7 +902,7 @@ func (q *Queries) ListInventoryScopes(ctx context.Context) ([]ListInventoryScope
 }
 
 const listLostBusyRunners = `-- name: ListLostBusyRunners :many
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
 where state = 'busy'
     and (instance_gone_at < $1::timestamptz or busy_at < $2::timestamptz)
 limit $3
@@ -868,6 +957,8 @@ func (q *Queries) ListLostBusyRunners(ctx context.Context, arg ListLostBusyRunne
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -880,7 +971,7 @@ func (q *Queries) ListLostBusyRunners(ctx context.Context, arg ListLostBusyRunne
 }
 
 const listRunners = `-- name: ListRunners :many
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
 where runners.installation_id = $1
     and ($2::boolean = false or runners.state <> 'finished')
     and ($3::timestamptz is null
@@ -946,6 +1037,8 @@ func (q *Queries) ListRunners(ctx context.Context, arg ListRunnersParams) ([]Run
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -958,7 +1051,7 @@ func (q *Queries) ListRunners(ctx context.Context, arg ListRunnersParams) ([]Run
 }
 
 const listRunnersToDeregister = `-- name: ListRunnersToDeregister :many
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
 where state = 'finished' and github_runner_id is not null and deregistered_at is null
     and finished_at < $1::timestamptz
 order by finished_at
@@ -1013,6 +1106,8 @@ func (q *Queries) ListRunnersToDeregister(ctx context.Context, arg ListRunnersTo
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -1025,7 +1120,7 @@ func (q *Queries) ListRunnersToDeregister(ctx context.Context, arg ListRunnersTo
 }
 
 const listRunnersToTerminate = `-- name: ListRunnersToTerminate :many
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at from runners
+select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
 where state = 'finished' and instance_id is not null and instance_gone_at is null
     and (terminate_requested_at is null or terminate_requested_at < $1::timestamptz)
 order by finished_at
@@ -1082,6 +1177,8 @@ func (q *Queries) ListRunnersToTerminate(ctx context.Context, arg ListRunnersToT
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -1118,7 +1215,7 @@ where credential_id = $1
     and state in ('running', 'busy', 'finished')
     and not (id = any($3::uuid[]))
     and coalesce(running_at, finished_at, created_at) < $4::timestamptz
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 type MarkInstancesGoneParams struct {
@@ -1180,6 +1277,8 @@ func (q *Queries) MarkInstancesGone(ctx context.Context, arg MarkInstancesGonePa
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -1195,7 +1294,7 @@ const markRunnerBusy = `-- name: MarkRunnerBusy :one
 update runners
 set state = 'busy', busy_at = coalesce(busy_at, now())
 where id = $1 and state in ('launching', 'running')
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 func (q *Queries) MarkRunnerBusy(ctx context.Context, id uuid.UUID) (Runner, error) {
@@ -1235,6 +1334,8 @@ func (q *Queries) MarkRunnerBusy(ctx context.Context, id uuid.UUID) (Runner, err
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
@@ -1288,7 +1389,7 @@ update runners
 set state = 'running', running_at = now(), lease_expires_at = null,
     instance_id = $1, instance_seen_at = now()
 where id = $2 and state = 'launching'
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at
+returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 type MarkRunnerRunningParams struct {
@@ -1334,6 +1435,8 @@ func (q *Queries) MarkRunnerRunning(ctx context.Context, arg MarkRunnerRunningPa
 		&i.DeregisteredAt,
 		&i.ProvisionSecret,
 		&i.ProvisionedAt,
+		&i.CacheTokenHash,
+		&i.CacheBucket,
 	)
 	return i, err
 }
@@ -1395,7 +1498,7 @@ from (
 ) as reported
 where runners.id = reported.runner_id and runners.credential_id = $1
     and runners.region = $2
-returning runners.id, runners.installation_id, runners.definition, runners.source, runners.cloud, runners.credential_id, runners.region, runners.spec, runners.labels, runners.attempt, runners.pool_id, runners.repository_id, runners.repository_full_name, runners.trigger_job_id, runners.name, runners.state, runners.finish_reason, runners.github_runner_id, runners.instance_id, runners.error, runners.lease_expires_at, runners.not_before, runners.created_at, runners.launching_at, runners.running_at, runners.busy_at, runners.finished_at, runners.instance_seen_at, runners.instance_gone_at, runners.terminate_requested_at, runners.deregistered_at, runners.provision_secret, runners.provisioned_at
+returning runners.id, runners.installation_id, runners.definition, runners.source, runners.cloud, runners.credential_id, runners.region, runners.spec, runners.labels, runners.attempt, runners.pool_id, runners.repository_id, runners.repository_full_name, runners.trigger_job_id, runners.name, runners.state, runners.finish_reason, runners.github_runner_id, runners.instance_id, runners.error, runners.lease_expires_at, runners.not_before, runners.created_at, runners.launching_at, runners.running_at, runners.busy_at, runners.finished_at, runners.instance_seen_at, runners.instance_gone_at, runners.terminate_requested_at, runners.deregistered_at, runners.provision_secret, runners.provisioned_at, runners.cache_token_hash, runners.cache_bucket
 `
 
 type ReportInstancesParams struct {
@@ -1454,6 +1557,8 @@ func (q *Queries) ReportInstances(ctx context.Context, arg ReportInstancesParams
 			&i.DeregisteredAt,
 			&i.ProvisionSecret,
 			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
 		); err != nil {
 			return nil, err
 		}
@@ -1517,6 +1622,21 @@ func (q *Queries) ReviveRunners(ctx context.Context, arg ReviveRunnersParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const setRunnerCache = `-- name: SetRunnerCache :exec
+update runners set cache_token_hash = $2, cache_bucket = $3 where id = $1
+`
+
+type SetRunnerCacheParams struct {
+	ID             uuid.UUID
+	CacheTokenHash []byte
+	CacheBucket    *string
+}
+
+func (q *Queries) SetRunnerCache(ctx context.Context, arg SetRunnerCacheParams) error {
+	_, err := q.db.Exec(ctx, setRunnerCache, arg.ID, arg.CacheTokenHash, arg.CacheBucket)
+	return err
 }
 
 const setRunnerGitHubID = `-- name: SetRunnerGitHubID :exec

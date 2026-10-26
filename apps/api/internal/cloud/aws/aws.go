@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 )
@@ -100,10 +101,13 @@ type STS interface {
 	GetCallerIdentity(ctx context.Context, in *sts.GetCallerIdentityInput, opts ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
 }
 
-// Clients are the service clients for one credential in one region.
+// Clients are the service clients for one credential in one region. S3
+// and Federation are only needed by the cache.
 type Clients struct {
-	EC2 EC2
-	STS STS
+	EC2        EC2
+	STS        STS
+	S3         S3
+	Federation Federation
 }
 
 // Options configure the provider.
@@ -155,7 +159,15 @@ func New(opts Options) *Provider {
 			}
 		}
 
-		return Clients{EC2: ec2.NewFromConfig(cfg, endpoint), STS: sts.NewFromConfig(cfg, stsEndpoint)}
+		s3Endpoint := func(o *s3.Options) {
+			if opts.Endpoint != "" {
+				o.BaseEndpoint = &opts.Endpoint
+				o.UsePathStyle = true
+			}
+		}
+		stsClient := sts.NewFromConfig(cfg, stsEndpoint)
+
+		return Clients{EC2: ec2.NewFromConfig(cfg, endpoint), STS: stsClient, S3: s3.NewFromConfig(cfg, s3Endpoint), Federation: stsClient}
 	})
 }
 

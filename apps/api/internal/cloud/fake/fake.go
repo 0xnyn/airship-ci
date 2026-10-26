@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 )
@@ -34,6 +35,8 @@ type Provider struct {
 	// BadSecret is a secret Verify rejects.
 	BadSecret string
 	launches  int
+	buckets   []string
+	grants    int
 }
 
 // New returns an empty Provider named cloud.
@@ -140,4 +143,41 @@ func (p *Provider) SetStopping(instanceID string) {
 	if instance, ok := p.instances[instanceID]; ok {
 		instance.Stopping = true
 	}
+}
+
+// EnsureCacheBucket implements cloud.Cacher.
+func (p *Provider) EnsureCacheBucket(_ context.Context, _ []byte, _, bucket string, _ int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.buckets = append(p.buckets, bucket)
+
+	return nil
+}
+
+// CacheGrant implements cloud.Cacher.
+func (p *Provider) CacheGrant(_ context.Context, _ []byte, region, bucket, prefix, _ string, ttl time.Duration) (cloud.Grant, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.grants++
+
+	return cloud.Grant{
+		Bucket: bucket, Region: region, Prefix: prefix,
+		AccessKeyID: "ASIAFAKE", SecretAccessKey: "fake-secret", SessionToken: "fake-session", ExpiresAt: time.Now().Add(ttl),
+	}, nil
+}
+
+// Buckets lists the buckets ensured so far.
+func (p *Provider) Buckets() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return append([]string(nil), p.buckets...)
+}
+
+// Grants returns how many cache grants were issued.
+func (p *Provider) Grants() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.grants
 }

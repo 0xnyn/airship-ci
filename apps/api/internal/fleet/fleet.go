@@ -171,6 +171,14 @@ type Config struct {
 	LaunchBatch int32
 	// EventRetention is how long dashboard events are kept.
 	EventRetention time.Duration
+	// PublicURL is where runner machines reach the control plane, for the
+	// cache proxy's credentials and binary.
+	PublicURL string
+	// CacheRetentionDays is the lifecycle rule on cache buckets.
+	CacheRetentionDays int
+	// CacheGrantTTL is how long a runner's cache credentials last; the
+	// proxy refreshes them before they expire.
+	CacheGrantTTL time.Duration
 }
 
 // DefaultConfig returns production defaults.
@@ -189,6 +197,8 @@ func DefaultConfig() Config {
 		LaunchConcurrency:   8,
 		LaunchBatch:         50,
 		EventRetention:      30 * 24 * time.Hour,
+		CacheRetentionDays:  7,
+		CacheGrantTTL:       time.Hour,
 	}
 }
 

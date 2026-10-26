@@ -165,6 +165,18 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 		PullFromAPI:        spec.ProvisionVia != "",
 		Windows:            spec.Windows,
 	}
+	if spec.Cache {
+		cacheBoot, err := s.prepareCache(ctx, runner, provider, secret)
+		if err != nil {
+			// The cache is an accelerator; a job is worth running without it.
+			log.WarnContext(ctx, "cache unavailable for this runner", slog.Any("error", err))
+			s.record(ctx, runner.InstallationID, "cache.unavailable", levelWarning,
+				fmt.Sprintf("%s launches without cache acceleration: %s", runner.Name, err.Error()),
+				eventFields{repository: runner.RepositoryFullName, runnerID: &runner.ID})
+		} else {
+			boot.Cache = cacheBoot
+		}
+	}
 	if boot.PullFromAPI {
 		// The image fetches its script from the developer API; keep what
 		// it needs until then.

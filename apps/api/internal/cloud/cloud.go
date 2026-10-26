@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Clouds the control plane can launch on. The AWS provider is the only one
@@ -54,6 +55,36 @@ type Disk struct {
 	InitRate int
 }
 
+// CacheBoot tells a machine where to fetch its cache credentials from:
+// the cache proxy on the machine presents Token to the control plane.
+type CacheBoot struct {
+	ControlPlaneURL string
+	Token           string
+}
+
+// Grant is short-lived access to one cache prefix in one bucket.
+type Grant struct {
+	Bucket          string
+	Region          string
+	Prefix          string
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+	ExpiresAt       time.Time
+}
+
+// Cacher is what a provider offers when it can back the cache: a bucket
+// per installation and region, and credentials scoped to one repository's
+// prefix in it. Providers without object storage leave it unimplemented.
+type Cacher interface {
+	// EnsureCacheBucket creates the bucket if it does not exist, private,
+	// encrypted, with entries expiring after retention days.
+	EnsureCacheBucket(ctx context.Context, secret []byte, region, bucket string, retentionDays int) error
+	// CacheGrant returns credentials that can read and write prefix in
+	// bucket for about ttl.
+	CacheGrant(ctx context.Context, secret []byte, region, bucket, prefix, name string, ttl time.Duration) (Grant, error)
+}
+
 // Boot is what the machine runs at startup.
 type Boot struct {
 	// JITConfig is the single-use GitHub runner registration. It is a
@@ -72,6 +103,8 @@ type Boot struct {
 	PullFromAPI bool
 	// Windows settings; ignored on Linux images.
 	Windows Windows
+	// Cache, when set, starts the cache proxy on the machine.
+	Cache *CacheBoot
 }
 
 // Windows tunes the runner on Windows images.

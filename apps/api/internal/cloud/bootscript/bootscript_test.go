@@ -99,6 +99,32 @@ func TestLinuxGPU(t *testing.T) {
 	}
 }
 
+func TestLinuxCache(t *testing.T) {
+	t.Parallel()
+	boot := testBoot()
+	boot.Cache = &cloud.CacheBoot{ControlPlaneURL: "https://api.example.com", Token: "asr_abcdefghijklmnop"}
+	script, err := Linux(boot, "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/v1/assets/cacheproxy/linux/${RUNNER_ARCH}", "AIRSHIP_RUNNER_TOKEN='asr_abcdefghijklmnop'", "HTTPS_PROXY=http://127.0.0.1:6421", "NODE_EXTRA_CA_CERTS", "update-ca-certificates"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("cache script lacks %q", want)
+		}
+	}
+	if out, err := exec.CommandContext(context.Background(), "bash", "-n", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("boot script does not parse: %v: %s", err, out)
+	}
+	boot.Cache.Token = "x'; reboot; '"
+	if _, err := Linux(boot, "x64"); err == nil {
+		t.Fatal("unsafe token accepted")
+	}
+	boot.Cache = &cloud.CacheBoot{ControlPlaneURL: "https://evil.example/$(id)", Token: "asr_abcdefghijklmnop"}
+	if _, err := Linux(boot, "x64"); err == nil {
+		t.Fatal("unsafe url accepted")
+	}
+}
+
 func TestWindows(t *testing.T) {
 	t.Parallel()
 	boot := testBoot()

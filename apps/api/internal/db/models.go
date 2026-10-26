@@ -166,6 +166,8 @@ type Runner struct {
 	DeregisteredAt       *time.Time
 	ProvisionSecret      []byte
 	ProvisionedAt        *time.Time
+	CacheTokenHash       []byte
+	CacheBucket          *string
 }
 
 type Session struct {

@@ -279,3 +279,17 @@ update runners set trigger_job_id = null where id = $1;
 -- Hands a job's spare runner to another job that lost its own.
 update runners set trigger_job_id = sqlc.arg(to_job_id)
 where trigger_job_id = sqlc.arg(from_job_id) and state <> 'finished';
+
+-- name: SetRunnerCache :exec
+update runners set cache_token_hash = $2, cache_bucket = $3 where id = $1;
+
+-- name: AuthenticateRunnerCacheToken :one
+-- A live runner's cache proxy, by its token. Finished runners and
+-- uninstalled or suspended installations get nothing.
+select sqlc.embed(runners), sqlc.embed(installations)
+from runners
+join installations on installations.id = runners.installation_id
+where runners.cache_token_hash = $1
+    and runners.state in ('launching', 'running', 'busy')
+    and installations.deleted_at is null
+    and installations.suspended_at is null;

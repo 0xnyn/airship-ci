@@ -209,6 +209,11 @@ create table runners (
     -- developer API hands out once (provisioned_at records when).
     provision_secret bytea,
     provisioned_at timestamptz,
+    -- For runners with extra_config.cache, the SHA-256 of the token the
+    -- machine's cache proxy presents to fetch bucket credentials, and the
+    -- bucket it was given.
+    cache_token_hash bytea,
+    cache_bucket text,
     check ((state = 'finished') = (finish_reason is not null))
 );
 
@@ -224,6 +229,7 @@ create index runners_inventory_idx on runners (credential_id, region) where inst
 create index runners_terminate_idx on runners (finished_at)
     where state = 'finished' and instance_id is not null and instance_gone_at is null;
 create index runners_pool_idx on runners (pool_id) where state <> 'finished';
+create unique index runners_cache_token_idx on runners (cache_token_hash) where cache_token_hash is not null;
 
 -- Orders job statuses so webhooks delivered out of order never move a job
 -- backwards (queued < in_progress < completed).

@@ -1,263 +1,193 @@
 # Architecture
 
-Airship runs GitHub Actions jobs on ephemeral machines in the customer's own
-cloud account. We operate the control plane: it receives GitHub webhooks,
-decides which runners should exist, and talks to GitHub. The customer runs the
-data plane: a small agent that starts and destroys machines in their account.
-Their code, secrets, caches and build artifacts never pass through us.
+Airship runs GitHub Actions jobs on ephemeral EC2 instances in the
+customer's AWS account. It holds the customer's access key (sealed), reads
+`.cirun.yml` from activated repositories, and launches, watches and
+terminates instances itself. This is Cirun's model; the first version of
+this project ran an agent in the customer's account instead, and the
+differences below are the result of moving to Cirun's.
 
 ```
-                 webhooks (workflow_job, installation)
-   GitHub  ───────────────────────────────────────────►  Control plane (we run it)
-     ▲  ▲        REST: JIT configs, runner/job lookups,      ├─ api: webhooks, dashboard API, agent API
-     │  │        deregistration, webhook redelivery          ├─ reconciler (one leader via advisory lock)
-     │  └────────────────────────────────────────────────────┤─ Postgres: the only state
-     │                                                        └─ Next.js dashboard
-     │ runner registers with its JIT config                          ▲
-     │ and runs exactly one job                                      │ POST /v1/agent/sync (long poll,
-     │                                                               │ outbound HTTPS only)
-  ┌──┴──────────────── customer account ─────────────────────────────┴───┐
-  │  EC2 instance / container  ◄── launch, terminate ──  agent (Fargate  │
-  │  (one per job, self-destructs)                       or Docker host) │
-  └──────────────────────────────────────────────────────────────────────┘
+                 webhooks (workflow_job, push, installation, repository)
+   GitHub  ───────────────────────────────────────────►  Control plane
+     ▲  ▲        REST: JIT configs, runner/job lookups,      ├─ api: webhooks, dashboard API, developer API, runner API
+     │  │        file reads, redelivery, PRs on .cirun       ├─ launcher (every replica)
+     │  └────────────────────────────────────────────────────┤─ reconciler (one leader via advisory lock)
+     │                                                        ├─ Postgres: the only state
+     │ runner registers with its JIT config                   └─ Next.js dashboard
+     │ and runs exactly one job                                      ▲   │ RunInstances / DescribeInstances /
+     │                                                 cache grants  │   │ TerminateInstances with the
+  ┌──┴──────────────── customer account ─────────────────────────────┴───▼──────── customer's access key
+  │  EC2 instance (one per job, self-destructs)        S3 bucket (cache)     │
+  └──────────────────────────────────────────────────────────────────────────┘
 ```
-
-## What we learned from prior art
-
-We read the source of [ubicloud](https://github.com/ubicloud/ubicloud),
-runs-on, and two smaller schedulers (zoomies, superci) before writing code.
-The decisions below are where they agreed, or where one of them had a bug
-the others avoided.
-
-| Decision | Why |
-| --- | --- |
-| A runner is not bound to the job that triggered it. | GitHub assigns any queued job with matching labels to any idle runner. Ubicloud and runs-on both treat "one queued job ⇒ one runner" as demand, not as a binding. Binding them causes starvation when GitHub hands job A's runner to job B. We record the trigger job only for accounting and hand off the trigger when this happens. |
-| Repository-scoped JIT runners in runner group 1. | JIT configs are single-use, carry their own labels, and need no long-lived registration token on the machine. Repository scope needs only `administration: write` on the repo, not org-wide admin. |
-| Check `busy` before deleting a runner from GitHub. | Deleting a busy runner kills a job mid-step. Ubicloud learned this the hard way. |
-| Job state only moves forward. | Webhooks arrive out of order and are redelivered. `queued → in_progress → completed` is enforced in SQL (`job_status_rank`), so a late `queued` never resurrects a finished job. |
-| The agent only makes outbound calls. | Customers will not open inbound ports to a vendor. The agent long-polls the control plane; there is no callback channel. |
-| Level-triggered sync. | Every sync carries the agent's full inventory and gets back the full set of actions. A lost response is repaired by the next sync rather than by a retry protocol. |
-| Unknown inventory never authorizes a delete. | If the agent cannot list instances (cloud API error, first sync after restart) it says so, and the control plane treats every runner as still possibly alive. Treating "I don't know" as "nothing exists" would mark live runners lost and relaunch duplicates. |
-| Machines destroy themselves. | Each instance gets a hard `shutdown` deadline and `InstanceInitiatedShutdownBehavior=terminate`, and the boot script powers off on every exit path. A control plane outage cannot leave customer machines running forever. |
-| Tag-scoped IAM, no `iam:PassRole` by default. | The agent's role can only create and terminate instances tagged with its own data plane ID, in one VPC. Runners get no AWS credentials unless the customer opts in with an instance profile. |
-| Public repositories are refused by default. | Anyone can open a pull request against a public repository and run arbitrary code on the customer's machines. A profile must opt in. |
-| Runner definitions can live in the repository, as Cirun does it. | Cirun's `.cirun.yml` model (fallback lists, `--suffix` labels, idle pools, an org `.cirun` repository with access policies) is a better fit than dashboard profiles for teams that review infrastructure in pull requests. We kept its format and changed what it trusts; see [Runner config files](#runner-config-files). |
-| Redeliver failed webhooks ourselves. | GitHub never redelivers automatically. Every two minutes one API replica reads the app's delivery log down to the last delivery it saw, records failures in Postgres, and asks GitHub to resend them with exponential backoff until one succeeds. As a second net, the reconciler asks GitHub directly about jobs that have been queued for 10 minutes without news (at most two per installation per pass, so one backlog cannot eat an installation's rate limit). |
 
 ## Components
 
 All Go code lives in `apps/api`.
 
-- `cmd/api` serves three surfaces from one binary: the GitHub webhook
-  (`internal/webhook`), the dashboard API (`internal/auth`,
-  `internal/console`), and the agent API (`internal/agentapi`). It also runs
-  the reconciler and the webhook redeliverer.
-- `cmd/agent` is the data plane. `internal/agent` holds the sync loop;
-  `internal/agent/aws` and `internal/agent/docker` are the providers.
+- `cmd/api` serves the GitHub webhook (`internal/webhook`), the dashboard
+  API (`internal/auth`, `internal/console`), the Cirun-compatible developer
+  API (`internal/console/apitokens.go`) and the runner API
+  (`internal/runnerapi`). It also runs the launcher, the reconciler and the
+  webhook redeliverer.
 - `internal/fleet` owns the runner lifecycle. Everything that changes
   runner state goes through it.
-- `internal/github` is a small GitHub App client (JWT, installation token
-  cache, the handful of REST calls we need, OAuth for sign-in).
-- `internal/agentproto` is the wire format between agent and control plane.
-  It is shared Go code, so both sides agree by construction.
+- `internal/cloud` is the provider interface; `cloud/aws` is EC2 and S3;
+  `cloud/bootscript` renders the Linux and Windows boot scripts;
+  `cloud/fake` is what tests launch on.
+- `internal/runnerconfig` parses `.cirun.yml`, `.cirun.global.yml` and
+  `.access.yml` (pure, no I/O).
+- `internal/secrets` seals cloud credentials under `CREDENTIALS_KEY`.
+- `cmd/cacheproxy` and `internal/cacheproxy` run on runner machines; see
+  [caching.md](caching.md).
+- `internal/github` is a small GitHub App client.
 
 ## Runner lifecycle
 
 ```
-pending ──claim──► assigned ──instance reported──► running ──job starts──► busy
-   │      (JIT minted,        (agent lists it)           (in_progress         │
-   │       lease 5m)                                       webhook)            │
-   └──────────────────────────────────────────────────────────────────────────┴──► finished
+pending ──claim──► launching ──RunInstances ok──► running ──job starts──► busy
+   │        (lease 5m,             (instance_id             (in_progress        │
+   │         JIT minted)            recorded)                webhook)            │
+   └───────────────────────────────────────────────────────────────────────────┴──► finished
 ```
 
 `finished` records why: `completed`, `cancelled` (the job finished before a
-runner was needed), `idle` (online 10 minutes without a job), `launch_failed`,
-`lease_expired` (handed to an agent that never reported an instance),
-`lost` (busy but the instance vanished and GitHub never said the job ended),
-`max_lifetime` (8 hours), or `deleted`.
+runner was needed), `idle` (online 10 minutes without a job),
+`launch_failed`, `lease_expired` (a launcher claimed it and died),
+`lost` (its instance vanished and GitHub never said the job ended),
+`max_lifetime` (8 hours), or `deleted` (the app was uninstalled).
 
 Every transition is a conditional `UPDATE ... WHERE state = <expected>`, so
-concurrent webhooks, syncs and reconciler passes cannot apply a transition
-twice or undo each other. A few cases needed specific handling:
+concurrent webhooks, launcher passes and reconciler passes cannot apply a
+transition twice or undo each other.
 
-- **Capacity.** A claim locks the data plane row, then counts active
-  runners against the data plane's `max_runners` and each profile's, and
-  picks pending runners with `FOR UPDATE SKIP LOCKED`. A test starts 40
-  concurrent claims against a limit of 3; without the lock it launches 24.
-- **Late reports.** If an agent reports an instance after its runner's lease
-  expired, and the runner has not been deregistered from GitHub yet, it is
-  revived instead of orphaned (it may already be running a job). The retry
-  runner queued for the same job is cancelled if it has not been claimed,
-  so the profile stays within `max_runners`.
-- **Profile deletion.** Deleting a profile locks it, checks it has no active
-  runners, and deletes it in one transaction. Finished runners keep their
-  history and are still removed from GitHub.
-- **Lost responses.** The agent acknowledges every runner it receives in
-  its next sync. A runner assigned before a sync arrived but not
-  acknowledged was in a response that never reached the agent; it goes back
-  to `pending` and is handed out again with a fresh registration, without
-  costing a launch attempt.
-- **Plans and retries.** When a job is first seen queued, Airship stores
-  its plan: the attempts that could serve it, in fallback order (a profile
-  is a one-attempt plan). The Nth failed launch moves to attempt N, so a
-  capacity error on one instance type tries the next. A job gets at most
-  3 failed launches, or one per attempt if the plan is longer; failures the
-  agent marks as not retryable stop after every attempt was tried once.
-  Each runner keeps a copy of the machine it was created for, so editing a
-  profile or a config file never changes a runner in flight. When GitHub
-  rate-limits runner registration, the runner is not claimed again until
-  its `Retry-After` has passed.
-- **Cleanup order.** A finished runner is removed from GitHub after 2 minutes,
-  and only if GitHub says it is not busy.
+- **Planning.** When a job is first seen queued, its plan is stored: the
+  attempts that could serve it, in fallback order. Each attempt is a
+  definition, one of its machine shapes, the installation's credential for
+  that cloud, and the region (the shape's, or the credential's default).
+  The Nth failed launch moves to attempt N; a job gets at most 3 failed
+  launches, or one per attempt if the plan is longer. Failures the cloud
+  marks as not retryable (a missing AMI, an unsupported type) stop once
+  every attempt was tried. Editing a file never changes a job already
+  waiting.
+- **Capacity.** Each installation has `max_runners`. A claim locks the
+  installation row, counts live runners and takes pending ones with
+  `FOR UPDATE SKIP LOCKED`, so launchers on several replicas never exceed
+  it.
+- **Launching.** The launcher mints a JIT config (a single-use, repository
+  scoped runner registration carrying the labels), renders the boot script
+  with it, and calls `RunInstances` with a `ClientToken` derived from the
+  runner ID, so a retried call returns the same instance. The instance
+  launches with `InstanceInitiatedShutdownBehavior=terminate`, IMDSv2
+  required with hop limit 1, an encrypted root volume, no inbound security
+  group rules, and a hard `shutdown` deadline; every exit path of the boot
+  script powers it off.
+- **Inventory.** The reconciler lists instances per (credential, region)
+  by the `airship:installation` tag and compares them with the runners
+  table: instances for finished or unknown runners are terminated, runners
+  whose instance disappeared are `lost` (and their job retried), and a
+  runner whose lease expired but whose instance did launch is revived.
+  Listing errors leave state alone: an instance missing from a failed
+  list is never presumed gone.
+- **Termination.** A finished runner's instance is terminated at once when
+  the completed webhook arrives, and again by the reconciler if the cloud
+  still lists it. Deleting from GitHub happens 2 minutes later, only if
+  GitHub says the runner is not busy.
+- **Lost webhooks.** GitHub never redelivers failed webhooks; one replica
+  scans the app's delivery log every two minutes and asks for redelivery
+  with backoff. The reconciler also asks GitHub about jobs queued for 10
+  minutes without news, two per installation per pass.
+- **Idle runners** are `idle_pools`, rebuilt from the default branch's
+  file on push (and hourly). Pool runners register with the definition's
+  plain labels and have no trigger job; a queued job whose labels a pool's
+  runners carry reserves one instead of creating a runner, and the pool
+  refills at once. Usage-based pools stay warm for `duration` after one of
+  their definition's runners starts a job.
 
-## Runner config files
+## What a job reads
 
-`internal/runnerconfig` parses `.airship.yml`, `.airship.global.yml` and
-`.access.yml` (pure functions, no I/O) and turns a job's labels into
-attempts. `internal/fleet/config.go` decides what a job gets:
-
-1. Dashboard profiles match first. Otherwise only jobs with an `airship-`
-   label go further, so other jobs cost no API calls.
-2. The repository must be activated (a `repositories` row an admin
-   created), and a public one must have been activated with public access
-   allowed.
-3. The run attempt is fetched to learn the event, who started it, and
-   whether its code comes from a fork. The file is read at the job's
-   commit, or on the default branch for a fork. Reads at a commit are
-   cached until evicted; branch reads for a minute (and dropped on push).
-4. One-line labels (`airship-aws-c7i-xlarge`) that no file defines become
-   runners of their own, except for forks, which can edit `runs-on`.
-   Organization runners from the `.airship` repository are added after
-   the repository's own, then filtered by `.access.yml`, checking team
-   membership and repository role with GitHub only when a policy needs it.
-   A broken `.access.yml` closes every organization runner.
-5. Each attempt becomes one plan entry per connected data plane whose agent
-   reported a matching provider and region.
-
-The plan, and the reason when there is none, is stored on the job. The
-dashboard shows the reason, the stale-job reconciler reuses the plan, and
-a later config change cannot reroute a job that is already waiting.
-
-**Warm pools** are `idle_pools` rows, rebuilt from the default branch's file
-when a push webhook marks the repository stale (and hourly regardless).
-The reconciler keeps each pool at the size its schedule wants now, holding
-the pool row lock so two passes cannot both fill one gap. Pool runners have
-no trigger job and are exempt from the idle reaper. A queued job whose
-labels a pool's runners carry reserves one (sets its trigger job) instead
-of creating a runner, and the pool refills at once. GitHub may still give
-the job a different idle pool runner; the reserved one is then returned to
-the pool rather than left to time out. Trimming a pool drops pending
-runners outright and detaches running ones before deregistering them, so a
-job cannot reserve a runner that is being removed. Pools are repository
-scoped on purpose: a runner registered on the organization could be taken
-by repositories that were never activated or that `.access.yml` excludes.
-
-## The agent protocol
-
-`POST /v1/agent/sync` with `Authorization: Bearer asd_...`. The control plane
-stores only a SHA-256 hash of the token.
-
-The request carries the agent version and provider, every instance the agent
-can see (by runner ID), whether that list is trustworthy, the runners it has
-received in the last 15 minutes, launch failures since the last sync, how
-many launches it will accept now, and how long it is willing to wait (up to
-25s). The response lists runners to launch, each with
-its JIT config, and instances to terminate.
-
-While there is nothing to do, the control plane holds the request open. It
-wakes early when a webhook creates demand or finishes a runner, and rechecks
-every 2 seconds regardless, so wake-ups do not depend on the request landing
-on the API replica that got the webhook.
+1. Only jobs with a `cirun-` label cost anything; others are ignored.
+2. The repository must be activated (public ones with public access
+   allowed): a config file never launches anything in a repository nobody
+   activated.
+3. The run attempt is fetched to learn who started it and whether the code
+   is from a fork. `.cirun.yml` is read at the job's commit, or on the
+   default branch for a fork.
+4. One-line labels that no definition covers become runners of their own,
+   except for forks. Organization runners from `.cirun/.cirun.global.yml`
+   are tried after the repository's and filtered by `.access.yml`; a broken
+   `.access.yml` closes every organization runner.
+5. Each attempt needs the installation's connected cloud; without one the
+   job is skipped with `no_cloud` and retried when a cloud is connected.
 
 ## Security model
 
-- **Tenancy.** Every query is scoped by GitHub installation ID. A data plane
-  token resolves to one data plane in one installation; failure reports are
-  checked against the data plane that owns the runner.
-- **Dashboard sessions.** GitHub OAuth, HttpOnly `SameSite=Lax` cookies
-  (Secure outside development), 14-day expiry, and an Origin check on every
-  state-changing request. Roles come from GitHub: organization owners and the
-  owner of a personal account are Airship admins, other active organization
-  members are read-only, and nobody else gets in. GitHub also lists an
-  installation to outside collaborators on a single repository; they are
-  refused. Roles are re-checked with GitHub hourly, so removing someone from
-  the organization revokes their access without waiting for their session
-  to expire.
-- **Developer API.** `asa_` bearer tokens, stored as SHA-256, scoped to one
-  installation, created and revoked only by admins. The `/v1/api` routes
-  accept no session cookie, so a page in a signed-in browser cannot drive
-  them. Tokens stop working when the installation is suspended or removed.
-- **Webhooks.** `X-Hub-Signature-256` is verified in constant time before
-  parsing. Bodies are capped at 25 MB.
-- **Boot script.** Everything interpolated into the instance's user data is
-  validated against a strict pattern first, since it runs as root. Job
-  environment variables from config files are written to the runner's
-  `.env` as base64 that is decoded on the machine, so no value is ever
-  shell; the agent rechecks names and line breaks itself.
-- **Config files.** A config file only acts in a repository an admin
-  activated. Fork pull requests read the default branch's file and cannot
-  use one-line labels, so outside code cannot pick machines or set job
-  variables. Variables cannot use the
-  runner's own prefixes (`GITHUB_`, `RUNNER_`, `ACTIONS_`). Privileged
-  containers need the Docker host's operator to opt in on the agent. Anyone
-  who can push a branch to an activated repository can pick the machines for
-  that branch's jobs, as with any Actions workflow; the data plane's
-  `max_runners` bounds what that can cost. Files
-  are capped at 64 KiB and parsed strictly, with YAML alias expansion
-  bounded.
-- **Instances.** IMDSv2 required with hop limit 1, encrypted gp3 root
-  volumes, egress-only security group.
-- **Images.** The agent role can only launch AMIs owned by Canonical or the
-  customer's own account (`ImageOwners` in the template widens this). CI
-  publishes the agent image with its digest; customers should deploy
-  `AgentImage` as `ghcr.io/...@sha256:...` so a moved tag cannot change
-  what runs in their account.
-- **Idempotent launches.** EC2's `ClientToken` is derived from the runner
-  ID, subnet attempt and market, and the first subnet is chosen by hashing
-  the runner ID, so an agent that retries a launch gets the same instance
-  back rather than a second one.
+- **Credentials.** Access keys are verified with STS before they are stored,
+  sealed with AES-256-GCM under `CREDENTIALS_KEY`, opened only for the
+  duration of a cloud call, and never returned by any endpoint. Disconnecting
+  a cloud is refused while runners launched with it are alive, because
+  without the key their instances could not be terminated.
+- **Tenancy.** Every query is scoped by GitHub installation ID; instances
+  are tagged and listed by it.
+- **Dashboard sessions.** GitHub OAuth, HttpOnly `SameSite=Lax` cookies,
+  an Origin check on every write. Organization owners are admins, members
+  read-only, nobody else gets in; roles are re-checked hourly.
+- **Developer API.** `asa_` bearer tokens, stored hashed, scoped to one
+  installation. The `/api/v1` routes accept no session cookie.
+- **Runner API.** `asr_` cache tokens, one per cache-enabled runner, dead
+  once the runner finishes; they buy credentials for that repository's
+  prefix in that installation's bucket and nothing else.
+- **Boot script.** Everything interpolated is validated against a strict
+  pattern first; job variables travel as base64 and are decoded on the
+  machine.
+- **Config files.** A file only acts in an activated repository. Fork pull
+  requests read the default branch's file and cannot use one-line labels,
+  so outside code cannot pick machines or set job variables. Anyone who can
+  push to an activated repository can pick machines for that branch's
+  jobs, as with any workflow; `max_runners` bounds what that can cost.
+- **Images.** Any AMI the account can launch is allowed, as on Cirun. The
+  default is Canonical's current Ubuntu 22.04.
+
+## Differences from Cirun
+
+Kept: the file format and names, fallback and suffix rules, idle runners,
+organization runners with `.access.yml`, one-line labels, `provision_via`,
+the developer API, Windows fields, S3-backed caching.
+
+Different, on purpose:
+
+- **Clouds.** AWS only. `gcp`, `azure`, `do`, `openstack`, `oracle`,
+  `vast_ai` and `on_prem` are refused with "not supported yet" rather than
+  ignored. Each is a provider implementation; none can be trusted unrun.
+- **Spot fallback.** A spot shortage fails the attempt and moves to the
+  next entry of the lists, as the docs describe. There is no silent
+  on-demand fallback inside an attempt.
+- **Idle runners in `.cirun.global.yml`** are refused. An organization
+  pool would have to register on the organization, where any repository
+  could take it, activated or not. Define them per repository.
+- **One-line labels and forks.** Fork pull requests cannot use them.
+- **Cache prefix.** Each repository's cache lives under its own prefix in
+  the bucket, and runner credentials are scoped to it. On Cirun one bucket
+  is shared across the customer's repositories.
+- **Credential model.** Only access keys today, as Cirun documents. The
+  provider interface would take an assumed role.
+- **`SubnetId`, `SecurityGroupIds`, `IamInstanceProfile`** in
+  `extra_config` are Airship additions (Cirun passes unknown AWS keys
+  through to the API; these are the ones that matter).
 
 ## Known limitations
 
-These are deliberate scope cuts, not oversights.
-
-- **JIT config in user data.** On AWS, anyone in the customer's account who
-  can call `ec2:DescribeInstanceAttribute` can read a runner's JIT config
-  until the instance registers. The config is single-use and scoped to one
-  repository; the fix is to fetch it from the control plane at boot with an
-  instance identity document, which needs a second endpoint.
-- **Default AMI.** The default is stock Ubuntu 24.04, which has no Docker and
-  installs the runner at boot (about 30-60s). Customers who need `docker` in
-  jobs, or faster starts, set a custom AMI per profile. Publishing a
-  prebuilt image is the obvious next step.
-- **One agent per data plane.** The control plane assumes a single agent sees
-  the whole inventory. The CloudFormation template enforces one task.
-- **Cache is opt-in and unscoped.** The stack's cache bucket is shared by
-  every job on the data plane, with no per-branch isolation. We do not run
-  an actions/cache protocol proxy on runners (runs-on and Cirun's automatic
-  mode do); jobs use an S3 cache action instead.
-- **Wake-ups are per process.** Long polls are woken in-process and otherwise
-  recheck every 2 seconds. Postgres `LISTEN/NOTIFY` would make this instant
-  across replicas.
-- **Linux only.** No Windows or macOS runners.
-- **Config files cover AWS and Docker only.** Other Cirun clouds, GPUs on
-  Docker and `provision_via` are refused; see
-  [the differences from Cirun](runner-config.md#differences-from-cirun).
-- **Developer API tokens are organization-wide.** A token can activate any
-  repository the app can reach; there are no per-repository scopes.
-- **No organization warm pools.** See [Runner config files](#runner-config-files).
-- **Config reads cost API calls.** Each queued config job reads its run
-  attempt and the file at its commit (cached per run and commit), and the
-  organization files at most once a minute per replica.
-- **AWS is emulated in CI, not real.** Two checks stand in for a live
-  account. The provider's real SDK calls run against moto, which checks
-  request shapes, tags, filters and termination but ignores `ClientToken`
-  (a unit test covers idempotency). The template is deployed into moto's
-  CloudFormation, and the agent policy it produces is evaluated with
-  [iam-simulate](https://github.com/cloud-copilot/iam-simulate) against
-  every authorization the agent's calls need, per resource and condition
-  key as AWS's Service Authorization Reference lists them, plus the
-  attacks it must refuse. Neither emulator models IAM eventual consistency,
-  service quotas, real spot capacity, or EC2 accepting the boot script, so
-  the first real deployment is still the first end-to-end run. iam-simulate
-  is AGPL; it is a test-only dependency and never shipped.
+- **Untested against a live runner.** The EC2 provider runs against moto in
+  CI, and every protocol in the cache proxy runs against fakes. Nothing
+  here has launched a real instance or run a real `actions/cache` step yet.
+- **JIT config in user data.** Anyone in the account who can call
+  `ec2:DescribeInstanceAttribute` can read it until the instance registers.
+  `provision_via: pull_from_api` avoids it, at the cost of an API token in
+  the image.
+- **Windows.** The boot script is written to the documented
+  `run_as`/`runner_user`/`runner_path` behaviour and not run.
+- **Cache interception.** Relies on the runner honouring `https_proxy` from
+  `.env` (documented by GitHub) and on the results host staying
+  `results-receiver.actions.githubusercontent.com`.
+- **One credential per cloud per installation.** Cirun has the same.

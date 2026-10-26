@@ -1,0 +1,218 @@
+# Airship
+
+Managed GitHub Actions runners with a bring-your-own-cloud data plane: a Go
+control plane and Next.js dashboard that we run, and a Go agent that runs in
+the customer's AWS account or Docker host. Read `docs/architecture.md` before
+changing the runner lifecycle, the agent protocol or anything in
+`internal/fleet`.
+
+Go + TypeScript monorepo run by Turborepo and pnpm. The Go API is the source
+of truth for every type that crosses the network; the TypeScript client is
+generated from it and must never be edited by hand.
+
+## Layout
+
+| Path | What it is |
+| --- | --- |
+| `apps/api` | Go control plane (`cmd/api`) and data plane agent (`cmd/agent`): Huma v2 on `net/http`, pgx, sqlc, goose |
+| `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
+| `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
+| `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
+| `packages/typescript-config` | Shared `tsconfig` presets |
+| `deploy/aws` | CloudFormation template that runs the agent in a customer account; `test:policy` simulates its IAM policy (needs uv) |
+
+## How types flow
+
+```
+migrations/*.sql ─┐
+internal/db/queries/*.sql ─► sqlc ─► internal/db (Go)          [pnpm generate]
+                                         │
+Go handlers + request/response structs ─► Huma ─► apps/api/openapi.json
+                                                       │
+                          openapi-typescript ◄─────────┘
+                                 │
+packages/client/src/generated/api.ts ─► apps/web ($api.useQuery, api.GET)
+```
+
+`pnpm generate` runs the whole chain in order (Turborepo `^generate`).
+`pnpm dev` keeps it live: air rebuilds the API and rewrites `openapi.json`,
+the client's watcher regenerates `api.ts`, and Next.js picks up the types.
+CI fails if any generated file is stale (`pnpm check:generated`).
+
+## Commands
+
+Run from the repo root.
+
+| Command | Does |
+| --- | --- |
+| `pnpm db:up` | Start Postgres in Docker |
+| `pnpm db:migrate` | Apply migrations (`db:rollback` undoes one) |
+| `pnpm db:new <name> sql` | Create a new numbered migration |
+| `pnpm dev` | API on :8080 (docs at /docs), web on :3000, live type regeneration |
+| `pnpm generate` | sqlc → openapi.json → TypeScript client |
+| `pnpm lint` | Ultracite (Biome) for TS/JSON/CSS, golangci-lint for Go |
+| `pnpm format` | Auto-fix both |
+| `pnpm typecheck` / `pnpm test` / `pnpm build` | Across every package |
+| `pnpm check` | Everything CI runs |
+
+Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
+
+## Adding an endpoint
+
+1. Schema change? `pnpm db:new add_thing sql`, write the `-- +goose Up` and
+   `-- +goose Down` sections, then `pnpm db:migrate`.
+2. Write the query in `apps/api/internal/db/queries/*.sql` with a
+   `-- name: Foo :one|:many|:exec|:execrows` header.
+3. Add handlers in a feature package under `apps/api/internal/` (see
+   `internal/console`): request/response structs with `json`, `doc` and
+   validation tags (`minLength`, `maximum`, `enum`, `format`), registered with
+   `huma.Register` and a unique camelCase `OperationID`. Register the package
+   in `internal/server/server.go`.
+4. `pnpm generate` (or just save while `pnpm dev` runs).
+5. Call it from the web app: `$api.useQuery("get", "/v1/things")`,
+   `$api.useMutation("post", "/v1/things")`, or `await unwrap(api.GET(...))`
+   in server code.
+
+## Conventions
+
+- API response types are separate from sqlc's `db.*` structs (`fromDB`), so
+  the database can change without changing the API.
+- Feature packages depend on a narrow `Store` interface, not `*db.Queries`.
+- Tests that touch SQL run against real Postgres (`internal/testsupport/pgtest`,
+  one database per test, needs `TEST_DATABASE_URL`) and a fake GitHub
+  (`internal/testsupport/fakegithub`); `internal/e2e` drives the whole HTTP
+  surface. Races and lifecycle edge cases belong in `internal/fleet` tests.
+- Every state change to `runners` is a conditional UPDATE on the expected
+  state; never read-then-write. Capacity (`max_runners`) is enforced under a
+  row lock on the profile.
+- Errors: return `huma.Error404NotFound(...)` and friends for client errors;
+  wrap everything else with `fmt.Errorf("...: %w", err)`. Huma renders RFC 9457
+  problem details, which the client exposes as `ApiError` / `error.detail`.
+- Go struct and type names become OpenAPI schema names and then TypeScript
+  names (`Schemas["Profile"]`), so name them for API consumers.
+- Config is environment variables only (`internal/config`); local values live
+  in `apps/api/.env` (copy `.env.example`). The web app's env is declared and
+  typed in `apps/web/.env.schema` via varlock.
+- Never edit `apps/api/internal/db/*.go` (except `queries/`),
+  `apps/api/openapi.json` or `packages/client/src/generated/`.
+- Go tools (sqlc, goose, golangci-lint, air) are pinned in
+  `apps/api/tools/go.mod` and run with `go tool -modfile=tools/go.mod <tool>`;
+  nothing needs a global install besides Go, Node, pnpm and Docker.
+
+## Code standards (TypeScript)
+
+This project uses **Ultracite**, a zero-config Biome preset. Run `pnpm format`
+before committing; the pre-commit hook fixes staged files automatically.
+
+### Core Principles
+
+Write code that is **accessible, performant, type-safe, and maintainable**. Focus on clarity and explicit intent over brevity.
+
+#### Type Safety & Explicitness
+
+- Use explicit types for function parameters and return values when they enhance clarity
+- Prefer `unknown` over `any` when the type is genuinely unknown
+- Use const assertions (`as const`) for immutable values and literal types
+- Leverage TypeScript's type narrowing instead of type assertions
+- Use meaningful variable names instead of magic numbers - extract constants with descriptive names
+
+#### Modern JavaScript/TypeScript
+
+- Use arrow functions for callbacks and short functions
+- Prefer `for...of` loops over `.forEach()` and indexed `for` loops
+- Use optional chaining (`?.`) and nullish coalescing (`??`) for safer property access
+- Prefer template literals over string concatenation
+- Use destructuring for object and array assignments
+- Use `const` by default, `let` only when reassignment is needed, never `var`
+
+#### Async & Promises
+
+- Always `await` promises in async functions - don't forget to use the return value
+- Use `async/await` syntax instead of promise chains for better readability
+- Handle errors appropriately in async code with try-catch blocks
+- Don't use async functions as Promise executors
+
+#### React & JSX
+
+- Use function components over class components
+- Call hooks at the top level only, never conditionally
+- Specify all dependencies in hook dependency arrays correctly
+- Use the `key` prop for elements in iterables (prefer unique IDs over array indices)
+- Nest children between opening and closing tags instead of passing as props
+- Don't define components inside other components
+- Use semantic HTML and ARIA attributes for accessibility:
+  - Provide meaningful alt text for images
+  - Use proper heading hierarchy
+  - Add labels for form inputs
+  - Include keyboard event handlers alongside mouse events
+  - Use semantic elements (`<button>`, `<nav>`, etc.) instead of divs with roles
+
+#### Error Handling & Debugging
+
+- Remove `console.log`, `debugger`, and `alert` statements from production code
+- Throw `Error` objects with descriptive messages, not strings or other values
+- Use `try-catch` blocks meaningfully - don't catch errors just to rethrow them
+- Prefer early returns over nested conditionals for error cases
+
+#### Code Organization
+
+- Keep functions focused and under reasonable cognitive complexity limits
+- Extract complex conditions into well-named boolean variables
+- Use early returns to reduce nesting
+- Prefer simple conditionals over nested ternary operators
+- Group related code together and separate concerns
+
+#### Security
+
+- Add `rel="noopener"` when using `target="_blank"` on links
+- Avoid `dangerouslySetInnerHTML` unless absolutely necessary
+- Don't use `eval()` or assign directly to `document.cookie`
+- Validate and sanitize user input
+
+#### Performance
+
+- Avoid spread syntax in accumulators within loops
+- Use top-level regex literals instead of creating them in loops
+- Prefer specific imports over namespace imports
+- Avoid barrel files (index files that re-export everything)
+- Use proper image components (e.g., Next.js `<Image>`) over `<img>` tags
+
+#### Framework-Specific Guidance
+
+**Next.js:**
+
+- Use Next.js `<Image>` component for images
+- Use `next/head` or App Router metadata API for head elements
+- Use Server Components for async data fetching instead of async Client Components
+
+**React 19+:**
+
+- Use ref as a prop instead of `React.forwardRef`
+
+**Solid/Svelte/Vue/Qwik:**
+
+- Use `class` and `for` attributes (not `className` or `htmlFor`)
+
+---
+
+### Testing
+
+- Write assertions inside `it()` or `test()` blocks
+- Avoid done callbacks in async tests - use async/await instead
+- Don't use `.only` or `.skip` in committed code
+- Keep test suites reasonably flat - avoid excessive `describe` nesting
+
+### When Biome Can't Help
+
+Biome will catch most mechanical issues automatically. Focus your attention on:
+
+1. **Business logic correctness** - Biome can't validate your algorithms
+2. **Meaningful naming** - Use descriptive names for functions, variables, and types
+3. **Architecture decisions** - Component structure, data flow, and API design
+4. **Edge cases** - Handle boundary conditions and error states
+5. **User experience** - Accessibility, performance, and usability considerations
+6. **Documentation** - Add comments for complex logic, but prefer self-documenting code
+
+---
+
+Most formatting and common issues are automatically fixed by Biome. Run `pnpm exec ultracite fix` before committing to ensure compliance.

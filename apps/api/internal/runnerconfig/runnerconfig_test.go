@@ -34,7 +34,7 @@ runners:
 		t.Fatalf("parsed %+v", r)
 	}
 	v := r.Variants[0]
-	if v.InstanceType != "c5.xlarge" || v.Image != "ami-0c55b159cbfafe1f0" || v.Region != "us-east-1" || v.Spot || v.Arch != "x64" || v.Disk.SizeGB != DefaultDiskGB {
+	if v.InstanceType != "c5.xlarge" || v.Image != "ami-0c55b159cbfafe1f0" || v.Region != "us-east-1" || v.Spot || v.Arch != "x64" || v.Disk.SizeGB != DefaultDiskGB || v.Disk.Type != "gp2" {
 		t.Fatalf("variant %+v", v)
 	}
 }

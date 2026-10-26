@@ -70,8 +70,9 @@ const (
 	maxIdleReplicas = 100
 	maxIdleMinutes  = 24 * 60
 	maxLabelLength  = 100
-	// DefaultDiskGB is Cirun's default root volume size.
-	DefaultDiskGB = 75
+	// DefaultDiskGB and DefaultDiskType are Cirun's root volume defaults.
+	DefaultDiskGB   = 75
+	DefaultDiskType = "gp2"
 )
 
 var (
@@ -429,7 +430,7 @@ func validateLabels(labels []string) ([]string, *fieldError) {
 // apply validates extra_config and fills the runner's extra fields. It
 // returns the root disk, which every variant shares.
 func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
-	disk := Disk{SizeGB: DefaultDiskGB}
+	disk := Disk{SizeGB: DefaultDiskGB, Type: DefaultDiskType}
 	if e == nil {
 		return disk, nil
 	}
@@ -446,7 +447,8 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 			disk.SizeGB = d.VolumeSize
 		}
 		switch d.VolumeType {
-		case "", "gp3", "gp2", "io1", "io2":
+		case "":
+		case "gp3", "gp2", "io1", "io2":
 			disk.Type = d.VolumeType
 		default:
 			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].VolumeType", "VolumeType must be gp3, gp2, io1 or io2")
@@ -457,7 +459,7 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 		if d.Throughput < 0 || d.Throughput > 2000 {
 			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput must be between 0 and 2000 MiB/s")
 		}
-		if d.Throughput > 0 && disk.Type != "" && disk.Type != "gp3" {
+		if d.Throughput > 0 && disk.Type != "gp3" {
 			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput only applies to gp3 volumes")
 		}
 		if d.VolumeInitializationRate != 0 && (d.VolumeInitializationRate < 100 || d.VolumeInitializationRate > 300) {

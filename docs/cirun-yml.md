@@ -70,7 +70,7 @@ labels. The runner adds its own OS label.
 
 | Key | Notes |
 | --- | --- |
-| `BlockDeviceMappings` | One entry for the root volume. `VolumeSize` (8-16384 GiB, default 75), `VolumeType` (gp3, gp2, io1, io2; default gp3), `Iops`, `Throughput` (gp3 only, MiB/s), `VolumeInitializationRate` (100-300 MiB/s, snapshot-backed AMIs). `DeviceName` is accepted and ignored: the AMI's root device is always the one sized. Volumes are always encrypted. |
+| `BlockDeviceMappings` | One entry for the root volume. `VolumeSize` (8-16384 GiB, default 75), `VolumeType` (gp2, gp3, io1, io2; default gp2, as Cirun), `Iops`, `Throughput` (gp3 only, MiB/s), `VolumeInitializationRate` (100-300 MiB/s, snapshot-backed AMIs). `DeviceName` is accepted and ignored: the AMI's root device is always the one sized. Volumes are always encrypted. |
 | `env_vars` | Up to 50 variables for every job. Not secret. Names starting with `GITHUB_`, `RUNNER_` or `ACTIONS_` are refused. |
 | `cache` | `true` runs the cache proxy on the machine; see [caching.md](caching.md). |
 | `provision_via` | `pull_from_api`: the instance gets no user data; your image fetches the boot script from `GET /api/runner-provision?runner_name=<Name tag>` with an API token, once. |

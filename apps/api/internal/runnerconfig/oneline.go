@@ -34,7 +34,7 @@ func OneLine(label string) (Runner, bool) {
 	if !ok || !labelPattern.MatchString(base) {
 		return Runner{}, false
 	}
-	variant.Disk = Disk{SizeGB: DefaultDiskGB}
+	variant.Disk = Disk{SizeGB: DefaultDiskGB, Type: DefaultDiskType}
 
 	return Runner{Name: base, Cloud: CloudAWS, Labels: []string{base}, Variants: []Variant{variant}}, true
 }

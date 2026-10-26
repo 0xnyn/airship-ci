@@ -547,6 +547,7 @@ runners:
 	}
 	l := launched[0].Launch
 	want := cloud.Machine{InstanceType: "t3.large", Image: "ami-0f9c44e98edf38a2b", Arch: "x64", Disk: cloud.Disk{SizeGB: 120, Type: "gp3", Throughput: 500}, SubnetID: "subnet-0123456789abcdef0", InstanceProfile: "ci"}
+	_ = want
 	if l.Machine.InstanceType != want.InstanceType || l.Machine.Disk != want.Disk || l.Machine.SubnetID != want.SubnetID || l.Machine.InstanceProfile != want.InstanceProfile {
 		t.Fatalf("machine = %+v", l.Machine)
 	}

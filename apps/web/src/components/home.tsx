@@ -52,9 +52,9 @@ function InstallApp() {
           Install Airship on GitHub
         </h1>
         <p className="text-muted-foreground text-xs/relaxed">
-          Airship needs its GitHub App on the organization whose workflows it
-          should run. Install it, then come back here. If it is already
-          installed, ask an organization owner to add you.
+          Airship runs the workflows of organizations that installed its GitHub
+          App. Install it on yours, then come back here. If it is already
+          installed, you need to be a member of that organization.
         </p>
         {installUrl ? (
           <a className={buttonVariants()} href={installUrl}>

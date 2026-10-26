@@ -1,12 +1,36 @@
 /** Why Airship did not run a job that asked for one of its labels. */
 export const skipReasonLabel: Record<string, string> = {
   access_denied: "The organization's .access.yml does not allow this run",
-  ambiguous_labels: "More than one profile matches its labels",
-  config_invalid: "The repository's .airship.yml has a problem",
+  config_invalid: "The repository's .cirun.yml has a problem",
   installation_suspended: "The GitHub App installation is suspended",
-  no_data_plane:
-    "No connected data plane matches the runner's cloud and region",
+  no_cloud: "No cloud is connected",
   public_repository: "Public repository; public access is not allowed",
-  repository_inactive: "The repository is not activated for runner config",
+  repository_inactive: "The repository is not activated",
   unsatisfiable_labels: "No runner serves all of its labels",
 };
+
+/** Which file a runner definition came from. */
+export const sourceLabel: Record<string, string> = {
+  organization: ".cirun.global.yml",
+  repository: ".cirun.yml",
+};
+
+/** AWS regions offered as a default; any region works in `.cirun.yml`. */
+export const awsRegions = [
+  "us-east-1",
+  "us-east-2",
+  "us-west-1",
+  "us-west-2",
+  "ca-central-1",
+  "eu-west-1",
+  "eu-west-2",
+  "eu-west-3",
+  "eu-central-1",
+  "eu-north-1",
+  "ap-south-1",
+  "ap-southeast-1",
+  "ap-southeast-2",
+  "ap-northeast-1",
+  "ap-northeast-2",
+  "sa-east-1",
+] as const;

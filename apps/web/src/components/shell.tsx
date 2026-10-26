@@ -20,13 +20,17 @@ import { cn } from "@airship/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  BarChart3,
   ChevronsUpDown,
-  Cpu,
-  FileCode,
+  Cloud,
+  FolderGit2,
+  KeyRound,
   LayoutDashboard,
   ListChecks,
   LogOut,
-  Server,
+  Radio,
+  Settings,
+  Users,
 } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
@@ -43,12 +47,16 @@ import { OrgContext, type OrgContextValue } from "./org-context";
 const UNAUTHORIZED = 401;
 
 const sections = [
-  { href: "", icon: LayoutDashboard, label: "Overview" },
-  { href: "/jobs", icon: ListChecks, label: "Jobs" },
+  { href: "", icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/repositories", icon: FolderGit2, label: "Repositories" },
+  { href: "/cloud", icon: Cloud, label: "Cloud" },
   { href: "/runners", icon: Activity, label: "Runners" },
-  { href: "/profiles", icon: Cpu, label: "Profiles" },
-  { href: "/config", icon: FileCode, label: "Runner config" },
-  { href: "/data-planes", icon: Server, label: "Data planes" },
+  { href: "/jobs", icon: ListChecks, label: "Jobs" },
+  { href: "/api-keys", icon: KeyRound, label: "API keys" },
+  { href: "/teams", icon: Users, label: "Teams" },
+  { href: "/analytics", icon: BarChart3, label: "Analytics" },
+  { href: "/events", icon: Radio, label: "Events" },
+  { href: "/settings", icon: Settings, label: "Settings" },
 ] as const;
 
 /** Sends signed-out visitors to sign in, then back to where they were. */

@@ -13,6 +13,7 @@ import { useState } from "react";
 
 import { $api } from "@/lib/api";
 import { formatDuration, secondsBetween } from "@/lib/format";
+import { sourceLabel } from "@/lib/labels";
 
 import { EmptyRow, FilterTabs, LoadMore, TableSkeleton } from "./data-table";
 import { useOrg } from "./org-context";
@@ -33,13 +34,12 @@ const filters = [
 export function Runners() {
   const { org } = useOrg();
   const [filter, setFilter] = useState<Filter>("active");
-  const path = { org: org.login };
   const runners = $api.useInfiniteQuery(
     "get",
     "/v1/orgs/{org}/runners",
     {
       params: {
-        path,
+        path: { org: org.login },
         query: { active: filter === "active", limit: PAGE_SIZE },
       },
     },
@@ -49,18 +49,12 @@ export function Runners() {
       refetchInterval: POLL_MS,
     }
   );
-  const dataPlanes = $api.useQuery("get", "/v1/orgs/{org}/data-planes", {
-    params: { path },
-  });
-  const planeNames = new Map(
-    (dataPlanes.data?.items ?? []).map((plane) => [plane.id, plane.name])
-  );
   const items = runners.data?.pages.flatMap((page) => page.items ?? []) ?? [];
 
   return (
     <>
       <PageHeader
-        description="Each runner is a fresh machine registered for one job and destroyed after it. Airship starts one per queued job, up to each profile's and data plane's limit, plus any warm pools your config files keep ready."
+        description="Each runner is a fresh machine in your cloud account, registered for one job and destroyed after it. Airship starts one per queued job, up to the organization's limit, plus any idle pools your config files keep ready."
         title="Runners"
       />
       <FilterTabs
@@ -73,7 +67,7 @@ export function Runners() {
       {runners.isSuccess && items.length === 0 ? (
         <EmptyRow>
           {filter === "active"
-            ? "No runners are active. Airship starts one when a job asks for a profile's label."
+            ? "No runners are active. One starts when a job asks for a cirun- label in an activated repository."
             : "No runners yet."}
         </EmptyRow>
       ) : null}
@@ -84,18 +78,14 @@ export function Runners() {
               <TableHead>State</TableHead>
               <TableHead>Runner</TableHead>
               <TableHead>Definition</TableHead>
-              <TableHead>Data plane</TableHead>
+              <TableHead>Machine</TableHead>
               <TableHead className="text-right">Lifetime</TableHead>
               <TableHead className="text-right">Created</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((runner) => (
-              <RunnerRow
-                dataPlane={planeNames.get(runner.dataPlaneId)}
-                key={runner.id}
-                runner={runner}
-              />
+              <RunnerRow key={runner.id} runner={runner} />
             ))}
           </TableBody>
         </Table>
@@ -109,19 +99,7 @@ export function Runners() {
   );
 }
 
-const sourceLabel: Record<Schemas["Runner"]["source"], string> = {
-  organization: ".airship.global.yml",
-  profile: "Profile",
-  repository: ".airship.yml",
-};
-
-function RunnerRow({
-  dataPlane,
-  runner,
-}: {
-  dataPlane: string | undefined;
-  runner: Schemas["Runner"];
-}) {
+function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
   return (
     <TableRow>
       <TableCell className="max-w-64">
@@ -139,27 +117,29 @@ function RunnerRow({
           <span className="truncate font-mono text-[11px]">{runner.name}</span>
           <span className="truncate text-muted-foreground">
             {runner.repository}
+            {runner.jobId ? ` · job ${runner.jobId}` : ""}
           </span>
         </div>
       </TableCell>
       <TableCell>
         <div className="grid gap-0.5">
-          <span className="font-mono text-[11px]">{runner.profileLabel}</span>
+          <span className="font-mono text-[11px]">{runner.definition}</span>
           <span className="text-muted-foreground">
-            {sourceLabel[runner.source]}
-            {runner.instanceType ? ` · ${runner.instanceType}` : ""}
-            {runner.warm ? " · warm pool" : ""}
+            {sourceLabel[runner.source] ?? runner.source}
+            {runner.warm ? " · idle pool" : ""}
           </span>
         </div>
       </TableCell>
       <TableCell>
         <div className="grid gap-0.5">
-          <span>{dataPlane ?? "—"}</span>
-          {runner.instanceId ? (
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {runner.instanceId}
-            </span>
-          ) : null}
+          <span className="font-mono text-[11px]">
+            {runner.instanceType || "—"}
+            {runner.spot ? " spot" : ""}
+          </span>
+          <span className="truncate font-mono text-[11px] text-muted-foreground">
+            {runner.cloud} {runner.region}
+            {runner.instanceId ? ` · ${runner.instanceId}` : ""}
+          </span>
         </div>
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">

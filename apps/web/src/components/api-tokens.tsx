@@ -47,11 +47,67 @@ import { errorMessage } from "@/lib/api-errors";
 import { CodeBlock } from "./copy-button";
 import { EmptyRow, TableSkeleton } from "./data-table";
 import { useOrg } from "./org-context";
+import { PageHeader } from "./page-header";
 import { RelativeTime } from "./time";
 
 const API_TOKENS = "/v1/orgs/{org}/api-tokens";
 
-/** Developer API tokens, for scripts that activate repositories. Admins only. */
+/** The API keys page: tokens for scripts and Cirun's client. */
+export function APIKeys() {
+  const { isAdmin } = useOrg();
+
+  return (
+    <>
+      <PageHeader
+        description="Tokens let scripts activate repositories and connect clouds without a browser, and let machines built with provision_via: pull_from_api fetch their boot script. They belong to this organization."
+        title="API keys"
+      />
+      {isAdmin ? (
+        <APITokens />
+      ) : (
+        <EmptyRow>
+          Only organization owners can see and create API keys.
+        </EmptyRow>
+      )}
+      <Usage />
+    </>
+  );
+}
+
+function Usage() {
+  const cirun = [
+    "pip install cirun",
+    `export CIRUN_API_ENDPOINT=${ENV.NEXT_PUBLIC_API_URL}/api/v1`,
+    "export CIRUN_API_KEY=asa_...",
+    "cirun repo add OWNER/REPO",
+    "cirun cloud connect aws --access-key AKIA... --secret-key ...",
+  ].join("\n");
+  const curl = [
+    `curl ${ENV.NEXT_PUBLIC_API_URL}/api/v1/repo \\`,
+    '  -H "Authorization: Bearer asa_..."',
+    `curl -X POST ${ENV.NEXT_PUBLIC_API_URL}/api/v1/repo \\`,
+    '  -H "Authorization: Bearer asa_..." -H "Content-Type: application/json" \\',
+    `  -d '{"repository": "OWNER/REPO", "active": true}'`,
+  ].join("\n");
+
+  return (
+    <section aria-labelledby="api-usage" className="grid gap-3">
+      <h2 className="font-medium text-sm" id="api-usage">
+        Using a key
+      </h2>
+      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
+        The API speaks the same routes as Cirun, so its command line client
+        works as is. Point it at this deployment and use the token as the key.
+      </p>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <CodeBlock label="Copy cirun-py example" value={cirun} />
+        <CodeBlock label="Copy curl example" value={curl} />
+      </div>
+    </section>
+  );
+}
+
+/** Developer API tokens. Admins only. */
 export function APITokens() {
   const { org } = useOrg();
   const [creating, setCreating] = useState(false);
@@ -71,8 +127,7 @@ export function APITokens() {
   } else if (items.length === 0) {
     body = (
       <EmptyRow>
-        No tokens. Create one to list, activate and deactivate repositories from
-        a script.
+        No keys yet. Create one to manage repositories and clouds from a script.
       </EmptyRow>
     );
   } else {
@@ -120,12 +175,12 @@ export function APITokens() {
     <div className="grid gap-3">
       <div className="flex items-start justify-between gap-4">
         <p className="text-muted-foreground text-xs">
-          A token can activate any repository the app can see, which lets its
-          config files launch runners. Treat it like a cloud credential.
+          A key can activate any repository the app can see and replace the
+          cloud credentials. Treat it like a cloud credential.
         </p>
         <Button onClick={() => setCreating(true)} size="sm" variant="outline">
           <Plus />
-          New token
+          New key
         </Button>
       </div>
       {body}
@@ -181,9 +236,9 @@ function CreateTokenDialog({
       <DialogContent>
         <form className="grid gap-4" onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>New API token</DialogTitle>
+            <DialogTitle>New API key</DialogTitle>
             <DialogDescription>
-              The token is shown once, after you create it.
+              The key is shown once, after you create it.
             </DialogDescription>
           </DialogHeader>
           <Field data-invalid={create.isError || undefined}>
@@ -194,7 +249,7 @@ function CreateTokenDialog({
               id="api-token-name"
               maxLength={63}
               onChange={(event) => setName(event.target.value)}
-              placeholder="terraform"
+              placeholder="cirun-py on CI"
               required
               value={name}
             />
@@ -232,9 +287,9 @@ function TokenSecretDialog({
     return null;
   }
   const example = [
-    `curl -X PUT ${ENV.NEXT_PUBLIC_API_URL}/v1/api/repositories/REPO/activation \\`,
-    `  -H "Authorization: Bearer ${secret.token}" \\`,
-    `  -H "Content-Type: application/json" -d '{}'`,
+    `export CIRUN_API_ENDPOINT=${ENV.NEXT_PUBLIC_API_URL}/api/v1`,
+    `export CIRUN_API_KEY=${secret.token}`,
+    "cirun repo add OWNER/REPO",
   ].join("\n");
 
   return (
@@ -243,13 +298,13 @@ function TokenSecretDialog({
         <DialogHeader>
           <DialogTitle>{secret.apiToken.name}</DialogTitle>
           <DialogDescription>
-            This token is shown once. Airship only stores a hash of it; if you
+            This key is shown once. Airship only stores a hash of it; if you
             lose it, revoke it and create another.
           </DialogDescription>
         </DialogHeader>
-        <CodeBlock label="Copy token" value={secret.token} />
+        <CodeBlock label="Copy key" value={secret.token} />
         <p className="text-muted-foreground text-xs">
-          Activate a repository (named without the owner):
+          Activate a repository with Cirun's client:
         </p>
         <CodeBlock label="Copy command" value={example} />
       </DialogContent>

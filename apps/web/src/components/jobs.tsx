@@ -56,7 +56,7 @@ export function Jobs() {
   return (
     <>
       <PageHeader
-        description="Every workflow job GitHub reported for repositories the app can see, including ones Airship did not run."
+        description="Every workflow job GitHub reported for repositories the app can see, including ones Airship did not run and why."
         title="Jobs"
       />
       <FilterTabs
@@ -68,7 +68,8 @@ export function Jobs() {
       {jobs.isPending ? <TableSkeleton /> : null}
       {jobs.isSuccess && items.length === 0 ? (
         <EmptyRow>
-          No jobs yet. They appear here as soon as GitHub queues a workflow job.
+          No jobs yet. They appear here as soon as GitHub queues a workflow job
+          in a repository the app can see.
         </EmptyRow>
       ) : null}
       {items.length > 0 ? (

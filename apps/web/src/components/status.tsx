@@ -76,7 +76,7 @@ const finishTone: Record<string, Tone> = {
 const finishLabel: Record<string, string> = {
   cancelled: "Not needed",
   completed: "Completed",
-  deleted: "Profile deleted",
+  deleted: "App uninstalled",
   idle: "Idle timeout",
   launch_failed: "Launch failed",
   lease_expired: "Never started",
@@ -88,8 +88,8 @@ export function RunnerState({ runner }: { runner: Schemas["Runner"] }) {
   switch (runner.state) {
     case "pending":
       return <StatusDot label="Waiting for capacity" pulse tone="warning" />;
-    case "assigned":
-      return <StatusDot label="Starting" pulse tone="info" />;
+    case "launching":
+      return <StatusDot label="Launching" pulse tone="info" />;
     case "running":
       return <StatusDot label="Idle" tone="info" />;
     case "busy":
@@ -106,18 +106,21 @@ export function RunnerState({ runner }: { runner: Schemas["Runner"] }) {
   }
 }
 
-export function DataPlaneStatus({
-  status,
-}: {
-  status: Schemas["DataPlane"]["status"];
-}) {
-  if (status === "online") {
-    return <StatusDot label="Online" tone="success" />;
+export function CloudStatus({ cloud }: { cloud: Schemas["Cloud"] }) {
+  if (cloud.status === "ok") {
+    return <StatusDot label="Connected" tone="success" />;
   }
-  if (status === "offline") {
-    return <StatusDot label="Offline" tone="danger" />;
-  }
-  return <StatusDot label="Waiting for agent" pulse tone="warning" />;
+  return <StatusDot label="Credentials rejected" tone="danger" />;
+}
+
+const levelTone: Record<Schemas["Event"]["level"], Tone> = {
+  error: "danger",
+  info: "neutral",
+  warning: "warning",
+};
+
+export function EventLevel({ level }: { level: Schemas["Event"]["level"] }) {
+  return <StatusDot label={humanize(level)} tone={levelTone[level]} />;
 }
 
 function humanize(value: string): string {

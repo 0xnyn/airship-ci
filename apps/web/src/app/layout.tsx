@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   description:
-    "Managed GitHub Actions runners that run in your own cloud account.",
+    "Ephemeral GitHub Actions runners in your own AWS account, defined in a .cirun.yml.",
   title: { default: "Airship", template: "%s · Airship" },
 };
 

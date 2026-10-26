@@ -12,11 +12,15 @@ import { $api } from "@/lib/api";
 import { formatDuration, formatInteger } from "@/lib/format";
 
 import { CodeBlock } from "./copy-button";
+import { EventRow } from "./events";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
+import { JobStatus } from "./status";
+import { RelativeTime } from "./time";
 
 const POLL_MS = 10_000;
 const PERCENT = 100;
+const RECENT = 6;
 
 export function Overview() {
   const { org } = useOrg();
@@ -24,28 +28,28 @@ export function Overview() {
   const overview = $api.useQuery("get", "/v1/orgs/{org}/overview", path, {
     refetchInterval: POLL_MS,
   });
-  const dataPlanes = $api.useQuery("get", "/v1/orgs/{org}/data-planes", path);
-  const profiles = $api.useQuery("get", "/v1/orgs/{org}/profiles", path);
+  const clouds = $api.useQuery("get", "/v1/orgs/{org}/clouds", path);
+  const repos = $api.useQuery("get", "/v1/orgs/{org}/repositories", path);
 
-  const planes = dataPlanes.data?.items ?? [];
-  const profileItems = profiles.data?.items ?? [];
-  const ready =
-    planes.some((plane) => plane.status === "online") &&
-    profileItems.length > 0;
+  const cloudItems = clouds.data?.items ?? [];
+  const activated = (repos.data?.items ?? []).filter((repo) => repo.activated);
+  const ready = cloudItems.length > 0 && activated.length > 0;
 
   return (
     <>
       <PageHeader
-        description="Jobs and runners across every repository in the last 24 hours."
-        title="Overview"
+        description="Jobs and runners across every activated repository in the last 24 hours."
+        title="Dashboard"
       />
-      {dataPlanes.isSuccess && profiles.isSuccess && !ready ? (
-        <GettingStarted planes={planes} profiles={profileItems} />
+      {clouds.isSuccess && repos.isSuccess && !ready ? (
+        <GettingStarted clouds={cloudItems} repositories={activated} />
       ) : null}
       {overview.data ? <Stats overview={overview.data} /> : <StatsSkeleton />}
-      {ready && profileItems[0] ? (
-        <Usage label={profileItems[0].label} />
-      ) : null}
+      <div className="grid gap-8 lg:grid-cols-2">
+        <RecentJobs />
+        <RecentEvents />
+      </div>
+      {ready ? <Usage /> : null}
     </>
   );
 }
@@ -85,7 +89,7 @@ function Stats({ overview }: { overview: Schemas["Overview"] }) {
           }
         />
         <Stat
-          hint="Time jobs spent on Airship runners"
+          hint="Time jobs spent on your machines"
           label="Runner minutes"
           value={formatInteger(Math.round(overview.runnerMinutes))}
         />
@@ -104,17 +108,17 @@ function Stats({ overview }: { overview: Schemas["Overview"] }) {
         </div>
         <div className="grid grid-cols-2 gap-px bg-border ring-1 ring-border lg:grid-cols-4">
           <Stat
-            hint="Waiting for data plane capacity"
+            hint="Waiting for a free slot"
             label="Pending"
             value={formatInteger(runners.pending)}
           />
           <Stat
-            hint="Launched, not yet online"
-            label="Starting"
+            hint="Registering and launching"
+            label="Launching"
             value={formatInteger(runners.starting)}
           />
           <Stat
-            hint="Online, waiting for a job"
+            hint="Booted, waiting for a job"
             label="Idle"
             value={formatInteger(runners.idle)}
           />
@@ -161,34 +165,41 @@ function StatsSkeleton() {
 }
 
 function GettingStarted({
-  planes,
-  profiles,
+  clouds,
+  repositories,
 }: {
-  planes: Schemas["DataPlane"][];
-  profiles: Schemas["Profile"][];
+  clouds: Schemas["Cloud"][];
+  repositories: Schemas["Repository"][];
 }) {
   const { org } = useOrg();
   const steps = [
     {
       description:
-        "A data plane is the agent that runs in your cloud account and launches runners there.",
-      done: planes.length > 0,
-      href: `/${org.login}/data-planes`,
-      title: "Create a data plane",
+        "The app is installed on this organization. Give it access to the repositories whose jobs should run here.",
+      done: true,
+      href: `/${org.login}/repositories`,
+      title: "Install the GitHub App",
     },
     {
       description:
-        "Run the agent with the token you were given. It only makes outbound connections.",
-      done: planes.some((plane) => plane.status === "online"),
-      href: `/${org.login}/data-planes`,
-      title: "Start the agent",
+        "Paste an IAM access key under Cloud. Runners launch as EC2 instances in that account.",
+      done: clouds.length > 0,
+      href: `/${org.login}/cloud`,
+      title: "Connect AWS",
     },
     {
       description:
-        "A profile is a runs-on label and the machine Airship starts for it.",
-      done: profiles.length > 0,
-      href: `/${org.login}/profiles`,
-      title: "Create a runner profile",
+        "Only activated repositories can launch machines, so a config file alone never spends your budget.",
+      done: repositories.length > 0,
+      href: `/${org.login}/repositories`,
+      title: "Activate a repository",
+    },
+    {
+      description:
+        "Define runners in code and point a workflow at one of their labels.",
+      done: false,
+      href: `/${org.login}/repositories`,
+      title: "Commit a .cirun.yml",
     },
   ];
 
@@ -241,18 +252,138 @@ function GettingStarted({
   );
 }
 
-function Usage({ label }: { label: string }) {
-  const snippet = `jobs:\n  build:\n    runs-on: ${label}\n    steps:\n      - uses: actions/checkout@v5`;
+function RecentJobs() {
+  const { org } = useOrg();
+  const jobs = $api.useQuery(
+    "get",
+    "/v1/orgs/{org}/jobs",
+    { params: { path: { org: org.login }, query: { limit: RECENT } } },
+    { refetchInterval: POLL_MS }
+  );
+  const items = jobs.data?.items ?? [];
+
+  return (
+    <section aria-labelledby="recent-jobs" className="grid content-start gap-3">
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-medium text-sm" id="recent-jobs">
+          Recent jobs
+        </h2>
+        <Link
+          className="text-muted-foreground text-xs hover:text-foreground"
+          href={`/${org.login}/jobs` as Route}
+        >
+          All jobs
+        </Link>
+      </div>
+      {jobs.isPending ? <Skeleton className="h-40" /> : null}
+      {jobs.isSuccess && items.length === 0 ? (
+        <p className="border border-dashed p-6 text-center text-muted-foreground text-xs">
+          No jobs yet. Push to an activated repository to see them here.
+        </p>
+      ) : null}
+      {items.length > 0 ? (
+        <ul className="divide-y border">
+          {items.map((job) => (
+            <li
+              className="grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2 text-xs"
+              key={job.id}
+            >
+              <div className="grid gap-0.5">
+                <span className="truncate font-medium">
+                  {job.workflowName ? `${job.workflowName} / ` : ""}
+                  {job.name}
+                </span>
+                <span className="truncate text-muted-foreground">
+                  {job.repository}
+                </span>
+              </div>
+              <div className="grid justify-items-end gap-0.5">
+                <JobStatus job={job} />
+                <span className="text-muted-foreground">
+                  <RelativeTime value={job.queuedAt} />
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function RecentEvents() {
+  const { org } = useOrg();
+  const events = $api.useQuery(
+    "get",
+    "/v1/orgs/{org}/events",
+    { params: { path: { org: org.login }, query: { limit: RECENT } } },
+    { refetchInterval: POLL_MS }
+  );
+  const items = events.data?.items ?? [];
+
+  return (
+    <section
+      aria-labelledby="recent-events"
+      className="grid content-start gap-3"
+    >
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-medium text-sm" id="recent-events">
+          Recent events
+        </h2>
+        <Link
+          className="text-muted-foreground text-xs hover:text-foreground"
+          href={`/${org.login}/events` as Route}
+        >
+          All events
+        </Link>
+      </div>
+      {events.isPending ? <Skeleton className="h-40" /> : null}
+      {events.isSuccess && items.length === 0 ? (
+        <p className="border border-dashed p-6 text-center text-muted-foreground text-xs">
+          Nothing has happened yet.
+        </p>
+      ) : null}
+      {items.length > 0 ? (
+        <ul className="divide-y border">
+          {items.map((event) => (
+            <EventRow event={event} key={event.id} />
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function Usage() {
+  const config = `runners:
+  - name: build
+    cloud: aws
+    instance_type: c7i.xlarge
+    machine_image: ubuntu2404
+    preemptible: true
+    labels:
+      - cirun-build`;
+  const workflow = `jobs:
+  build:
+    runs-on: cirun-build--\${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5`;
   return (
     <section aria-labelledby="usage" className="grid gap-3">
       <h2 className="font-medium text-sm" id="usage">
-        Use it in a workflow
+        Define a runner and use it
       </h2>
-      <p className="text-muted-foreground text-xs/relaxed">
-        Set <code className="font-mono">runs-on</code> to a profile label in any
-        private repository the GitHub App can see.
+      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
+        Commit a <code className="font-mono">.cirun.yml</code> at the root of an
+        activated repository, then set{" "}
+        <code className="font-mono">runs-on</code> to one of its labels. The{" "}
+        <code className="font-mono">--run_id</code> suffix keeps each run on its
+        own machine.
       </p>
-      <CodeBlock label="Copy workflow snippet" value={snippet} />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <CodeBlock label="Copy .cirun.yml" value={config} />
+        <CodeBlock label="Copy workflow snippet" value={workflow} />
+      </div>
     </section>
   );
 }

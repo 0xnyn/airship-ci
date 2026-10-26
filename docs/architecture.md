@@ -187,10 +187,12 @@ Different, on purpose:
   a 140 MB save (block uploads), exact and restore-key restores and a
   miss all behaved. buildx's `url_v2` client uses the same twirp JSON and
   Azure block calls but has not been run.
-- Nothing has launched a real EC2 instance or run a real GitHub job: the
-  boot scripts (Linux and Windows) are written to the documented runner
-  behaviour and parsed, not executed. The first real deployment is the
-  first end-to-end run.
+- Nothing has launched a real EC2 instance or run a real GitHub job. The
+  Linux boot script is checked with `bash -n` in tests and its `.env` line
+  is executed; the Windows script is written to the documented runner
+  behaviour and has not been parsed by PowerShell (no Windows or arm64
+  PowerShell was available). The first real deployment is the first
+  end-to-end run.
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in

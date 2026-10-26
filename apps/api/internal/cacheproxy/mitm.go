@@ -228,14 +228,19 @@ func (p *Proxy) serveIntercepted(conn net.Conn, host string) {
 		}
 		req.URL.Scheme, req.URL.Host = "https", host
 		req.RequestURI = ""
-		resp := &interceptedResponse{conn: conn, req: req, header: http.Header{}}
+		resp := &interceptedResponse{conn: conn, reader: reader, req: req, header: http.Header{}}
 		if strings.HasPrefix(req.URL.Path, TwirpPrefix) {
 			p.cache.ServeHTTP(resp, req)
 		} else {
 			p.forward(resp, req, "https", host)
 		}
+		if resp.hijacked {
+			// A protocol upgrade (the runner streams live logs over a
+			// websocket on this host): the forwarder owns the connection now.
+			return
+		}
 		resp.finish()
-		if resp.hijacked || req.Close || resp.header.Get("Connection") == "close" {
+		if req.Close || resp.header.Get("Connection") == "close" {
 			return
 		}
 	}
@@ -307,6 +312,7 @@ func (p *Proxy) tunnel(hijacker http.Hijacker, w http.ResponseWriter, r *http.Re
 // interceptedResponse writes an HTTP/1.1 response onto a raw connection.
 type interceptedResponse struct {
 	conn     net.Conn
+	reader   *bufio.Reader
 	req      *http.Request
 	header   http.Header
 	status   int
@@ -381,12 +387,18 @@ func (r *interceptedResponse) finish() {
 	}
 }
 
-// errNoHijack keeps the ReverseProxy from upgrading intercepted
-// connections (websockets are not expected here).
-var errNoHijack = errors.New("hijack not supported")
+// errAlreadyWritten is returned when an upgrade is attempted after the
+// response started.
+var errAlreadyWritten = errors.New("response already written")
 
-// Hijack implements http.Hijacker so ReverseProxy's upgrade path fails
-// cleanly instead of panicking.
+// Hijack hands the terminated connection to the forwarder for a protocol
+// upgrade. The runner streams live job logs to the results host over a
+// websocket, which ReverseProxy relays by hijacking and copying bytes.
 func (r *interceptedResponse) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return nil, nil, errNoHijack
+	if r.wrote {
+		return nil, nil, errAlreadyWritten
+	}
+	r.hijacked = true
+
+	return r.conn, bufio.NewReadWriter(r.reader, bufio.NewWriter(r.conn)), nil
 }

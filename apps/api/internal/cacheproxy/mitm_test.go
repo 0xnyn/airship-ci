@@ -1,6 +1,7 @@
 package cacheproxy
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"io"
@@ -155,5 +156,67 @@ func TestCALeafIsCachedAndChained(t *testing.T) {
 	}
 	if !strings.Contains(string(ca.PEM()), "BEGIN CERTIFICATE") {
 		t.Fatal("PEM export broken")
+	}
+}
+
+// The runner streams live logs to the results host over a websocket; an
+// intercepted connection must relay the upgrade and the frames both ways.
+func TestProxyRelaysUpgradesOnInterceptedHost(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			http.Error(w, "expected upgrade", http.StatusBadRequest)
+
+			return
+		}
+		conn, rw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = rw.Flush()
+		line, _ := rw.ReadString('\n')
+		_, _ = rw.WriteString("echo:" + line)
+		_ = rw.Flush()
+	}))
+	t.Cleanup(upstream.Close)
+	ca, _ := NewCA()
+	const host = "results-receiver.actions.githubusercontent.com"
+	proxy := NewProxy(ca, http.NotFoundHandler(), []string{host}, slog.New(slog.DiscardHandler))
+	dial := func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, upstream.Listener.Addr().String())
+	}
+	proxy.dial = dial
+	proxy.upstream.DialContext = dial
+	proxy.upstream.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // self-signed test upstream
+	ps := httptest.NewServer(proxy)
+	t.Cleanup(ps.Close)
+
+	// Speak the proxy protocol by hand: CONNECT, then TLS, then the upgrade.
+	raw, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", strings.TrimPrefix(ps.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	_, _ = io.WriteString(raw, "CONNECT "+host+":443 HTTP/1.1\r\nHost: "+host+":443\r\n\r\n")
+	br := bufio.NewReader(raw)
+	if resp, err := http.ReadResponse(br, nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("connect = %v %v", resp, err)
+	}
+	tlsConn := tls.Client(raw, &tls.Config{ServerName: host, RootCAs: ca.Pool(), MinVersion: tls.VersionTLS12})
+	if err := tlsConn.HandshakeContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(tlsConn, "GET /_ws/ingest.sock HTTP/1.1\r\nHost: "+host+"\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+	tr := bufio.NewReader(tlsConn)
+	resp, err := http.ReadResponse(tr, nil)
+	if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade = %v %v", resp, err)
+	}
+	_, _ = io.WriteString(tlsConn, "hello\n")
+	line, err := tr.ReadString('\n')
+	if err != nil || line != "echo:hello\n" {
+		t.Fatalf("frame relay = %q, %v", line, err)
 	}
 }

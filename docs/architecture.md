@@ -178,21 +178,31 @@ Different, on purpose:
 
 ## What has run, and what has not
 
-- The EC2 provider and the cache bucket and credential calls run against
-  moto in CI (`TestAgainstEmulator`), which checks request shapes, tags,
-  the default VPC and security group, lifecycle rules and termination.
-  moto does not model IAM, quotas, spot capacity or the boot script.
-- The cache proxy has been driven by the real `@actions/cache` client
-  (actions/cache@v4's library) through `https_proxy` with the proxy's CA:
-  a 140 MB save (block uploads), exact and restore-key restores and a
-  miss all behaved. buildx's `url_v2` client uses the same twirp JSON and
-  Azure block calls but has not been run.
-- Nothing has launched a real EC2 instance or run a real GitHub job. The
-  Linux boot script is checked with `bash -n` in tests and its `.env` line
-  is executed; the Windows script is written to the documented runner
-  behaviour and has not been parsed by PowerShell (no Windows or arm64
-  PowerShell was available). The first real deployment is the first
-  end-to-end run.
+- **A real GitHub job on a real runner through the cache proxy.** An
+  Ubuntu container built the way the Linux boot script builds a machine
+  (actions/runner 2.338.2, the cache proxy from this build, its CA in the
+  system store, the runner's `.env` pointing at the proxy) ran a
+  `workflow_dispatch` job on a private repository with a single-use JIT
+  registration. The runner connected to GitHub through the proxy; the job's
+  steps saw `https_proxy`, `NODE_EXTRA_CA_CERTS` and `ACTIONS_CACHE_URL`;
+  `actions/cache/save@v4` and `actions/cache/restore@v4` saved 20 MB,
+  restored it by exact key and by `restore-keys` prefix with matching
+  checksums, and reported a miss for an unknown key. Every step succeeded.
+  The first run showed the runner's live-log websocket on the results host
+  being refused by the interceptor; upgrades are now relayed, and the rerun
+  was clean. The same proxy had already been driven by the `@actions/cache`
+  library directly with a 140 MB block upload.
+- **The EC2 provider, cache bucket and federation grant** run against moto
+  in CI (`TestAgainstEmulator`): request shapes, tags, the default VPC and
+  security group, lifecycle rules, termination. moto does not model IAM,
+  quotas, spot capacity or the boot script.
+- **Boot scripts.** The Linux script is checked with `bash -n` in tests and
+  its `.env` line executed; its cache section is what the container above
+  ran. Both Windows scripts (background and `run_as: interactive`) parse
+  cleanly under PowerShell 7.4.
+- **Not run:** a launch on real EC2 (no AWS account was available), and a
+  Windows machine. The first real deployment exercises exactly the
+  `RunInstances` call moto accepted and the scripts above.
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in

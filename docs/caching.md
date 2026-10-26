@@ -128,14 +128,13 @@ are the ceiling of what a runner can do.
 - **Containers.** Steps in a `container:` job inherit `https_proxy` but not
   the host's trust store; `NODE_EXTRA_CA_CERTS` points at a host path. Run
   cache steps on the host.
-- **Verified with the real client, not yet on a real runner.** The proxy
-  has been driven by actions/cache@v4's own library through `https_proxy`
-  with its CA, including a 140 MB block upload, exact and restore-key
-  restores and a miss; the bucket and credential calls run against moto.
-  What remains unproven is the runner machine itself: that the runner
-  passes `.env`'s `https_proxy` to steps as GitHub documents, and the CA
-  install on the image. The Events page and
-  `/var/log/airship-cacheproxy.log` on the machine show what happened.
+- **Verified on a real runner.** A real `actions/runner` in a container
+  built as the boot script builds a machine ran a real GitHub job whose
+  `actions/cache` steps saved, restored (exact and by prefix) and missed
+  through the proxy, with live logs relayed over the intercepted
+  websocket. The bucket and credential calls run against moto. What has
+  not run is an EC2 instance itself. On a machine, the Events page and
+  `/var/log/airship-cacheproxy.log` show what happened.
 - **BYO bucket.** For runners outside this setup, Cirun's
   `cirunlabs/cache/s3` action works against any S3-compatible bucket with
   static keys from repository secrets.

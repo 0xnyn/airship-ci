@@ -84,6 +84,24 @@ func TestDeveloperAPI(t *testing.T) {
 	e.script(token, http.MethodGet, "/v1/api/repositories", nil, http.StatusUnauthorized)
 }
 
+// scriptText calls the developer API and returns the body as text.
+func (e *env) scriptText(token, path string, want int) string {
+	e.t.Helper()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, e.api.URL+path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != want {
+		e.t.Fatalf("GET %s = %d, want %d: %s", path, resp.StatusCode, want, raw)
+	}
+
+	return string(raw)
+}
+
 func mustJSON(v any) []byte {
 	raw, _ := json.Marshal(v)
 
@@ -116,4 +134,20 @@ func TestCirunCompatibleAPI(t *testing.T) {
 	e.script(token, http.MethodPost, "/api/v1/repo", map[string]any{"repository": "other/api", "active": true}, http.StatusNotFound)
 	e.script(token, http.MethodPost, "/api/v1/repo", map[string]any{"repository": "acme/missing", "active": false}, http.StatusNotFound)
 	e.script("", http.MethodGet, "/api/v1/repo", nil, http.StatusUnauthorized)
+
+	// `cirun cloud connect aws --access-key ... --secret-key ...`
+	if items := e.script(token, http.MethodGet, "/api/v1/cloud-connect", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("clouds before connecting = %v", items)
+	}
+	connected := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{
+		"cloud": "aws", "credentials": map[string]string{"access_key": "AKIAIOSFODNN7EXAMPLE", "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"},
+	}, http.StatusOK)
+	if connected["cloud"] != "aws" || connected["defaultRegion"] != "eu-west-1" || connected["identity"] != "AKIAIOSFODNN7EXAMPLE" {
+		t.Fatalf("cloud-connect = %v", connected)
+	}
+	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "gcp", "credentials": map[string]string{}}, http.StatusUnprocessableEntity)
+	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "aws", "credentials": map[string]string{"access_key": "x"}}, http.StatusUnprocessableEntity)
+	if items := e.script(token, http.MethodGet, "/api/v1/cloud-connect", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
+		t.Fatalf("clouds after connecting = %v", items)
+	}
 }

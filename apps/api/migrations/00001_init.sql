@@ -22,15 +22,20 @@ create table sessions (
 create index sessions_user_id_idx on sessions (user_id);
 create index sessions_expires_at_idx on sessions (expires_at);
 
--- A GitHub App installation: one GitHub organization or user account.
+-- A GitHub App installation: one GitHub organization or user account. It
+-- is the tenant: cloud credentials, repositories, runners and jobs all
+-- belong to one.
 create table installations (
     id bigint primary key,
     account_id bigint not null,
     account_login text not null,
     account_type text not null check (account_type in ('Organization', 'User')),
+    -- Cap on live runners across every repository, so no config file can
+    -- run up an unbounded cloud bill.
+    max_runners integer not null default 50 check (max_runners between 1 and 10000),
     suspended_at timestamptz,
-    -- Set when the app is uninstalled. The row stays so data plane agents
-    -- can still sync and tear down what they launched.
+    -- Set when the app is uninstalled. The row stays so instances still
+    -- running in the customer's cloud can be torn down.
     deleted_at timestamptz,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
@@ -51,57 +56,33 @@ create table memberships (
 create index memberships_installation_id_idx on memberships (installation_id);
 create index memberships_refreshed_at_idx on memberships (refreshed_at);
 
--- A customer-hosted data plane: one agent process (or an HA pair) running in
--- the customer's own infrastructure. It connects out to the control plane
--- with a bearer token; only a SHA-256 of that token is stored.
-create table data_planes (
+-- Cloud credentials an admin pasted into the dashboard (or sent through the
+-- developer API). The control plane launches runners with them. The secret
+-- is encrypted with the api's CREDENTIALS_KEY; identity, account and ARN
+-- are what the cloud told us when the secret was verified.
+create table cloud_credentials (
     id uuid primary key default uuidv7(),
     installation_id bigint not null references installations (id) on delete cascade,
-    name text not null check (char_length(name) between 1 and 63),
-    token_hash bytea not null unique,
-    token_hint text not null,
-    agent_version text,
-    agent_provider text,
-    -- Reported by the agent: the cloud region it launches in, if any.
-    -- Runner configs select data planes by cloud and region.
-    agent_region text check (char_length(agent_region) <= 64),
-    -- Cap on live runners across every profile and config on this data
-    -- plane, so no config file can run up an unbounded bill.
-    max_runners integer not null default 20 check (max_runners between 1 and 10000),
-    last_seen_at timestamptz,
+    cloud text not null check (cloud in ('aws')),
+    secret bytea not null,
+    -- Public half of the credential, such as an AWS access key ID.
+    identity text not null check (char_length(identity) <= 128),
+    account_id text check (char_length(account_id) <= 64),
+    principal text check (char_length(principal) <= 512),
+    -- Where runners launch when a config names no region.
+    default_region text not null check (default_region ~ '^[a-z0-9-]{1,64}$'),
+    status text not null default 'ok' check (status in ('ok', 'invalid')),
+    error text check (char_length(error) <= 2000),
+    verified_at timestamptz,
+    created_by uuid references users (id) on delete set null,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
-    unique (installation_id, name)
+    unique (installation_id, cloud)
 );
 
--- A runner profile maps one runs-on label to a machine shape on a data plane.
-create table profiles (
-    id uuid primary key default uuidv7(),
-    installation_id bigint not null references installations (id) on delete cascade,
-    data_plane_id uuid not null references data_planes (id) on delete restrict,
-    label text not null check (label ~ '^[a-z0-9][a-z0-9._-]{0,62}$'),
-    arch text not null check (arch in ('x64', 'arm64')),
-    instance_type text not null check (char_length(instance_type) between 1 and 64),
-    image text check (char_length(image) <= 256),
-    disk_gb integer not null check (disk_gb between 8 and 16384),
-    spot boolean not null default false,
-    max_runners integer not null check (max_runners between 1 and 10000),
-    -- Public repositories run code from fork pull requests. Running that on
-    -- the customer's own network is opt-in.
-    allow_public_repos boolean not null default false,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    unique (installation_id, label)
-);
-
-create index profiles_data_plane_id_idx on profiles (data_plane_id);
-
--- Repositories an admin activated for runner config files (.airship.yml
--- and the organization's .airship.global.yml). A config file can choose
--- machines in the customer's account, so only activated repositories'
--- files are read.
 -- Developer API tokens: scripts use one to manage an installation's
--- repositories without a browser. Only a SHA-256 of the token is stored.
+-- repositories and clouds without a browser. Only a SHA-256 of the token is
+-- stored.
 create table api_tokens (
     id uuid primary key default uuidv7(),
     installation_id bigint not null references installations (id) on delete cascade,
@@ -115,6 +96,8 @@ create table api_tokens (
 
 create index api_tokens_installation_id_idx on api_tokens (installation_id);
 
+-- Repositories an admin activated. A .cirun.yml can choose machines in the
+-- customer's cloud account, so only activated repositories' files are read.
 create table repositories (
     id bigint primary key,
     installation_id bigint not null references installations (id) on delete cascade,
@@ -126,8 +109,8 @@ create table repositories (
     allow_public boolean not null default false,
     activated_by uuid references users (id) on delete set null,
     activated_at timestamptz not null default now(),
-    -- The default branch's .airship.yml as last read: idle pools come
-    -- from it, and the dashboard shows its problems.
+    -- The default branch's .cirun.yml as last read: idle pools come from
+    -- it, and the dashboard shows its problems.
     config_sha text,
     config_error text,
     config_checked_at timestamptz,
@@ -140,14 +123,14 @@ create index repositories_installation_idx on repositories (installation_id, low
 create index repositories_stale_idx on repositories (config_checked_at) where config_stale;
 
 -- A warm pool: runners kept booted and registered ahead of demand, from an
--- idle: section of a repository's .airship.yml on its default branch.
--- Pool runners register on that repository only.
+-- idle: section of a repository's .cirun.yml on its default branch. Pool
+-- runners register on that repository only.
 create table idle_pools (
     id uuid primary key default uuidv7(),
     installation_id bigint not null references installations (id) on delete cascade,
     repository_id bigint not null references repositories (id) on delete cascade,
     name text not null,
-    -- The attempts to launch with, in fallback order (fleet.Plan).
+    -- The machines to launch, in fallback order (fleet.want).
     plan jsonb not null,
     -- The idle: section (fleet.IdleSpec): fixed, scheduled or usage-based.
     idle jsonb not null,
@@ -165,22 +148,23 @@ create table idle_pools (
 -- runner actually ran.
 --
 -- States:
---   pending   waiting for capacity and for the agent to pick it up
---   assigned  a JIT config was minted and handed to the agent
---   running   the agent reported a live instance for it
---   busy      GitHub reported a job in progress on it
---   finished  terminal; finish_reason says why
+--   pending    waiting for capacity
+--   launching  a launcher holds it: registering with GitHub, calling the cloud
+--   running    the cloud accepted the launch; the machine is booting or idle
+--   busy       GitHub reported a job in progress on it
+--   finished   terminal; finish_reason says why
 create table runners (
     id uuid primary key default uuidv7(),
     installation_id bigint not null references installations (id) on delete cascade,
-    -- Null once the profile is deleted; the row stays so the runner can
-    -- still be removed from GitHub and its history is kept.
-    profile_id uuid references profiles (id) on delete set null,
-    -- The profile label or config runner name it was launched as.
-    profile_label text not null,
-    -- Where the definition came from: a dashboard profile, the
-    -- repository's .airship.yml or the organization's .airship.global.yml.
-    source text not null default 'profile' check (source in ('profile', 'repository', 'organization')),
+    -- The config runner name it was launched as.
+    definition text not null,
+    -- Where the definition came from: the repository's .cirun.yml or the
+    -- organization's .cirun.global.yml.
+    source text not null check (source in ('repository', 'organization')),
+    cloud text not null check (cloud in ('aws')),
+    -- Null once the credential is deleted; the row stays for history.
+    credential_id uuid references cloud_credentials (id) on delete set null,
+    region text not null,
     -- The machine to launch (fleet.Spec), fixed when the runner is created.
     spec jsonb not null,
     -- Labels the runner registers with.
@@ -189,13 +173,12 @@ create table runners (
     attempt integer not null default 0,
     -- Set for warm-pool runners. Without a trigger job they are idle.
     pool_id uuid references idle_pools (id) on delete set null,
-    data_plane_id uuid not null references data_planes (id) on delete cascade,
     repository_id bigint not null,
     repository_full_name text not null,
     trigger_job_id bigint,
     name text not null unique,
     state text not null default 'pending'
-        check (state in ('pending', 'assigned', 'running', 'busy', 'finished')),
+        check (state in ('pending', 'launching', 'running', 'busy', 'finished')),
     finish_reason text check (finish_reason in (
         'completed', 'cancelled', 'idle', 'launch_failed', 'lease_expired',
         'lost', 'max_lifetime', 'deleted'
@@ -203,19 +186,29 @@ create table runners (
     github_runner_id bigint,
     instance_id text,
     error text,
+    -- A launching runner whose launcher died is given up after this.
     lease_expires_at timestamptz,
     -- A pending runner is not claimed before this, so a GitHub rate limit
     -- (Retry-After) is honored instead of retried every poll.
     not_before timestamptz,
     created_at timestamptz not null default now(),
-    assigned_at timestamptz,
+    launching_at timestamptz,
     running_at timestamptz,
     busy_at timestamptz,
     finished_at timestamptz,
+    -- When the instance was last confirmed present by the cloud, and when
+    -- it was found gone.
+    instance_seen_at timestamptz,
     instance_gone_at timestamptz,
+    -- When the control plane asked the cloud to terminate the instance.
+    terminate_requested_at timestamptz,
     -- When the runner was removed from GitHub (null while it may still be
     -- registered). Ephemeral runners that ran a job remove themselves.
     deregistered_at timestamptz,
+    -- For provision_via: pull_from_api runners, the sealed boot script the
+    -- developer API hands out once (provisioned_at records when).
+    provision_secret bytea,
+    provisioned_at timestamptz,
     check ((state = 'finished') = (finish_reason is not null))
 );
 
@@ -224,10 +217,12 @@ create unique index runners_trigger_job_idx on runners (trigger_job_id) where st
 create index runners_trigger_job_all_idx on runners (trigger_job_id);
 create index runners_deregister_idx on runners (finished_at)
     where state = 'finished' and github_runner_id is not null and deregistered_at is null;
-create index runners_claim_idx on runners (data_plane_id, created_at) where state = 'pending';
-create index runners_active_idx on runners (data_plane_id, state) where state <> 'finished';
+create index runners_claim_idx on runners (installation_id, created_at) where state = 'pending';
+create index runners_active_idx on runners (installation_id, state) where state <> 'finished';
 create index runners_installation_created_idx on runners (installation_id, created_at desc);
-create index runners_unreaped_idx on runners (data_plane_id) where instance_gone_at is null;
+create index runners_inventory_idx on runners (credential_id, region) where instance_gone_at is null;
+create index runners_terminate_idx on runners (finished_at)
+    where state = 'finished' and instance_id is not null and instance_gone_at is null;
 create index runners_pool_idx on runners (pool_id) where state <> 'finished';
 
 -- Orders job statuses so webhooks delivered out of order never move a job
@@ -253,15 +248,14 @@ create table jobs (
     labels text[] not null,
     status text not null check (status in ('queued', 'in_progress', 'completed')),
     conclusion text,
-    profile_id uuid references profiles (id) on delete set null,
     head_sha text,
     -- How Airship serves the job: attempts in fallback order (fleet.Plan).
     -- Null when the job is not Airship's to run.
     plan jsonb,
     -- Set when the job asked for an Airship label but will not be served.
     skip_reason text check (skip_reason in (
-        'public_repository', 'unsatisfiable_labels', 'ambiguous_labels', 'installation_suspended',
-        'repository_inactive', 'config_invalid', 'access_denied', 'no_data_plane'
+        'public_repository', 'unsatisfiable_labels', 'installation_suspended',
+        'repository_inactive', 'config_invalid', 'access_denied', 'no_cloud'
     )),
     -- Explains skip_reason, such as the config file's error.
     skip_detail text check (char_length(skip_detail) <= 2000),
@@ -277,6 +271,22 @@ create table jobs (
 create index jobs_installation_queued_idx on jobs (installation_id, queued_at desc, id desc);
 create index jobs_stale_queued_idx on jobs (queued_at) where status = 'queued' and plan is not null;
 create index jobs_runner_id_idx on jobs (runner_id);
+
+-- What happened, for the dashboard's Events page: launches and failures,
+-- repositories activated, clouds connected, configs that broke.
+create table events (
+    id uuid primary key default uuidv7(),
+    installation_id bigint not null references installations (id) on delete cascade,
+    kind text not null check (char_length(kind) <= 64),
+    level text not null check (level in ('info', 'warning', 'error')),
+    message text not null check (char_length(message) <= 2000),
+    repository text,
+    runner_id uuid,
+    job_id bigint,
+    created_at timestamptz not null default now()
+);
+
+create index events_installation_idx on events (installation_id, created_at desc, id desc);
 
 -- GitHub never redelivers a failed webhook on its own. The redeliverer
 -- scans the app's delivery log down to the newest delivery it has already
@@ -301,14 +311,14 @@ create index failed_deliveries_due_idx on failed_deliveries (next_attempt_at);
 -- +goose Down
 drop table failed_deliveries;
 drop table webhook_scan;
+drop table events;
 drop table jobs;
 drop function job_status_rank;
 drop table runners;
 drop table idle_pools;
 drop table repositories;
 drop table api_tokens;
-drop table profiles;
-drop table data_planes;
+drop table cloud_credentials;
 drop table memberships;
 drop table installations;
 drop table sessions;

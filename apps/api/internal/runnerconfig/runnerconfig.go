@@ -1,13 +1,10 @@
-// Package runnerconfig parses runners-as-code: the .airship.yml file in a
-// repository, and the organization-wide .airship.global.yml and .access.yml
-// files in the organization's .airship repository.
+// Package runnerconfig parses runners-as-code: the .cirun.yml file in a
+// repository, and the organization-wide .cirun.global.yml and .access.yml
+// files in the organization's .cirun repository.
 //
-// The format follows Cirun's .cirun.yml so teams can move between the two:
-// a list of runners, each with a cloud, machine shape and labels. List
-// values for instance_type, machine_image, region and preemptible describe
-// fallbacks, tried in order when a launch fails. Where Cirun holds cloud
-// credentials and picks a region itself, Airship launches through the
-// customer's own data plane agents, so cloud and region select a data plane.
+// The format is Cirun's: a list of runners, each with a cloud, machine
+// shape and labels. List values for instance_type, machine_image, region
+// and preemptible describe fallbacks, tried in order when a launch fails.
 //
 // Everything here is pure: parsing, validation, label matching and idle
 // schedules. Fetching files and checking access with GitHub happen in fleet.
@@ -25,33 +22,42 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// File names and conventions.
+// File names and conventions, as Cirun defines them.
 const (
 	// RepoFile is read from the repository a job runs in.
-	RepoFile = ".airship.yml"
+	RepoFile = ".cirun.yml"
 	// GlobalRepo is the organization repository holding shared files.
-	GlobalRepo = ".airship"
+	GlobalRepo = ".cirun"
 	// GlobalFile defines runners every activated repository may use.
-	GlobalFile = ".airship.global.yml"
+	GlobalFile = ".cirun.global.yml"
 	// AccessFile restricts who may launch the global runners.
 	AccessFile = ".access.yml"
 	// LabelPrefix starts every label a config file defines. Only jobs that
-	// ask for such a label cause Airship to read config files, so ordinary
-	// jobs cost no GitHub API calls.
-	LabelPrefix = "airship-"
+	// ask for such a label cause config files to be read, so ordinary jobs
+	// cost no GitHub API calls.
+	LabelPrefix = "cirun-"
 	// SuffixSeparator splits a runs-on label into the label a config file
 	// defines and a suffix, such as the run ID, that makes the runner unique
-	// to one workflow run: airship-gpu--${{ github.run_id }}.
+	// to one workflow run: cirun-gpu--${{ github.run_id }}.
 	SuffixSeparator = "--"
 	// MaxFileBytes bounds every config file.
 	MaxFileBytes = 64 << 10
 )
 
-// Clouds a runner can name. Both on_prem (Cirun's name) and docker select
-// data planes whose agent runs the Docker provider.
+// Clouds a runner can name. Cirun's other clouds (gcp, azure, do,
+// openstack, oracle, vast_ai, on_prem) are recognized so the error says
+// they are not supported here rather than "unknown cloud".
 const (
-	CloudAWS    = "aws"
-	CloudOnPrem = "on_prem"
+	CloudAWS = "aws"
+)
+
+var otherClouds = []string{"gcp", "azure", "do", "digitalocean", "openstack", "oracle", "vast_ai", "on_prem"}
+
+// Provisioning modes.
+const (
+	// ProvisionPullFromAPI leaves the machine without a boot script; its
+	// image fetches one from the developer API (provision_via: pull_from_api).
+	ProvisionPullFromAPI = "pull_from_api"
 )
 
 // Limits that keep one file from asking for unbounded work.
@@ -63,28 +69,34 @@ const (
 	maxEnvValue     = 4096
 	maxIdleReplicas = 100
 	maxIdleMinutes  = 24 * 60
-	defaultDiskGB   = 75
 	maxLabelLength  = 100
+	// DefaultDiskGB is Cirun's default root volume size.
+	DefaultDiskGB = 75
 )
 
 var (
 	namePattern         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
-	labelPattern        = regexp.MustCompile(`^airship-[a-z0-9][a-z0-9._-]{0,62}$`)
+	labelPattern        = regexp.MustCompile(`^cirun-[a-z0-9][a-z0-9._-]{0,62}$`)
 	jobLabelPattern     = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 	instancePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
-	shapePattern        = regexp.MustCompile(`^\d{1,3}vcpu-\d{1,4}gb(-\d{1,5}gb)?$`)
 	amiPattern          = regexp.MustCompile(`^ami-[0-9a-f]{8,17}$`)
-	ssmPattern          = regexp.MustCompile(`^resolve:ssm:/[A-Za-z0-9_./-]{1,1000}$`)
-	dockerImagePattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9._/:@-]{0,254}$`)
-	regionPattern       = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
-	dataPlaneNameLength = 63
+	regionPattern       = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
 	envNamePattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	subnetPattern       = regexp.MustCompile(`^subnet-[0-9a-f]{8,17}$`)
+	sgPattern           = regexp.MustCompile(`^sg-[0-9a-f]{8,17}$`)
+	profilePattern      = regexp.MustCompile(`^(arn:aws[a-z-]*:iam::[0-9]{12}:instance-profile/)?[A-Za-z0-9+=,.@_/-]{1,128}$`)
+	windowsPathPattern  = regexp.MustCompile(`^[A-Za-z]:\\[A-Za-z0-9_.\\-]{1,200}$`)
+	windowsUserPattern  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,20}$`)
+	imageAliasPattern   = regexp.MustCompile(`^ubuntu(2204|2404)$`)
+	maxSecurityGroupIDs = 5
 	// Graviton families have a "g" after the generation number: c7g, m6gd,
 	// t4g, c7gn, x2gd, is4gen. GPU families such as g5 and g4dn do not.
 	gravitonPattern = regexp.MustCompile(`^(a1|[a-z]+[0-9]+[a-z]*g[a-z]*)$`)
+	// GPU families: g*, p*, gr*, inf*, trn*, dl*.
+	gpuFamilyPattern = regexp.MustCompile(`^(g[0-9]|gr[0-9]|p[0-9]|inf[0-9]|trn[0-9]|dl[0-9])`)
 )
 
-// File is a parsed .airship.yml or .airship.global.yml.
+// File is a parsed .cirun.yml or .cirun.global.yml.
 type File struct {
 	Runners []Runner
 }
@@ -93,24 +105,39 @@ type File struct {
 type Runner struct {
 	Name  string
 	Cloud string
-	// DataPlane, when set, names the one data plane to launch on.
-	DataPlane string
 	// Labels are the runs-on labels this runner serves, all prefixed.
 	Labels []string
 	// Variants are the machine shapes to try, in order.
 	Variants []Variant
 	// Env is set in the runner's environment for every job.
 	Env map[string]string
-	// Privileged runs on_prem containers privileged, for docker-in-docker.
-	Privileged bool
-	Idle       *Idle
+	// GPU asks for NVIDIA drivers on the machine (Cirun's gpu: field).
+	GPU bool
+	// Cache turns on transparent actions/cache acceleration.
+	Cache bool
+	// ProvisionVia is "" (boot script in user data) or ProvisionPullFromAPI.
+	ProvisionVia string
+	// Windows tunes Windows images: run_as, runner_user, runner_path.
+	Windows Windows
+	// Network overrides for AWS: SubnetId, SecurityGroupIds, IamInstanceProfile.
+	SubnetID         string
+	SecurityGroupIDs []string
+	InstanceProfile  string
+	Idle             *Idle
+}
+
+// Windows settings from extra_config.
+type Windows struct {
+	Interactive bool
+	User        string
+	Path        string
 }
 
 // Variant is one machine shape a runner may launch as.
 type Variant struct {
 	InstanceType string
-	// Image is an AMI, resolve:ssm:<parameter> or a container image; empty
-	// means the agent's default.
+	// Image is an AMI ID, an alias such as ubuntu2204, or empty for the
+	// cloud's default Ubuntu.
 	Image  string
 	Region string
 	Spot   bool
@@ -118,13 +145,13 @@ type Variant struct {
 	Disk   Disk
 }
 
-// Disk is the root volume. Type, IOPS and Throughput are AWS-only and zero
-// means the provider's default.
+// Disk is the root volume. Zero means the cloud's default.
 type Disk struct {
 	SizeGB     int
 	Type       string
 	IOPS       int
 	Throughput int
+	InitRate   int
 }
 
 // Idle keeps runners booted and registered ahead of demand. Exactly one of
@@ -238,33 +265,40 @@ type rawFile struct {
 }
 
 type rawRunner struct {
-	Name         string     `yaml:"name"`
-	Cloud        string     `yaml:"cloud"`
-	DataPlane    string     `yaml:"data_plane"`
-	Arch         string     `yaml:"arch"`
-	InstanceType listOf     `yaml:"instance_type"`
-	MachineImage listOf     `yaml:"machine_image"`
-	Region       listOf     `yaml:"region"`
-	Preemptible  listOf     `yaml:"preemptible"`
-	Labels       []string   `yaml:"labels"`
-	ExtraConfig  *rawExtra  `yaml:"extra_config"`
-	Idle         *rawIdle   `yaml:"idle"`
-	GPU          *yaml.Node `yaml:"gpu"`
+	Name         string    `yaml:"name"`
+	Cloud        string    `yaml:"cloud"`
+	InstanceType listOf    `yaml:"instance_type"`
+	MachineImage listOf    `yaml:"machine_image"`
+	Region       listOf    `yaml:"region"`
+	Preemptible  listOf    `yaml:"preemptible"`
+	Labels       []string  `yaml:"labels"`
+	ExtraConfig  *rawExtra `yaml:"extra_config"`
+	Idle         *rawIdle  `yaml:"idle"`
+	GPU          yaml.Node `yaml:"gpu"`
 }
 
+// rawExtra is Cirun's extra_config for AWS. Keys from its other clouds
+// are rejected as unknown fields, which names the key in the error.
 type rawExtra struct {
 	BlockDeviceMappings []rawDisk         `yaml:"BlockDeviceMappings"`
 	EnvVars             map[string]string `yaml:"env_vars"`
-	Executor            string            `yaml:"executor"`
-	Privileged          bool              `yaml:"privileged"`
+	Cache               bool              `yaml:"cache"`
+	ProvisionVia        string            `yaml:"provision_via"`
+	RunAs               string            `yaml:"run_as"`
+	RunnerUser          string            `yaml:"runner_user"`
+	RunnerPath          string            `yaml:"runner_path"`
+	SubnetID            string            `yaml:"SubnetId"`
+	SecurityGroupIDs    []string          `yaml:"SecurityGroupIds"`
+	IamInstanceProfile  string            `yaml:"IamInstanceProfile"`
 }
 
 type rawDisk struct {
-	DeviceName string `yaml:"DeviceName"`
-	VolumeSize int    `yaml:"VolumeSize"`
-	VolumeType string `yaml:"VolumeType"`
-	Iops       int    `yaml:"Iops"`
-	Throughput int    `yaml:"Throughput"`
+	DeviceName               string `yaml:"DeviceName"`
+	VolumeSize               int    `yaml:"VolumeSize"`
+	VolumeType               string `yaml:"VolumeType"`
+	Iops                     int    `yaml:"Iops"`
+	Throughput               int    `yaml:"Throughput"`
+	VolumeInitializationRate int    `yaml:"VolumeInitializationRate"`
 }
 
 type rawIdle struct {
@@ -320,26 +354,26 @@ func kindName(kind yaml.Kind) string {
 }
 
 func (r rawRunner) validate() (Runner, *fieldError) {
-	out := Runner{Name: strings.TrimSpace(r.Name), DataPlane: strings.TrimSpace(r.DataPlane)}
+	out := Runner{Name: strings.TrimSpace(r.Name)}
 	if !namePattern.MatchString(out.Name) {
 		return Runner{}, failf(".name", "name is required: letters, digits, '.', '_' or '-', up to 63 characters")
 	}
 
-	switch strings.ToLower(r.Cloud) {
-	case CloudAWS:
+	switch cloud := strings.ToLower(strings.TrimSpace(r.Cloud)); {
+	case cloud == CloudAWS:
 		out.Cloud = CloudAWS
-	case CloudOnPrem, "docker":
-		out.Cloud = CloudOnPrem
-	case "":
-		return Runner{}, failf(".cloud", "cloud is required: aws or on_prem")
+	case cloud == "":
+		return Runner{}, failf(".cloud", "cloud is required: aws")
+	case slices.Contains(otherClouds, cloud):
+		return Runner{}, failf(".cloud", "cloud %q is not supported yet; only aws is", r.Cloud)
 	default:
-		return Runner{}, failf(".cloud", "cloud %q is not supported; Airship launches through your data plane agents, which support aws and on_prem", r.Cloud)
+		return Runner{}, failf(".cloud", "cloud %q is unknown; use aws", r.Cloud)
 	}
-	if len(out.DataPlane) > dataPlaneNameLength {
-		return Runner{}, failf(".data_plane", "data plane names are at most %d characters", dataPlaneNameLength)
-	}
-	if r.GPU != nil {
-		return Runner{}, failf(".gpu", "gpu is not needed on Airship: pick a GPU instance type (g5.xlarge, g6.xlarge, ...) and an image with drivers")
+	if r.GPU.Kind != 0 {
+		if r.GPU.Kind != yaml.ScalarNode || strings.TrimSpace(r.GPU.Value) == "" {
+			return Runner{}, failf(".gpu", "gpu must be a GPU name, such as nvidia-tesla-t4")
+		}
+		out.GPU = true
 	}
 
 	labels, ferr := validateLabels(r.Labels)
@@ -348,17 +382,12 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 	}
 	out.Labels = labels
 
-	if r.Arch != "" && r.Arch != "x64" && r.Arch != "arm64" {
-		return Runner{}, failf(".arch", "arch must be x64 or arm64")
-	}
-
-	disk, env, privileged, ferr := r.ExtraConfig.validate(out.Cloud)
+	disk, ferr := r.ExtraConfig.apply(&out)
 	if ferr != nil {
 		return Runner{}, ferr
 	}
-	out.Env, out.Privileged = env, privileged
 
-	variants, ferr := expandVariants(r, out.Cloud, disk)
+	variants, ferr := expandVariants(r, disk)
 	if ferr != nil {
 		return Runner{}, ferr
 	}
@@ -402,23 +431,22 @@ func validateLabels(labels []string) ([]string, *fieldError) {
 	return out, nil
 }
 
-func (e *rawExtra) validate(cloud string) (Disk, map[string]string, bool, *fieldError) {
-	disk := Disk{SizeGB: defaultDiskGB}
+// apply validates extra_config and fills the runner's extra fields. It
+// returns the root disk, which every variant shares.
+func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
+	disk := Disk{SizeGB: DefaultDiskGB}
 	if e == nil {
-		return disk, nil, false, nil
+		return disk, nil
 	}
 
 	if len(e.BlockDeviceMappings) > 1 {
-		return Disk{}, nil, false, failf(".extra_config.BlockDeviceMappings", "only the root volume can be configured")
+		return Disk{}, failf(".extra_config.BlockDeviceMappings", "only the root volume can be configured")
 	}
 	if len(e.BlockDeviceMappings) == 1 {
-		if cloud != CloudAWS {
-			return Disk{}, nil, false, failf(".extra_config.BlockDeviceMappings", "BlockDeviceMappings only applies to aws; size on_prem disks in instance_type")
-		}
 		d := e.BlockDeviceMappings[0]
 		if d.VolumeSize != 0 {
 			if d.VolumeSize < 8 || d.VolumeSize > 16384 {
-				return Disk{}, nil, false, failf(".extra_config.BlockDeviceMappings[0].VolumeSize", "VolumeSize must be between 8 and 16384 GiB")
+				return Disk{}, failf(".extra_config.BlockDeviceMappings[0].VolumeSize", "VolumeSize must be between 8 and 16384 GiB")
 			}
 			disk.SizeGB = d.VolumeSize
 		}
@@ -426,35 +454,81 @@ func (e *rawExtra) validate(cloud string) (Disk, map[string]string, bool, *field
 		case "", "gp3", "gp2", "io1", "io2":
 			disk.Type = d.VolumeType
 		default:
-			return Disk{}, nil, false, failf(".extra_config.BlockDeviceMappings[0].VolumeType", "VolumeType must be gp3, gp2, io1 or io2")
+			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].VolumeType", "VolumeType must be gp3, gp2, io1 or io2")
 		}
 		if d.Iops < 0 || d.Iops > 256000 {
-			return Disk{}, nil, false, failf(".extra_config.BlockDeviceMappings[0].Iops", "Iops must be between 0 and 256000")
+			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Iops", "Iops must be between 0 and 256000")
 		}
 		if d.Throughput < 0 || d.Throughput > 2000 {
-			return Disk{}, nil, false, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput must be between 0 and 2000 MiB/s")
+			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput must be between 0 and 2000 MiB/s")
 		}
 		if d.Throughput > 0 && disk.Type != "" && disk.Type != "gp3" {
-			return Disk{}, nil, false, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput only applies to gp3 volumes")
+			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput only applies to gp3 volumes")
 		}
-		disk.IOPS, disk.Throughput = d.Iops, d.Throughput
-	}
-
-	switch e.Executor {
-	case "", "docker":
-	default:
-		return Disk{}, nil, false, failf(".extra_config.executor", "executor %q is not supported; the Airship agent runs on_prem runners as docker containers", e.Executor)
-	}
-	if e.Privileged && cloud != CloudOnPrem {
-		return Disk{}, nil, false, failf(".extra_config.privileged", "privileged only applies to on_prem runners")
+		if d.VolumeInitializationRate != 0 && (d.VolumeInitializationRate < 100 || d.VolumeInitializationRate > 300) {
+			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].VolumeInitializationRate", "VolumeInitializationRate must be between 100 and 300 MiB/s")
+		}
+		disk.IOPS, disk.Throughput, disk.InitRate = d.Iops, d.Throughput, d.VolumeInitializationRate
 	}
 
 	env, ferr := validateEnv(e.EnvVars)
 	if ferr != nil {
-		return Disk{}, nil, false, ferr
+		return Disk{}, ferr
+	}
+	out.Env = env
+	out.Cache = e.Cache
+
+	switch strings.ToLower(strings.TrimSpace(e.ProvisionVia)) {
+	case "":
+	case ProvisionPullFromAPI:
+		out.ProvisionVia = ProvisionPullFromAPI
+	default:
+		return Disk{}, failf(".extra_config.provision_via", "provision_via must be pull_from_api")
 	}
 
-	return disk, env, e.Privileged, nil
+	switch strings.ToLower(strings.TrimSpace(e.RunAs)) {
+	case "":
+	case "interactive":
+		out.Windows.Interactive = true
+	default:
+		return Disk{}, failf(".extra_config.run_as", "run_as must be interactive")
+	}
+	if e.RunnerUser != "" {
+		if !windowsUserPattern.MatchString(e.RunnerUser) {
+			return Disk{}, failf(".extra_config.runner_user", "runner_user must be a Windows account name: letters, digits, '_' or '-'")
+		}
+		out.Windows.User = e.RunnerUser
+	}
+	if e.RunnerPath != "" {
+		if !windowsPathPattern.MatchString(e.RunnerPath) {
+			return Disk{}, failf(".extra_config.runner_path", `runner_path must be a Windows path such as "C:\\r", without spaces or quotes`)
+		}
+		out.Windows.Path = e.RunnerPath
+	}
+
+	if e.SubnetID != "" {
+		if !subnetPattern.MatchString(e.SubnetID) {
+			return Disk{}, failf(".extra_config.SubnetId", "SubnetId must be a subnet ID (subnet-...)")
+		}
+		out.SubnetID = e.SubnetID
+	}
+	if len(e.SecurityGroupIDs) > maxSecurityGroupIDs {
+		return Disk{}, failf(".extra_config.SecurityGroupIds", "at most %d security groups", maxSecurityGroupIDs)
+	}
+	for i, id := range e.SecurityGroupIDs {
+		if !sgPattern.MatchString(id) {
+			return Disk{}, failf(fmt.Sprintf(".extra_config.SecurityGroupIds[%d]", i), "%q is not a security group ID (sg-...)", id)
+		}
+	}
+	out.SecurityGroupIDs = e.SecurityGroupIDs
+	if e.IamInstanceProfile != "" {
+		if !profilePattern.MatchString(e.IamInstanceProfile) {
+			return Disk{}, failf(".extra_config.IamInstanceProfile", "IamInstanceProfile must be an instance profile name or ARN")
+		}
+		out.InstanceProfile = e.IamInstanceProfile
+	}
+
+	return disk, nil
 }
 
 // Variables the runner itself reads; letting config set them would let a
@@ -491,7 +565,7 @@ func validateEnv(vars map[string]string) (map[string]string, *fieldError) {
 
 // expandVariants zips the list fields into machine shapes. Every list must
 // be as long as the longest one, or a single value used for every shape.
-func expandVariants(r rawRunner, cloud string, disk Disk) ([]Variant, *fieldError) {
+func expandVariants(r rawRunner, disk Disk) ([]Variant, *fieldError) {
 	if len(r.InstanceType) == 0 {
 		return nil, failf(".instance_type", "instance_type is required")
 	}
@@ -531,7 +605,6 @@ func expandVariants(r rawRunner, cloud string, disk Disk) ([]Variant, *fieldErro
 			Image:        strings.TrimSpace(pick(r.MachineImage, i)),
 			Region:       strings.TrimSpace(pick(r.Region, i)),
 			Disk:         disk,
-			Arch:         r.Arch,
 		}
 		index := ""
 		if n > 1 {
@@ -545,34 +618,15 @@ func expandVariants(r rawRunner, cloud string, disk Disk) ([]Variant, *fieldErro
 			return nil, failf(".preemptible"+index, "preemptible must be true or false")
 		}
 		if v.Region != "" && !regionPattern.MatchString(v.Region) {
-			return nil, failf(".region"+index, "%q is not a region", v.Region)
+			return nil, failf(".region"+index, "%q is not an AWS region (such as us-east-1)", v.Region)
 		}
-
-		switch cloud {
-		case CloudAWS:
-			if !instancePattern.MatchString(v.InstanceType) || !strings.Contains(v.InstanceType, ".") {
-				return nil, failf(".instance_type"+index, "%q is not an EC2 instance type (such as c7i.xlarge)", v.InstanceType)
-			}
-			if v.Image != "" && !amiPattern.MatchString(v.Image) && !ssmPattern.MatchString(v.Image) {
-				return nil, failf(".machine_image"+index, "%q must be an AMI ID (ami-...) or resolve:ssm:<parameter>", v.Image)
-			}
-			if v.Arch == "" {
-				v.Arch = ArchForInstanceType(v.InstanceType)
-			}
-		case CloudOnPrem:
-			if !shapePattern.MatchString(v.InstanceType) {
-				return nil, failf(".instance_type"+index, "%q must be a shape like 4vcpu-8gb or 4vcpu-8gb-50gb", v.InstanceType)
-			}
-			if v.Image != "" && !dockerImagePattern.MatchString(v.Image) {
-				return nil, failf(".machine_image"+index, "%q is not a container image reference", v.Image)
-			}
-			if v.Spot {
-				return nil, failf(".preemptible"+index, "preemptible does not apply to on_prem runners")
-			}
-			if v.Arch == "" {
-				v.Arch = "x64"
-			}
+		if !instancePattern.MatchString(v.InstanceType) || !strings.Contains(v.InstanceType, ".") {
+			return nil, failf(".instance_type"+index, "%q is not an EC2 instance type (such as c7i.xlarge)", v.InstanceType)
 		}
+		if v.Image != "" && !amiPattern.MatchString(v.Image) && !imageAliasPattern.MatchString(v.Image) {
+			return nil, failf(".machine_image"+index, "%q must be an AMI ID (ami-...), ubuntu2204 or ubuntu2404", v.Image)
+		}
+		v.Arch = ArchForInstanceType(v.InstanceType)
 		out = append(out, v)
 	}
 
@@ -587,6 +641,13 @@ func ArchForInstanceType(instanceType string) string {
 	}
 
 	return "x64"
+}
+
+// HasGPU reports whether an EC2 instance family carries an accelerator.
+func HasGPU(instanceType string) bool {
+	family, _, _ := strings.Cut(instanceType, ".")
+
+	return gpuFamilyPattern.MatchString(family)
 }
 
 func (r *rawIdle) validate() (*Idle, *fieldError) {

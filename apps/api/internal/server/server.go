@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/wizenheimer/airship/apps/api/internal/agentapi"
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/console"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
@@ -49,8 +48,8 @@ type Deps struct {
 // zero-value Deps just to read the generated OpenAPI document.
 func NewAPI(mux *http.ServeMux, deps Deps) huma.API {
 	cfg := huma.DefaultConfig(Title, deps.Version)
-	cfg.Info.Description = "Airship is a managed control plane for GitHub Actions runners that run in your own cloud. " +
-		"The TypeScript client in packages/client is generated from this document."
+	cfg.Info.Description = "Airship runs GitHub Actions jobs on ephemeral machines in your own cloud account, " +
+		"configured by a .cirun.yml in each repository. The TypeScript client in packages/client is generated from this document."
 	// Drop the $schema property and Link header Huma adds to every response;
 	// they leak into the generated TypeScript types without helping callers.
 	cfg.CreateHooks = nil
@@ -70,7 +69,6 @@ func NewAPI(mux *http.ServeMux, deps Deps) huma.API {
 		Fleet: deps.Fleet,
 		Store: deps.Queries, Sessions: deps.Sessions, AllowedOrigins: deps.CORSOrigins, PublicURL: deps.PublicURL,
 	})
-	agentapi.Register(api, deps.Queries, deps.Fleet)
 
 	return api
 }

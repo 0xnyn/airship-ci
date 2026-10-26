@@ -1,14 +1,15 @@
-// Package fleet is Airship's scheduler. It turns GitHub workflow_job events
-// into runner demand, hands that demand to data plane agents, and keeps the
-// runners table honest when webhooks, agents or instances go missing.
+// Package fleet is the scheduler. It turns GitHub workflow_job events into
+// runner demand, launches runner machines in the customer's cloud with the
+// credentials they connected, and keeps the runners table honest when
+// webhooks, launches or instances go missing.
 //
 // The central rule, learned from every runner autoscaler: a runner is not
 // bound to the job that caused it. GitHub gives any queued job to any idle
-// runner with matching labels, so Airship creates one runner per queued job
-// and learns which job a runner actually ran from the in_progress event.
+// runner with matching labels, so one runner is created per queued job and
+// which job a runner actually ran is learned from the in_progress event.
 //
 // All state lives in Postgres. Every transition is a conditional UPDATE, so
-// webhooks, agent syncs and the reconciler can race freely: the loser's
+// webhooks, launchers and the reconciler can race freely: the loser's
 // update matches no rows.
 package fleet
 
@@ -17,13 +18,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
+	"github.com/wizenheimer/airship/apps/api/internal/secrets"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -32,11 +34,11 @@ import (
 
 // Runner states, mirroring the runners.state check constraint.
 const (
-	StatePending  = "pending"
-	StateAssigned = "assigned"
-	StateRunning  = "running"
-	StateBusy     = "busy"
-	StateFinished = "finished"
+	StatePending   = "pending"
+	StateLaunching = "launching"
+	StateRunning   = "running"
+	StateBusy      = "busy"
+	StateFinished  = "finished"
 )
 
 // Finish reasons, mirroring the runners.finish_reason check constraint.
@@ -48,6 +50,7 @@ const (
 	ReasonLeaseExpired = "lease_expired"
 	ReasonLost         = "lost"
 	ReasonMaxLifetime  = "max_lifetime"
+	ReasonDeleted      = "deleted"
 )
 
 // GitHub is what the scheduler needs from GitHub, per installation.
@@ -134,8 +137,8 @@ func (a AppGitHub) GetRepositoryByID(ctx context.Context, inst int64, id int64) 
 // Config tunes the scheduler. The zero value is not usable; start from
 // DefaultConfig.
 type Config struct {
-	// LeaseDuration is how long an agent has to report an instance for a
-	// runner it was handed before the runner is presumed never launched.
+	// LeaseDuration is how long a launcher has to finish a launch it
+	// claimed before the runner is presumed never launched.
 	LeaseDuration time.Duration
 	// InstanceGrace covers cloud APIs that list new instances late, and
 	// instances that are slow to disappear from listings.
@@ -151,60 +154,86 @@ type Config struct {
 	// DeregisterAfter delays removing a finished runner from GitHub, so a
 	// runner whose lease expired but did launch can still be recognized.
 	DeregisterAfter time.Duration
+	// TerminateRetryAfter is how long after asking the cloud to terminate
+	// an instance that is still listed the request is repeated.
+	TerminateRetryAfter time.Duration
 	// StaleJobAfter is how long a queued job goes without news before the
 	// reconciler asks GitHub about it directly.
 	StaleJobAfter time.Duration
 	// MaxAttempts caps failed launches for one job.
 	MaxAttempts int64
-	// RunnerVersion is the actions/runner release agents should run.
+	// RunnerVersion is the actions/runner release machines install.
 	RunnerVersion string
-	// PollRecheck bounds how stale a long poll's view of the queue gets.
-	PollRecheck time.Duration
+	// LaunchConcurrency bounds parallel cloud and GitHub calls per launch
+	// pass. GitHub's secondary rate limits punish bursts of POSTs.
+	LaunchConcurrency int
+	// LaunchBatch bounds runners claimed per pass.
+	LaunchBatch int32
+	// EventRetention is how long dashboard events are kept.
+	EventRetention time.Duration
 }
 
 // DefaultConfig returns production defaults.
 func DefaultConfig() Config {
 	return Config{
-		LeaseDuration:   5 * time.Minute,
-		InstanceGrace:   2 * time.Minute,
-		IdleTimeout:     10 * time.Minute,
-		BusyLostAfter:   10 * time.Minute,
-		MaxLifetime:     8 * time.Hour,
-		DeregisterAfter: 2 * time.Minute,
-		StaleJobAfter:   10 * time.Minute,
-		MaxAttempts:     3,
-		RunnerVersion:   "2.338.2",
-		PollRecheck:     2 * time.Second,
+		LeaseDuration:       5 * time.Minute,
+		InstanceGrace:       2 * time.Minute,
+		IdleTimeout:         10 * time.Minute,
+		BusyLostAfter:       10 * time.Minute,
+		MaxLifetime:         8 * time.Hour,
+		DeregisterAfter:     2 * time.Minute,
+		TerminateRetryAfter: 5 * time.Minute,
+		StaleJobAfter:       10 * time.Minute,
+		MaxAttempts:         3,
+		RunnerVersion:       "2.338.2",
+		LaunchConcurrency:   8,
+		LaunchBatch:         50,
+		EventRetention:      30 * 24 * time.Hour,
 	}
 }
 
 // Service is the scheduler.
 type Service struct {
-	pool     *pgxpool.Pool
-	q        *db.Queries
-	github   GitHub
-	notifier *Notifier
-	cfg      Config
-	log      *slog.Logger
-	configs  *configCache
+	pool    *pgxpool.Pool
+	q       *db.Queries
+	github  GitHub
+	clouds  cloud.Registry
+	secrets *secrets.Keyring
+	cfg     Config
+	log     *slog.Logger
+	configs *configCache
+	// wake nudges the launcher when new runners are pending.
+	wake chan struct{}
 }
 
 // New returns a Service.
-func New(pool *pgxpool.Pool, gh GitHub, cfg Config, logger *slog.Logger) *Service {
+func New(pool *pgxpool.Pool, gh GitHub, clouds cloud.Registry, keyring *secrets.Keyring, cfg Config, logger *slog.Logger) *Service {
 	return &Service{
-		pool:     pool,
-		q:        db.New(pool),
-		github:   gh,
-		notifier: NewNotifier(),
-		cfg:      cfg,
-		log:      logger,
-		configs:  newConfigCache(),
+		pool:    pool,
+		q:       db.New(pool),
+		github:  gh,
+		clouds:  clouds,
+		secrets: keyring,
+		cfg:     cfg,
+		log:     logger,
+		configs: newConfigCache(),
+		wake:    make(chan struct{}, 1),
 	}
 }
 
 // Config returns the scheduler's settings.
 func (s *Service) Config() Config {
 	return s.cfg
+}
+
+// wakeLauncher asks the launcher to look for pending runners now rather
+// than on its next tick. It is an in-process hint: other replicas see the
+// work on their own tick.
+func (s *Service) wakeLauncher() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 // txAttempts bounds retries of transactions that lost a deadlock.
@@ -254,21 +283,22 @@ func (s *Service) createRunner(ctx context.Context, q *db.Queries, job db.Job, p
 
 	runner, err := q.CreateRunner(ctx, db.CreateRunnerParams{
 		InstallationID:     job.InstallationID,
-		ProfileID:          attempt.ProfileID,
-		ProfileLabel:       attempt.Name,
+		Definition:         attempt.Name,
 		Source:             attempt.Source,
+		Cloud:              attempt.Cloud,
+		CredentialID:       uuidPtr(attempt.CredentialID),
+		Region:             attempt.Region,
 		Spec:               spec,
 		Labels:             attempt.Labels,
 		Attempt:            int32(failed), //nolint:gosec // bounded by maxAttempts
-		DataPlaneID:        attempt.DataPlaneID,
 		RepositoryID:       job.RepositoryID,
 		RepositoryFullName: job.RepositoryFullName,
 		TriggerJobID:       &job.ID,
 		Name:               newRunnerName(),
 	})
 	if isNoRows(err) || isForeignKeyViolation(err) {
-		// A live runner already serves the job, or its profile or data plane
-		// was just deleted.
+		// A live runner already serves the job, or its credential was
+		// just deleted.
 		return nil, nil
 	}
 	if err != nil {
@@ -303,68 +333,45 @@ func (s *Service) retryJob(ctx context.Context, failed db.Runner, retryable bool
 	if !retryable {
 		limit = int64(len(plan))
 	}
-	var wake *uuid.UUID
+	var added bool
 	var fromPool bool
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		var err error
-		wake, fromPool, err = s.serveJob(ctx, q, job, plan, limit)
+		added, fromPool, err = s.serveJob(ctx, q, job, plan, limit)
 
 		return err
 	})
 	if err != nil {
 		return err
 	}
-	if wake != nil {
-		s.notifier.Notify(*wake)
+	if added {
+		s.wakeLauncher()
 	}
 	if fromPool {
 		s.fillRepositoryPools(ctx, job.RepositoryID)
+	}
+	if !added && !fromPool {
+		s.record(ctx, job.InstallationID, "job.failed", levelError,
+			fmt.Sprintf("%s could not be started after %d failed launches; last error: %s", jobName(job), limit, deref(failed.Error)),
+			eventFields{repository: job.RepositoryFullName, jobID: &job.ID, runnerID: &failed.ID})
 	}
 
 	return nil
 }
 
 func uuidPtr(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+
 	return &id
 }
 
-// ErrProfileNotFound is returned for a profile outside the installation.
-var ErrProfileNotFound = errors.New("profile not found")
+func jobName(job db.Job) string {
+	name := job.Name
+	if job.WorkflowName != nil {
+		name = *job.WorkflowName + " / " + name
+	}
 
-// ProfileBusyError is returned when a profile still has active runners.
-type ProfileBusyError struct {
-	Active int64
-}
-
-func (e *ProfileBusyError) Error() string {
-	return fmt.Sprintf("%d runners of this profile are still active", e.Active)
-}
-
-// DeleteProfile deletes a profile that has no active runners. The profile
-// row stays locked between the check and the delete, so a webhook cannot
-// queue a runner for it in between (creating a runner checks the profile
-// row through its foreign key). Finished runners keep their history
-// (profile_id becomes null) and are still removed from GitHub.
-func (s *Service) DeleteProfile(ctx context.Context, installationID int64, id uuid.UUID) error {
-	return s.inTx(ctx, func(q *db.Queries) error {
-		if _, err := q.LockProfile(ctx, db.LockProfileParams{InstallationID: installationID, ID: id}); err != nil {
-			if isNoRows(err) {
-				return ErrProfileNotFound
-			}
-
-			return fmt.Errorf("lock profile: %w", err)
-		}
-		active, err := q.CountActiveRunnersForProfile(ctx, &id)
-		if err != nil {
-			return fmt.Errorf("count runners: %w", err)
-		}
-		if active > 0 {
-			return &ProfileBusyError{Active: active}
-		}
-		if _, err := q.DeleteProfile(ctx, db.DeleteProfileParams{InstallationID: installationID, ID: id}); err != nil {
-			return fmt.Errorf("delete profile: %w", err)
-		}
-
-		return nil
-	})
+	return name
 }

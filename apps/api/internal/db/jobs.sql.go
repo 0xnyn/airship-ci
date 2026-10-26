@@ -13,7 +13,7 @@ import (
 )
 
 const getJob = `-- name: GetJob :one
-select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs where id = $1
+select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs where id = $1
 `
 
 func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
@@ -33,7 +33,6 @@ func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
 		&i.Labels,
 		&i.Status,
 		&i.Conclusion,
-		&i.ProfileID,
 		&i.HeadSha,
 		&i.Plan,
 		&i.SkipReason,
@@ -47,6 +46,120 @@ func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const jobDailyStats = `-- name: JobDailyStats :many
+select
+    date_trunc('day', queued_at)::timestamptz as day,
+    count(*)::bigint as jobs,
+    count(*) filter (where runner_id is not null)::bigint as airship_jobs,
+    count(*) filter (where conclusion = 'failure')::bigint as failed,
+    coalesce(sum(extract(epoch from completed_at - started_at)) filter (
+        where runner_id is not null and completed_at is not null and started_at is not null
+    ), 0)::float8 as runner_seconds,
+    coalesce(percentile_cont(0.5) within group (
+        order by extract(epoch from started_at - queued_at)
+    ) filter (where runner_id is not null and started_at is not null), 0)::float8 as queue_p50_seconds
+from jobs
+where installation_id = $1 and queued_at >= $2
+group by 1
+order by 1
+`
+
+type JobDailyStatsParams struct {
+	InstallationID int64
+	Since          time.Time
+}
+
+type JobDailyStatsRow struct {
+	Day             time.Time
+	Jobs            int64
+	AirshipJobs     int64
+	Failed          int64
+	RunnerSeconds   float64
+	QueueP50Seconds float64
+}
+
+// Per-day totals for the analytics page: jobs seen, jobs run on Airship,
+// failures, and minutes of runner time.
+func (q *Queries) JobDailyStats(ctx context.Context, arg JobDailyStatsParams) ([]JobDailyStatsRow, error) {
+	rows, err := q.db.Query(ctx, jobDailyStats, arg.InstallationID, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []JobDailyStatsRow{}
+	for rows.Next() {
+		var i JobDailyStatsRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.Jobs,
+			&i.AirshipJobs,
+			&i.Failed,
+			&i.RunnerSeconds,
+			&i.QueueP50Seconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const jobRepositoryStats = `-- name: JobRepositoryStats :many
+select repository_full_name,
+    count(*)::bigint as jobs,
+    count(*) filter (where runner_id is not null)::bigint as airship_jobs,
+    coalesce(sum(extract(epoch from completed_at - started_at)) filter (
+        where runner_id is not null and completed_at is not null and started_at is not null
+    ), 0)::float8 as runner_seconds
+from jobs
+where installation_id = $1 and queued_at >= $2
+group by repository_full_name
+order by runner_seconds desc, jobs desc
+limit $3
+`
+
+type JobRepositoryStatsParams struct {
+	InstallationID int64
+	Since          time.Time
+	MaxResults     int32
+}
+
+type JobRepositoryStatsRow struct {
+	RepositoryFullName string
+	Jobs               int64
+	AirshipJobs        int64
+	RunnerSeconds      float64
+}
+
+// Per-repository totals for the analytics page.
+func (q *Queries) JobRepositoryStats(ctx context.Context, arg JobRepositoryStatsParams) ([]JobRepositoryStatsRow, error) {
+	rows, err := q.db.Query(ctx, jobRepositoryStats, arg.InstallationID, arg.Since, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []JobRepositoryStatsRow{}
+	for rows.Next() {
+		var i JobRepositoryStatsRow
+		if err := rows.Scan(
+			&i.RepositoryFullName,
+			&i.Jobs,
+			&i.AirshipJobs,
+			&i.RunnerSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const jobStats = `-- name: JobStats :one
@@ -107,7 +220,7 @@ func (q *Queries) JobStats(ctx context.Context, arg JobStatsParams) (JobStatsRow
 }
 
 const listJobs = `-- name: ListJobs :many
-select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs
+select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs
 where installation_id = $1
     and ($2::timestamptz is null
         or (queued_at, id) < ($2::timestamptz, $3::bigint))
@@ -153,7 +266,6 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 			&i.Labels,
 			&i.Status,
 			&i.Conclusion,
-			&i.ProfileID,
 			&i.HeadSha,
 			&i.Plan,
 			&i.SkipReason,
@@ -177,7 +289,7 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 }
 
 const listStaleQueuedJobs = `-- name: ListStaleQueuedJobs :many
-select jobs.id, jobs.installation_id, jobs.repository_id, jobs.repository_full_name, jobs.run_id, jobs.run_attempt, jobs.workflow_name, jobs.name, jobs.head_branch, jobs.html_url, jobs.labels, jobs.status, jobs.conclusion, jobs.profile_id, jobs.head_sha, jobs.plan, jobs.skip_reason, jobs.skip_detail, jobs.runner_id, jobs.runner_name, jobs.queued_at, jobs.started_at, jobs.completed_at, jobs.created_at, jobs.updated_at from (
+select jobs.id, jobs.installation_id, jobs.repository_id, jobs.repository_full_name, jobs.run_id, jobs.run_attempt, jobs.workflow_name, jobs.name, jobs.head_branch, jobs.html_url, jobs.labels, jobs.status, jobs.conclusion, jobs.head_sha, jobs.plan, jobs.skip_reason, jobs.skip_detail, jobs.runner_id, jobs.runner_name, jobs.queued_at, jobs.started_at, jobs.completed_at, jobs.created_at, jobs.updated_at from (
     select jobs.id,
         row_number() over (
             partition by jobs.installation_id
@@ -235,7 +347,6 @@ func (q *Queries) ListStaleQueuedJobs(ctx context.Context, arg ListStaleQueuedJo
 			&i.Job.Labels,
 			&i.Job.Status,
 			&i.Job.Conclusion,
-			&i.Job.ProfileID,
 			&i.Job.HeadSha,
 			&i.Job.Plan,
 			&i.Job.SkipReason,
@@ -298,16 +409,16 @@ const upsertJob = `-- name: UpsertJob :one
 insert into jobs (
     id, installation_id, repository_id, repository_full_name, run_id,
     run_attempt, workflow_name, name, head_branch, head_sha, html_url, labels, status,
-    conclusion, profile_id, plan, skip_reason, skip_detail, runner_name, queued_at, started_at, completed_at
+    conclusion, plan, skip_reason, skip_detail, runner_name, queued_at, started_at, completed_at
 )
 values (
     $1, $2, $3,
     $4, $5, $6,
     $7, $8, $9, $10,
     $11, $12::text[], $13,
-    $14, $15, $16, $17,
-    $18, $19,
-    $20, $21, $22
+    $14, $15, $16,
+    $17, $18,
+    $19, $20, $21
 )
 on conflict (id) do update
 set
@@ -324,7 +435,6 @@ set
     html_url = coalesce(excluded.html_url, jobs.html_url),
     head_sha = coalesce(jobs.head_sha, excluded.head_sha),
     -- A job is planned once, when first seen queued; later events reuse it.
-    profile_id = case when jobs.plan is null then excluded.profile_id else jobs.profile_id end,
     plan = coalesce(jobs.plan, excluded.plan),
     -- A job skipped earlier and planned now (its repository was activated
     -- since, say) loses the old reason.
@@ -339,7 +449,7 @@ set
         else coalesce(excluded.skip_detail, jobs.skip_detail)
     end,
     updated_at = now()
-returning id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at
+returning id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at
 `
 
 type UpsertJobParams struct {
@@ -357,7 +467,6 @@ type UpsertJobParams struct {
 	Labels             []string
 	Status             string
 	Conclusion         *string
-	ProfileID          *uuid.UUID
 	Plan               []byte
 	SkipReason         *string
 	SkipDetail         *string
@@ -385,7 +494,6 @@ func (q *Queries) UpsertJob(ctx context.Context, arg UpsertJobParams) (Job, erro
 		arg.Labels,
 		arg.Status,
 		arg.Conclusion,
-		arg.ProfileID,
 		arg.Plan,
 		arg.SkipReason,
 		arg.SkipDetail,
@@ -409,7 +517,6 @@ func (q *Queries) UpsertJob(ctx context.Context, arg UpsertJobParams) (Job, erro
 		&i.Labels,
 		&i.Status,
 		&i.Conclusion,
-		&i.ProfileID,
 		&i.HeadSha,
 		&i.Plan,
 		&i.SkipReason,

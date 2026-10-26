@@ -40,7 +40,7 @@ func (e *plainError) Error() string { return e.msg }
 
 // BaseLabel returns the label a config file would define for a runs-on
 // label: lowercased, without its per-run suffix. ok is false for labels
-// that are not Airship config labels.
+// that are not config labels.
 func BaseLabel(label string) (string, bool) {
 	lower := strings.ToLower(label)
 	if !strings.HasPrefix(lower, LabelPrefix) {
@@ -120,7 +120,7 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 			continue
 		}
 		for _, v := range c.Runner.Variants {
-			labels := registeredLabels(v.Arch, c.Runner.Labels, suffixed)
+			labels := registeredLabels(c.Runner.Cloud, v.Arch, c.Runner.GPU || HasGPU(v.InstanceType), c.Runner.Labels, suffixed)
 			if !coversAll(withAliases(labels), other) {
 				continue
 			}
@@ -131,8 +131,15 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 	return out
 }
 
-func registeredLabels(arch string, defined, suffixed []string) []string {
-	labels := []string{"self-hosted", "linux", arch}
+// registeredLabels are what a runner registers with GitHub: the defaults
+// every self-hosted runner carries, the cloud, whether it has a GPU (as
+// Cirun labels them), the definition's labels and the job's own suffixed
+// labels. The OS label is left to the runner, which knows what it runs on.
+func registeredLabels(cloud string, arch string, gpu bool, defined, suffixed []string) []string {
+	labels := []string{"self-hosted", arch, cloud, "cpu"}
+	if gpu {
+		labels[3] = "gpu"
+	}
 	for _, l := range slices.Concat(defined, suffixed) {
 		if !slices.Contains(labels, l) {
 			labels = append(labels, l)
@@ -142,13 +149,15 @@ func registeredLabels(arch string, defined, suffixed []string) []string {
 	return labels
 }
 
-// withAliases adds the other spellings GitHub accepts for default labels.
+// withAliases adds the other spellings GitHub accepts for default labels,
+// and the OS label the runner adds itself.
 func withAliases(labels []string) []string {
+	out := append(slices.Clone(labels), "linux", "windows")
 	if slices.Contains(labels, "x64") {
-		return append(slices.Clone(labels), "x86_64")
+		out = append(out, "x86_64")
 	}
 
-	return labels
+	return out
 }
 
 func coversAll(have, want []string) bool {
@@ -167,7 +176,7 @@ func coversAll(have, want []string) bool {
 func PoolAttempts(r Runner) []Attempt {
 	out := make([]Attempt, 0, len(r.Variants))
 	for _, v := range r.Variants {
-		out = append(out, Attempt{Source: SourceRepository, Runner: r, Variant: v, Labels: registeredLabels(v.Arch, r.Labels, nil)})
+		out = append(out, Attempt{Source: SourceRepository, Runner: r, Variant: v, Labels: registeredLabels(r.Cloud, v.Arch, r.GPU || HasGPU(v.InstanceType), r.Labels, nil)})
 	}
 
 	return out

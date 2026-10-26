@@ -91,7 +91,7 @@ func (i IdleSpec) Desired(now time.Time, usageUntil *time.Time) int {
 // reservePoolRunner points an idle runner from a matching warm pool at the
 // job. Only repository runners have pools, and only a job whose labels the
 // pool's runners carry exactly (no per-run suffix) can use one.
-func (s *Service) reservePoolRunner(ctx context.Context, q *db.Queries, job db.Job, plan Plan) (*uuid.UUID, error) {
+func (s *Service) reservePoolRunner(ctx context.Context, q *db.Queries, job db.Job, plan Plan) (bool, error) {
 	var names []string
 	for _, a := range plan {
 		if a.Source == SourceRepository {
@@ -99,11 +99,11 @@ func (s *Service) reservePoolRunner(ctx context.Context, q *db.Queries, job db.J
 		}
 	}
 	if len(names) == 0 {
-		return nil, nil
+		return false, nil
 	}
 	pools, err := q.ListRepositoryIdlePools(ctx, job.RepositoryID)
 	if err != nil {
-		return nil, fmt.Errorf("list pools: %w", err)
+		return false, fmt.Errorf("list pools: %w", err)
 	}
 	for _, name := range names {
 		for _, pool := range pools {
@@ -112,24 +112,24 @@ func (s *Service) reservePoolRunner(ctx context.Context, q *db.Queries, job db.J
 			}
 			live, err := q.JobHasLiveRunner(ctx, &job.ID)
 			if err != nil {
-				return nil, fmt.Errorf("check live runner: %w", err)
+				return false, fmt.Errorf("check live runner: %w", err)
 			}
 			if live {
-				return nil, nil
+				return false, nil
 			}
-			runner, err := q.ReserveIdleRunner(ctx, db.ReserveIdleRunnerParams{JobID: &job.ID, PoolID: &pool.ID})
+			_, err = q.ReserveIdleRunner(ctx, db.ReserveIdleRunnerParams{JobID: &job.ID, PoolID: &pool.ID})
 			if isNoRows(err) {
 				continue // the pool is empty right now
 			}
 			if err != nil {
-				return nil, fmt.Errorf("reserve pool runner: %w", err)
+				return false, fmt.Errorf("reserve pool runner: %w", err)
 			}
 
-			return &runner.DataPlaneID, nil
+			return true, nil
 		}
 	}
 
-	return nil, nil
+	return false, nil
 }
 
 // poolServes reports whether every runner the pool launches can take a
@@ -154,7 +154,7 @@ func (s *Service) extendUsagePools(ctx context.Context, q *db.Queries, busy db.R
 	if busy.Source != SourceRepository {
 		return false, nil
 	}
-	n, err := q.ExtendUsagePools(ctx, db.ExtendUsagePoolsParams{RepositoryID: busy.RepositoryID, Name: busy.ProfileLabel})
+	n, err := q.ExtendUsagePools(ctx, db.ExtendUsagePoolsParams{RepositoryID: busy.RepositoryID, Name: busy.Definition})
 	if err != nil {
 		return false, fmt.Errorf("extend usage pools: %w", err)
 	}
@@ -167,17 +167,36 @@ func (s *Service) extendUsagePools(ctx context.Context, q *db.Queries, busy db.R
 func (s *Service) fillRepositoryPools(ctx context.Context, repositoryID int64) {
 	pools, err := s.q.ListRepositoryIdlePools(ctx, repositoryID)
 	if err == nil && len(pools) > 0 {
-		var planes []db.DataPlane
-		planes, err = s.q.ListDataPlanes(ctx, pools[0].InstallationID)
+		var creds []db.CloudCredential
+		creds, err = s.q.ListCloudCredentials(ctx, pools[0].InstallationID)
 		for _, pool := range pools {
 			if err != nil {
 				break
 			}
-			err = s.balancePool(ctx, pool.ID, planes, time.Now())
+			err = s.balancePool(ctx, pool.ID, creds, time.Now())
 		}
 	}
 	if err != nil {
 		s.log.WarnContext(ctx, "fill pools", slog.Int64("repository", repositoryID), slog.Any("error", err))
+	}
+}
+
+// fillInstallationPools tops up every pool of an installation, as after
+// its cloud was connected.
+func (s *Service) fillInstallationPools(ctx context.Context, installationID int64) {
+	pools, err := s.q.ListInstallationIdlePools(ctx, installationID)
+	if err == nil && len(pools) > 0 {
+		var creds []db.CloudCredential
+		creds, err = s.q.ListCloudCredentials(ctx, installationID)
+		for _, pool := range pools {
+			if err != nil {
+				break
+			}
+			err = s.balancePool(ctx, pool.ID, creds, time.Now())
+		}
+	}
+	if err != nil {
+		s.log.WarnContext(ctx, "fill pools", slog.Int64("installation", installationID), slog.Any("error", err))
 	}
 }
 
@@ -187,17 +206,17 @@ func (s *Service) balancePools(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list pools: %w", err)
 	}
-	planes := map[int64][]db.DataPlane{}
+	creds := map[int64][]db.CloudCredential{}
 	now := time.Now()
 	for _, pool := range pools {
-		if _, ok := planes[pool.InstallationID]; !ok {
-			list, err := s.q.ListDataPlanes(ctx, pool.InstallationID)
+		if _, ok := creds[pool.InstallationID]; !ok {
+			list, err := s.q.ListCloudCredentials(ctx, pool.InstallationID)
 			if err != nil {
-				return fmt.Errorf("list data planes: %w", err)
+				return fmt.Errorf("list cloud credentials: %w", err)
 			}
-			planes[pool.InstallationID] = list
+			creds[pool.InstallationID] = list
 		}
-		if err := s.balancePool(ctx, pool.ID, planes[pool.InstallationID], now); err != nil {
+		if err := s.balancePool(ctx, pool.ID, creds[pool.InstallationID], now); err != nil {
 			s.log.WarnContext(ctx, "balance pool", slog.String("pool", pool.ID.String()), slog.Any("error", err))
 		}
 	}
@@ -208,11 +227,11 @@ func (s *Service) balancePools(ctx context.Context) error {
 // balancePool queues runners for a pool short of its size and trims one
 // over it. The pool row is locked throughout, so concurrent passes cannot
 // both act on the same shortfall.
-func (s *Service) balancePool(ctx context.Context, poolID uuid.UUID, planes []db.DataPlane, now time.Time) error {
-	var wake []uuid.UUID
+func (s *Service) balancePool(ctx context.Context, poolID uuid.UUID, creds []db.CloudCredential, now time.Time) error {
+	var wake bool
 	var trim []db.Runner
 	err := s.inTx(ctx, func(q *db.Queries) error {
-		wake, trim = nil, nil
+		wake, trim = false, nil
 		pool, err := q.LockIdlePool(ctx, poolID)
 		if isNoRows(err) {
 			return nil // deleted by a config refresh
@@ -239,7 +258,7 @@ func (s *Service) balancePool(ctx context.Context, poolID uuid.UUID, planes []db
 
 		switch {
 		case int(idle) < desired:
-			wake, err = s.growPool(ctx, q, pool, planes, desired-int(idle), now)
+			wake, err = s.growPool(ctx, q, pool, creds, desired-int(idle), now)
 
 			return err
 		case int(idle) > desired:
@@ -273,8 +292,8 @@ func (s *Service) balancePool(ctx context.Context, poolID uuid.UUID, planes []db
 	if err != nil {
 		return err
 	}
-	for _, id := range wake {
-		s.notifier.Notify(id)
+	if wake {
+		s.wakeLauncher()
 	}
 	for _, runner := range trim {
 		if err := s.reapIdleRunner(ctx, runner); err != nil {
@@ -286,52 +305,54 @@ func (s *Service) balancePool(ctx context.Context, poolID uuid.UUID, planes []db
 	return nil
 }
 
-func (s *Service) growPool(ctx context.Context, q *db.Queries, pool db.IdlePool, planes []db.DataPlane, count int, now time.Time) ([]uuid.UUID, error) {
+func (s *Service) growPool(ctx context.Context, q *db.Queries, pool db.IdlePool, creds []db.CloudCredential, count int, now time.Time) (bool, error) {
 	failures, err := q.CountRecentPoolFailures(ctx, db.CountRecentPoolFailuresParams{PoolID: &pool.ID, Since: now.Add(-poolFailureWindow)})
 	if err != nil {
-		return nil, fmt.Errorf("count pool failures: %w", err)
+		return false, fmt.Errorf("count pool failures: %w", err)
 	}
 	if failures >= poolFailureLimit {
-		return nil, nil
+		return false, nil
 	}
 	var wants []want
 	if err := json.Unmarshal(pool.Plan, &wants); err != nil {
-		return nil, fmt.Errorf("decode pool plan: %w", err)
+		return false, fmt.Errorf("decode pool plan: %w", err)
 	}
-	plan, _ := resolveDataPlanes(wants, planes)
+	plan, _ := resolveClouds(wants, creds)
 	if len(plan) == 0 {
-		return nil, nil // no data plane yet; the next pass looks again
+		return false, nil // no cloud connected yet; the next pass looks again
 	}
 	repository, err := q.GetRepository(ctx, db.GetRepositoryParams{InstallationID: pool.InstallationID, ID: pool.RepositoryID})
 	if err != nil {
-		return nil, fmt.Errorf("get repository: %w", err)
+		return false, fmt.Errorf("get repository: %w", err)
 	}
 	// Failures move the pool on to its next fallback, as they do for jobs.
 	attempt := plan.at(failures)
 	spec, err := json.Marshal(attempt.Spec)
 	if err != nil {
-		return nil, fmt.Errorf("encode spec: %w", err)
+		return false, fmt.Errorf("encode spec: %w", err)
 	}
 	for range count {
 		_, err := q.CreateRunner(ctx, db.CreateRunnerParams{
 			InstallationID:     pool.InstallationID,
-			ProfileLabel:       attempt.Name,
+			Definition:         attempt.Name,
 			Source:             SourceRepository,
+			Cloud:              attempt.Cloud,
+			CredentialID:       uuidPtr(attempt.CredentialID),
+			Region:             attempt.Region,
 			Spec:               spec,
 			Labels:             attempt.Labels,
 			Attempt:            int32(failures), //nolint:gosec // below poolFailureLimit
 			PoolID:             &pool.ID,
-			DataPlaneID:        attempt.DataPlaneID,
 			RepositoryID:       repository.ID,
 			RepositoryFullName: repository.FullName,
 			Name:               newRunnerName(),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("create pool runner: %w", err)
+			return false, fmt.Errorf("create pool runner: %w", err)
 		}
 	}
 
-	return []uuid.UUID{attempt.DataPlaneID}, nil
+	return true, nil
 }
 
 // refreshConfigs rereads the default-branch config of repositories that
@@ -356,7 +377,7 @@ func (s *Service) refreshConfigs(ctx context.Context) error {
 	return nil
 }
 
-// RefreshRepositoryConfig reads a repository's .airship.yml on its default
+// RefreshRepositoryConfig reads a repository's .cirun.yml on its default
 // branch and makes its pools match. A file that does not parse keeps the
 // pools it had: a typo should not drop warm capacity.
 func (s *Service) RefreshRepositoryConfig(ctx context.Context, repo db.Repository) error {
@@ -412,6 +433,9 @@ func (s *Service) RefreshRepositoryConfig(ctx context.Context, repo db.Repositor
 		var detail *string
 		if problem != nil {
 			detail = nilIfEmpty(problem.Error())
+			if repo.ConfigError == nil || *repo.ConfigError != *detail {
+				s.record(ctx, repo.InstallationID, "config.invalid", levelError, repo.FullName+": "+*detail, eventFields{repository: repo.FullName})
+			}
 		}
 
 		return s.wrap("save config status", q.SetRepositoryConfig(ctx, db.SetRepositoryConfigParams{
@@ -422,7 +446,7 @@ func (s *Service) RefreshRepositoryConfig(ctx context.Context, repo db.Repositor
 
 // HandlePush notes that a push to an activated repository's default branch
 // may have changed its config, and that one to the organization's
-// .airship repository may have changed every repository's.
+// .cirun repository may have changed every repository's.
 func (s *Service) HandlePush(ctx context.Context, event github.PushEvent) error {
 	if event.Installation == nil {
 		return nil

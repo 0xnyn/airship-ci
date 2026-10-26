@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
+	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 
@@ -88,10 +91,94 @@ func registerAPITokens(api huma.API, h *handlers, op func(id, method, path, summ
 	huma.Register(api, tokenOp("apiActivateRepository", http.MethodPut, "/v1/api/repositories/{name}/activation", "Activate a repository", 0), h.apiActivateRepository)
 	huma.Register(api, tokenOp("apiDeactivateRepository", http.MethodDelete, "/v1/api/repositories/{name}/activation", "Deactivate a repository", http.StatusNoContent), h.apiDeactivateRepository)
 
-	// Cirun's developer API paths, so its client works with
+	// Cirun's developer API paths, so its client (cirun-py) works with
 	// CIRUN_API_ENDPOINT=<airship>/api/v1 and an Airship token.
 	huma.Register(api, tokenOp("cirunListRepositories", http.MethodGet, "/api/v1/repo", "List repositories (Cirun-compatible)", 0), h.apiListRepositories)
 	huma.Register(api, tokenOp("cirunSetRepository", http.MethodPost, "/api/v1/repo", "Activate or deactivate a repository (Cirun-compatible)", 0), h.cirunSetRepository)
+	huma.Register(api, tokenOp("cirunListClouds", http.MethodGet, "/api/v1/cloud-connect", "List connected clouds (Cirun-compatible)", 0), h.apiListClouds)
+	huma.Register(api, tokenOp("cirunCloudConnect", http.MethodPost, "/api/v1/cloud-connect", "Connect a cloud (Cirun-compatible)", 0), h.cirunCloudConnect)
+	huma.Register(api, tokenOp("cirunRunnerProvision", http.MethodGet, "/api/runner-provision", "Fetch a runner's boot script (provision_via: pull_from_api)", 0), h.runnerProvision)
+}
+
+func (h *handlers) apiListClouds(ctx context.Context, _ *struct{}) (*cloudListOutput, error) {
+	rows, err := h.Store.ListCloudCredentials(ctx, principal(ctx).installation.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list clouds: %w", err)
+	}
+	items := make([]Cloud, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, cloudFromDB(row))
+	}
+
+	return &cloudListOutput{Body: CloudList{Items: items}}, nil
+}
+
+// CloudConnect is Cirun's cloud-connect request: a cloud name and that
+// cloud's credentials, as `cirun cloud connect aws` sends them.
+type CloudConnect struct {
+	Cloud       string            `doc:"Cloud name" enum:"aws" json:"cloud"`
+	Credentials map[string]string `doc:"Credentials; for aws: access_key, secret_key and optionally region" json:"credentials" maxProperties:"10"`
+}
+
+type cloudConnectInput struct {
+	Body CloudConnect
+}
+
+func (h *handlers) cirunCloudConnect(ctx context.Context, in *cloudConnectInput) (*cloudOutput, error) {
+	p := principal(ctx)
+	creds := in.Body.Credentials
+	secret, err := awscloud.EncodeSecret(awscloud.Secret{AccessKeyID: creds["access_key"], SecretAccessKey: creds["secret_key"]})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity("credentials need access_key and secret_key")
+	}
+	region := creds["region"]
+	if region == "" {
+		region = DefaultRegion
+	}
+	if !regionPattern.MatchString(region) {
+		return nil, huma.Error422UnprocessableEntity("region is not an AWS region")
+	}
+	row, err := h.connect(ctx, p.installation.ID, cloud.AWS, secret, region, p.token.CreatedBy)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
+var regionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
+
+type runnerProvisionInput struct {
+	RunnerName string `doc:"The runner's name, from the instance's Name tag" maxLength:"64" minLength:"1" query:"runner_name" required:"true"`
+}
+
+type runnerProvisionOutput struct {
+	ContentType string `header:"Content-Type"`
+	Body        []byte
+}
+
+// runnerProvision hands a booting machine its script, once. The script
+// carries the runner's single-use GitHub registration, so it is served
+// only to the organization's own API tokens and only while the runner
+// has not fetched it.
+func (h *handlers) runnerProvision(ctx context.Context, in *runnerProvisionInput) (*runnerProvisionOutput, error) {
+	p := principal(ctx)
+	runner, err := h.Store.MarkRunnerProvisioned(ctx, db.MarkRunnerProvisionedParams{InstallationID: p.installation.ID, Name: in.RunnerName})
+	if isNoRows(err) {
+		return nil, huma.Error404NotFound("no boot script for this runner: it is not launching with provision_via: pull_from_api, or already fetched it")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mark provisioned: %w", err)
+	}
+	script, err := h.Fleet.ProvisionScript(ctx, runner.BootSecret)
+	if errors.Is(err, fleet.ErrNotProvisionable) {
+		return nil, huma.Error404NotFound(err.Error())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("provision script: %w", err)
+	}
+
+	return &runnerProvisionOutput{ContentType: "text/plain; charset=utf-8", Body: []byte(script)}, nil
 }
 
 // Token management is for owners only: a token can activate repositories,
@@ -229,7 +316,7 @@ func findRepository(items []Repository, owner, name string) (Repository, bool) {
 }
 
 var (
-	errRepoNotFound = huma.Error404NotFound("repository not found; is the Airship app installed on it?")
+	errRepoNotFound = huma.Error404NotFound("repository not found; is the GitHub App installed on it?")
 	errNotActivated = huma.Error404NotFound("repository is not activated")
 )
 

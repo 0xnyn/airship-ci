@@ -4,14 +4,14 @@
 insert into jobs (
     id, installation_id, repository_id, repository_full_name, run_id,
     run_attempt, workflow_name, name, head_branch, head_sha, html_url, labels, status,
-    conclusion, profile_id, plan, skip_reason, skip_detail, runner_name, queued_at, started_at, completed_at
+    conclusion, plan, skip_reason, skip_detail, runner_name, queued_at, started_at, completed_at
 )
 values (
     sqlc.arg(id), sqlc.arg(installation_id), sqlc.arg(repository_id),
     sqlc.arg(repository_full_name), sqlc.arg(run_id), sqlc.arg(run_attempt),
     sqlc.narg(workflow_name), sqlc.arg(name), sqlc.narg(head_branch), sqlc.narg(head_sha),
     sqlc.narg(html_url), sqlc.arg(labels)::text[], sqlc.arg(status),
-    sqlc.narg(conclusion), sqlc.narg(profile_id), sqlc.narg(plan), sqlc.narg(skip_reason),
+    sqlc.narg(conclusion), sqlc.narg(plan), sqlc.narg(skip_reason),
     sqlc.narg(skip_detail), sqlc.narg(runner_name),
     sqlc.arg(queued_at), sqlc.narg(started_at), sqlc.narg(completed_at)
 )
@@ -30,7 +30,6 @@ set
     html_url = coalesce(excluded.html_url, jobs.html_url),
     head_sha = coalesce(jobs.head_sha, excluded.head_sha),
     -- A job is planned once, when first seen queued; later events reuse it.
-    profile_id = case when jobs.plan is null then excluded.profile_id else jobs.profile_id end,
     plan = coalesce(jobs.plan, excluded.plan),
     -- A job skipped earlier and planned now (its repository was activated
     -- since, say) loses the old reason.
@@ -118,3 +117,36 @@ where installation_id = sqlc.arg(installation_id) and queued_at >= sqlc.arg(sinc
 -- pass the "no live runner yet" check. (Webhooks already hold the row
 -- lock from UpsertJob; retries do not.)
 select id from jobs where id = $1 for update;
+
+-- name: JobDailyStats :many
+-- Per-day totals for the analytics page: jobs seen, jobs run on Airship,
+-- failures, and minutes of runner time.
+select
+    date_trunc('day', queued_at)::timestamptz as day,
+    count(*)::bigint as jobs,
+    count(*) filter (where runner_id is not null)::bigint as airship_jobs,
+    count(*) filter (where conclusion = 'failure')::bigint as failed,
+    coalesce(sum(extract(epoch from completed_at - started_at)) filter (
+        where runner_id is not null and completed_at is not null and started_at is not null
+    ), 0)::float8 as runner_seconds,
+    coalesce(percentile_cont(0.5) within group (
+        order by extract(epoch from started_at - queued_at)
+    ) filter (where runner_id is not null and started_at is not null), 0)::float8 as queue_p50_seconds
+from jobs
+where installation_id = sqlc.arg(installation_id) and queued_at >= sqlc.arg(since)
+group by 1
+order by 1;
+
+-- name: JobRepositoryStats :many
+-- Per-repository totals for the analytics page.
+select repository_full_name,
+    count(*)::bigint as jobs,
+    count(*) filter (where runner_id is not null)::bigint as airship_jobs,
+    coalesce(sum(extract(epoch from completed_at - started_at)) filter (
+        where runner_id is not null and completed_at is not null and started_at is not null
+    ), 0)::float8 as runner_seconds
+from jobs
+where installation_id = sqlc.arg(installation_id) and queued_at >= sqlc.arg(since)
+group by repository_full_name
+order by runner_seconds desc, jobs desc
+limit sqlc.arg(max_results);

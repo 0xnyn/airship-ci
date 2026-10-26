@@ -101,3 +101,13 @@ where user_id = $1 and installation_id = $2;
 
 -- name: DeleteMembership :exec
 delete from memberships where user_id = $1 and installation_id = $2;
+
+-- name: SetInstallationMaxRunners :one
+update installations set max_runners = $2, updated_at = now() where id = $1 returning *;
+
+-- name: ListInstallationMembers :many
+select sqlc.embed(users), memberships.role, memberships.refreshed_at
+from memberships
+join users on users.id = memberships.user_id
+where memberships.installation_id = $1
+order by memberships.role, lower(users.login);

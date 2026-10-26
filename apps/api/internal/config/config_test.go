@@ -8,6 +8,7 @@ import (
 
 func TestProductionGuards(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("CREDENTIALS_KEY", "c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0MTI=")
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("DEV_LOGIN", "true")
 	if _, err := config.Load(); err == nil {

@@ -14,23 +14,17 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 )
 
-// Skip reasons for config-file runners, matching jobs.skip_reason.
+// Skip reasons recorded on jobs that asked for a config label but will not
+// get a runner. They match the jobs.skip_reason check constraint.
 const (
-	SkipRepositoryInactive = "repository_inactive"
-	SkipConfigInvalid      = "config_invalid"
-	SkipAccessDenied       = "access_denied"
-	SkipNoDataPlane        = "no_data_plane"
+	SkipPublicRepository      = "public_repository"
+	SkipUnsatisfiableLabels   = "unsatisfiable_labels"
+	SkipInstallationSuspended = "installation_suspended"
+	SkipRepositoryInactive    = "repository_inactive"
+	SkipConfigInvalid         = "config_invalid"
+	SkipAccessDenied          = "access_denied"
+	SkipNoCloud               = "no_cloud"
 )
-
-// providerForCloud is the agent provider each config cloud launches with.
-var providerForCloud = map[string]string{
-	runnerconfig.CloudAWS:    "aws",
-	runnerconfig.CloudOnPrem: "docker",
-}
-
-// testProvider is the in-memory provider tests run agents with; it stands
-// in for any cloud.
-const testProvider = "fake"
 
 const (
 	// branchConfigTTL bounds how stale a default-branch file read can be on
@@ -48,27 +42,10 @@ type verdict struct {
 	detail string
 }
 
-// planJob decides how a queued job is served: by a dashboard profile, by a
-// config-file runner, or not at all. Errors are GitHub or database
-// failures, worth retrying; a job Airship will not run gets a verdict.
+// planJob decides how a queued job is served: by a config-file runner, or
+// not at all. Errors are GitHub or database failures, worth retrying; a
+// job that will not run gets a verdict.
 func (s *Service) planJob(ctx context.Context, installation db.Installation, repo github.Repository, job github.WorkflowJob) (Plan, verdict, error) {
-	labels := lowerAll(job.Labels)
-	candidates, err := s.q.FindProfilesByLabels(ctx, db.FindProfilesByLabelsParams{InstallationID: installation.ID, Labels: labels})
-	if err != nil {
-		return nil, verdict{}, fmt.Errorf("find profiles: %w", err)
-	}
-	if len(candidates) > 0 {
-		match := MatchProfile(labels, candidates, repo.Private)
-		if installation.SuspendedAt != nil && match.Profile != nil {
-			return nil, verdict{reason: SkipInstallationSuspended}, nil
-		}
-		if match.Profile == nil {
-			return nil, verdict{reason: match.SkipReason}, nil
-		}
-
-		return Plan{profileAttempt(*match.Profile)}, verdict{}, nil
-	}
-
 	if !runnerconfig.WantsConfig(job.Labels) {
 		return nil, verdict{}, nil
 	}
@@ -82,7 +59,7 @@ func (s *Service) planJob(ctx context.Context, installation db.Installation, rep
 func (s *Service) planFromConfig(ctx context.Context, installation db.Installation, repo github.Repository, job github.WorkflowJob) (Plan, verdict, error) {
 	activated, err := s.q.GetRepository(ctx, db.GetRepositoryParams{InstallationID: installation.ID, ID: repo.ID})
 	if isNoRows(err) {
-		return nil, verdict{reason: SkipRepositoryInactive, detail: repo.FullName + " is not activated for runner config files; an admin can activate it in the Airship dashboard"}, nil
+		return nil, verdict{reason: SkipRepositoryInactive, detail: repo.FullName + " is not activated; an admin can activate it under Repositories in the dashboard"}, nil
 	}
 	if err != nil {
 		return nil, verdict{}, fmt.Errorf("get repository: %w", err)
@@ -153,49 +130,36 @@ func (s *Service) planFromConfig(ctx context.Context, installation db.Installati
 		return nil, verdict{reason: SkipAccessDenied, detail: denied}, nil
 	}
 
-	planes, err := s.q.ListDataPlanes(ctx, installation.ID)
+	creds, err := s.q.ListCloudCredentials(ctx, installation.ID)
 	if err != nil {
-		return nil, verdict{}, fmt.Errorf("list data planes: %w", err)
+		return nil, verdict{}, fmt.Errorf("list cloud credentials: %w", err)
 	}
-	plan, missing := resolveDataPlanes(wantsFor(attempts), planes)
+	plan, missing := resolveClouds(wantsFor(attempts), creds)
 	if len(plan) == 0 {
-		return nil, verdict{reason: SkipNoDataPlane, detail: missing}, nil
+		return nil, verdict{reason: SkipNoCloud, detail: missing}, nil
 	}
 
 	return plan, verdict{}, nil
 }
 
-// want is a config attempt before a data plane is chosen for it. Warm
-// pools store these, so a data plane connected later is still used.
+// want is a config attempt before a cloud credential is chosen for it.
+// Warm pools store these, so credentials connected later are still used.
 type want struct {
-	Name      string   `json:"name"`
-	Cloud     string   `json:"cloud"`
-	Region    string   `json:"region,omitempty"`
-	DataPlane string   `json:"dataPlane,omitempty"`
-	Spec      Spec     `json:"spec"`
-	Labels    []string `json:"labels"`
-	Source    string   `json:"source"`
+	Name   string   `json:"name"`
+	Cloud  string   `json:"cloud"`
+	Region string   `json:"region,omitempty"`
+	Spec   Spec     `json:"spec"`
+	Labels []string `json:"labels"`
+	Source string   `json:"source"`
 }
 
 func wantFor(a runnerconfig.Attempt) want {
 	return want{
-		Source:    string(a.Source),
-		Name:      a.Runner.Name,
-		Cloud:     a.Runner.Cloud,
-		Region:    a.Variant.Region,
-		DataPlane: a.Runner.DataPlane,
-		Spec: Spec{
-			Arch:           a.Variant.Arch,
-			InstanceType:   a.Variant.InstanceType,
-			Image:          a.Variant.Image,
-			DiskGB:         a.Variant.Disk.SizeGB,
-			DiskType:       a.Variant.Disk.Type,
-			DiskIOPS:       a.Variant.Disk.IOPS,
-			DiskThroughput: a.Variant.Disk.Throughput,
-			Spot:           a.Variant.Spot,
-			Env:            a.Runner.Env,
-			Privileged:     a.Runner.Privileged,
-		},
+		Source: string(a.Source),
+		Name:   a.Runner.Name,
+		Cloud:  a.Runner.Cloud,
+		Region: a.Variant.Region,
+		Spec:   specFor(a.Runner, a.Variant),
 		Labels: a.Labels,
 	}
 }
@@ -209,71 +173,37 @@ func wantsFor(attempts []runnerconfig.Attempt) []want {
 	return out
 }
 
-// resolveDataPlanes turns wants into a plan, with one attempt per data
-// plane each can launch on. When the plan is empty, missing says why.
-func resolveDataPlanes(wants []want, planes []db.DataPlane) (Plan, string) {
+// resolveClouds turns wants into a plan with the installation's credential
+// for each want's cloud, in the want's region or the credential's default.
+// When the plan is empty, missing says why.
+func resolveClouds(wants []want, creds []db.CloudCredential) (Plan, string) {
+	byCloud := map[string]db.CloudCredential{}
+	for _, c := range creds {
+		byCloud[c.Cloud] = c
+	}
 	var plan Plan
 	var missing []string
 	for _, w := range wants {
-		matched := matchDataPlanes(planes, w.Cloud, w.Region, w.DataPlane)
-		if len(matched) == 0 {
-			missing = append(missing, w.describe())
+		cred, ok := byCloud[w.Cloud]
+		if !ok {
+			missing = append(missing, w.Cloud)
+
+			continue
 		}
-		for _, dp := range matched {
-			plan = append(plan, Attempt{Source: w.Source, Name: w.Name, DataPlaneID: dp.ID, Spec: w.Spec, Labels: w.Labels})
+		region := w.Region
+		if region == "" {
+			region = cred.DefaultRegion
 		}
+		plan = append(plan, Attempt{
+			Source: w.Source, Name: w.Name, Cloud: w.Cloud, CredentialID: cred.ID, Region: region, Spec: w.Spec, Labels: w.Labels,
+		})
 	}
 	if len(plan) > 0 {
 		return plan, ""
 	}
 	slices.Sort(missing)
 
-	return nil, "no connected data plane matches " + strings.Join(slices.Compact(missing), "; ")
-}
-
-func (w want) describe() string {
-	out := "cloud " + w.Cloud
-	if w.Region != "" {
-		out += " in " + w.Region
-	}
-	if w.DataPlane != "" {
-		out = "data plane " + w.DataPlane + " (" + out + ")"
-	}
-
-	return out
-}
-
-// matchDataPlanes lists the data planes a runner can launch on, by name
-// when it names one, otherwise by the cloud and region its agent reported.
-// An agent that never connected has reported neither, so it only matches
-// by name.
-func matchDataPlanes(planes []db.DataPlane, cloud, region, name string) []db.DataPlane {
-	var out []db.DataPlane
-	for _, dp := range planes {
-		if name != "" && !strings.EqualFold(dp.Name, name) {
-			continue
-		}
-		provider := deref(dp.AgentProvider)
-		switch {
-		case provider == "":
-			if name == "" {
-				continue
-			}
-		case provider == testProvider:
-		case provider != providerForCloud[cloud]:
-			continue
-		}
-		if dpRegion := deref(dp.AgentRegion); region != "" && dpRegion != "" && !strings.EqualFold(dpRegion, region) {
-			continue
-		}
-		if region != "" && deref(dp.AgentRegion) == "" && provider == "aws" {
-			continue // an AWS agent always knows its region; this one is elsewhere
-		}
-		out = append(out, dp)
-	}
-	slices.SortFunc(out, func(a, b db.DataPlane) int { return strings.Compare(a.Name, b.Name) })
-
-	return out
+	return nil, "connect " + strings.Join(slices.Compact(missing), ", ") + " under Cloud in the dashboard"
 }
 
 // checkAccess drops organization runners the organization's .access.yml
@@ -371,7 +301,7 @@ type runnerFile struct {
 	problem string
 }
 
-// orgFiles is an organization's .airship repository: its runners and
+// orgFiles is an organization's .cirun repository: its runners and
 // access rules. problem explains a file that could not be used, which then
 // counts as empty, except that a broken .access.yml closes every runner
 // rather than opening them.
@@ -445,7 +375,7 @@ func (s *Service) ForgetConfig(installationID int64, repoFullName string) {
 	delete(c.orgs, installationID)
 }
 
-// readRunnerFile reads a repository's .airship.yml at ref. pinned says ref
+// readRunnerFile reads a repository's .cirun.yml at ref. pinned says ref
 // is a commit, whose content never changes.
 func (s *Service) readRunnerFile(ctx context.Context, installationID int64, repo github.Repo, path, ref string, pinned bool) (runnerFile, error) {
 	key := strings.ToLower(repo.FullName()) + "@" + ref + ":" + path
@@ -473,7 +403,7 @@ func (s *Service) readRunnerFile(ctx context.Context, installationID int64, repo
 	return out, nil
 }
 
-// orgConfig reads the organization's .airship repository.
+// orgConfig reads the organization's .cirun repository.
 func (s *Service) orgConfig(ctx context.Context, installation db.Installation) (orgFiles, error) {
 	if installation.AccountType != "Organization" {
 		return orgFiles{}, nil
@@ -546,12 +476,4 @@ func errorText(err error) string {
 	}
 
 	return err.Error()
-}
-
-func cmpOr(value, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-
-	return value
 }

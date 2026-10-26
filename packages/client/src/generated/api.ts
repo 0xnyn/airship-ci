@@ -2,6 +2,41 @@
 // Change the Go handlers in apps/api, then run `pnpm generate`.
 
 export interface paths {
+    "/api/runner-provision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch a runner's boot script (provision_via: pull_from_api) */
+        get: operations["cirunRunnerProvision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cloud-connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List connected clouds (Cirun-compatible) */
+        get: operations["cirunListClouds"];
+        put?: never;
+        /** Connect a cloud (Cirun-compatible) */
+        post: operations["cirunCloudConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repo": {
         parameters: {
             query?: never;
@@ -31,26 +66,6 @@ export interface paths {
         get: operations["getHealth"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agent/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Sync a data plane agent
-         * @description Reports the agent's inventory and returns runners to launch and instances to terminate. Long-polls up to waitSeconds when there is nothing to do.
-         */
-        post: operations["agentSync"];
         delete?: never;
         options?: never;
         head?: never;
@@ -163,6 +178,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get usage analytics */
+        get: operations["getAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/api-tokens": {
         parameters: {
             query?: never;
@@ -198,25 +230,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/orgs/{org}/data-planes": {
+    "/v1/orgs/{org}/clouds": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List data planes */
-        get: operations["listDataPlanes"];
+        /** List connected clouds */
+        get: operations["listClouds"];
         put?: never;
-        /** Create a data plane */
-        post: operations["createDataPlane"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/orgs/{org}/data-planes/{id}": {
+    "/v1/orgs/{org}/clouds/aws": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect AWS */
+        put: operations["connectAws"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/clouds/{cloud}": {
         parameters: {
             query?: never;
             header?: never;
@@ -226,25 +274,24 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a data plane */
-        delete: operations["deleteDataPlane"];
+        /** Disconnect a cloud */
+        delete: operations["disconnectCloud"];
         options?: never;
         head?: never;
-        /** Update a data plane */
-        patch: operations["updateDataPlane"];
+        patch?: never;
         trace?: never;
     };
-    "/v1/orgs/{org}/data-planes/{id}/rotate-token": {
+    "/v1/orgs/{org}/events": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List events */
+        get: operations["listEvents"];
         put?: never;
-        /** Rotate a data plane's agent token */
-        post: operations["rotateDataPlaneToken"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -260,6 +307,23 @@ export interface paths {
         };
         /** List jobs */
         get: operations["listJobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List organization members with dashboard access */
+        get: operations["listMembers"];
         put?: never;
         post?: never;
         delete?: never;
@@ -292,7 +356,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List warm pools */
+        /** List idle runner pools */
         get: operations["listPools"];
         put?: never;
         post?: never;
@@ -300,42 +364,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/v1/orgs/{org}/profiles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List runner profiles */
-        get: operations["listProfiles"];
-        put?: never;
-        /** Create a runner profile */
-        post: operations["createProfile"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/orgs/{org}/profiles/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete a runner profile */
-        delete: operations["deleteProfile"];
-        options?: never;
-        head?: never;
-        /** Update a runner profile */
-        patch: operations["updateProfile"];
         trace?: never;
     };
     "/v1/orgs/{org}/repositories": {
@@ -363,10 +391,10 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Activate a repository's runner config */
+        /** Activate a repository */
         put: operations["activateRepository"];
         post?: never;
-        /** Deactivate a repository's runner config */
+        /** Deactivate a repository */
         delete: operations["deactivateRepository"];
         options?: never;
         head?: never;
@@ -424,6 +452,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get organization settings */
+        get: operations["getSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update organization settings */
+        patch: operations["updateSettings"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -464,6 +510,17 @@ export interface components {
              */
             allowPublic: boolean;
         };
+        Analytics: {
+            /** @description Per-day series, oldest first */
+            daily: components["schemas"]["DailyUsage"][] | null;
+            /**
+             * Format: int64
+             * @description Window length in days
+             */
+            days: number;
+            /** @description Busiest repositories */
+            repositories: components["schemas"]["RepositoryUsage"][] | null;
+        };
         AuthConfig: {
             /** @description Whether development sign-in is enabled */
             devSignIn: boolean;
@@ -471,6 +528,57 @@ export interface components {
             githubSignInUrl: string | null;
             /** @description Where to install the GitHub App */
             installUrl: string | null;
+        };
+        Cloud: {
+            /** @description Cloud account ID */
+            accountId: string | null;
+            /**
+             * @description Cloud name
+             * @enum {string}
+             */
+            cloud: "aws";
+            /**
+             * Format: date-time
+             * @description When it was connected
+             */
+            connectedAt: string;
+            /** @description Region used when a config names none */
+            defaultRegion: string;
+            /** @description Why the credential stopped working */
+            error: string | null;
+            /** @description Public half of the credential (access key ID) */
+            identity: string;
+            /** @description Who the credential is, such as an IAM ARN */
+            principal: string | null;
+            /**
+             * @description Whether the credential works
+             * @enum {string}
+             */
+            status: "ok" | "invalid";
+            /**
+             * Format: date-time
+             * @description When it was last changed
+             */
+            updatedAt: string;
+            /**
+             * Format: date-time
+             * @description When it was last verified with the cloud
+             */
+            verifiedAt: string | null;
+        };
+        CloudConnect: {
+            /**
+             * @description Cloud name
+             * @enum {string}
+             */
+            cloud: "aws";
+            /** @description Credentials; for aws: access_key, secret_key and optionally region */
+            credentials: {
+                [key: string]: string;
+            };
+        };
+        CloudList: {
+            items: components["schemas"]["Cloud"][] | null;
         };
         ConfigProblem: {
             /** @description What is wrong */
@@ -483,10 +591,8 @@ export interface components {
              * @description Where it launches
              * @enum {string}
              */
-            cloud: "aws" | "on_prem";
-            /** @description Data plane it is pinned to, if any */
-            dataPlane?: string;
-            /** @description Warm pool summary, if it has one */
+            cloud: "aws";
+            /** @description Idle pool summary, if it has one */
             idle?: string;
             /** @description runs-on labels it serves */
             labels: string[] | null;
@@ -514,6 +620,17 @@ export interface components {
             /** @description Whether the file can be used */
             valid: boolean;
         };
+        ConnectAWS: {
+            /** @description IAM access key ID */
+            accessKeyId: string;
+            /**
+             * @description Region used when a config names none
+             * @default eu-west-1
+             */
+            defaultRegion: string;
+            /** @description IAM secret access key */
+            secretAccessKey: string;
+        };
         Cookie: {
             Domain: string;
             /** Format: date-time */
@@ -537,96 +654,37 @@ export interface components {
             /** @description What the token is for */
             name: string;
         };
-        CreateDataPlane: {
-            /** @description Name, unique in the organization */
-            name: string;
-        };
-        CreateProfile: {
+        DailyUsage: {
             /**
-             * @description Run jobs from public repositories, including fork pull requests
-             * @default false
+             * Format: int64
+             * @description Of those, jobs that ran on Airship
              */
-            allowPublicRepos: boolean;
-            /**
-             * @description CPU architecture
-             * @enum {string}
-             */
-            arch: "x64" | "arm64";
-            /**
-             * Format: uuid
-             * @description Data plane that launches the runners
-             */
-            dataPlaneId: string;
-            /**
-             * Format: int32
-             * @description Root disk size in GiB
-             * @default 75
-             */
-            diskGb: number;
-            /** @description Machine image; omit to use the agent's default */
-            image?: string;
-            /** @description Machine type, such as c7i.xlarge */
-            instanceType: string;
-            /** @description runs-on label; lowercase letters, digits, '.', '_' and '-' */
-            label: string;
-            /**
-             * Format: int32
-             * @description Most runners of this profile at once
-             * @default 20
-             */
-            maxRunners: number;
-            /**
-             * @description Use spot capacity
-             * @default false
-             */
-            spot: boolean;
-        };
-        DataPlane: {
-            /** @description Agent build last seen */
-            agentVersion: string | null;
+            airshipJobs: number;
             /**
              * Format: date-time
-             * @description When the data plane was created
+             * @description Start of the day (UTC)
              */
-            createdAt: string;
+            day: string;
             /**
-             * Format: uuid
-             * @description Data plane ID
+             * Format: int64
+             * @description Jobs that failed
              */
-            id: string;
+            failed: number;
             /**
-             * Format: date-time
-             * @description When the agent last synced
+             * Format: int64
+             * @description Jobs queued
              */
-            lastSeenAt: string | null;
+            jobs: number;
             /**
-             * Format: int32
-             * @description Most active runners on this data plane at once
+             * Format: double
+             * @description Median wait from queued to started
              */
-            maxRunners: number;
-            /** @description Name, unique in the organization */
-            name: string;
-            /** @description Where the agent launches runners */
-            provider: string | null;
-            /** @description Region the agent reported, for runner configs */
-            region: string | null;
+            queueP50Seconds: number;
             /**
-             * @description Whether the agent is connected
-             * @enum {string}
+             * Format: double
+             * @description Minutes of jobs run on Airship
              */
-            status: "online" | "offline" | "pending";
-            /** @description First characters of the agent token */
-            tokenHint: string;
-        };
-        DataPlaneCredentials: {
-            /** @description URL the agent connects to */
-            controlPlaneUrl: string;
-            dataPlane: components["schemas"]["DataPlane"];
-            /** @description Agent token. Store it now: it cannot be shown again. */
-            token: string;
-        };
-        DataPlaneList: {
-            items: components["schemas"]["DataPlane"][] | null;
+            runnerMinutes: number;
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -669,6 +727,44 @@ export interface components {
              */
             type: string;
         };
+        Event: {
+            /**
+             * Format: date-time
+             * @description When it happened
+             */
+            createdAt: string;
+            /**
+             * Format: uuid
+             * @description Event ID
+             */
+            id: string;
+            /**
+             * Format: int64
+             * @description Job it concerns
+             */
+            jobId: number | null;
+            /** @description What kind of event, such as runner.launched */
+            kind: string;
+            /**
+             * @description Severity
+             * @enum {string}
+             */
+            level: "info" | "warning" | "error";
+            /** @description What happened */
+            message: string;
+            /** @description Repository it concerns */
+            repository: string | null;
+            /**
+             * Format: uuid
+             * @description Runner it concerns
+             */
+            runnerId: string;
+        };
+        EventList: {
+            items: components["schemas"]["Event"][] | null;
+            /** @description Pass as cursor to get the next page */
+            nextCursor: string | null;
+        };
         HealthStatus: {
             /**
              * @description Database status
@@ -682,17 +778,6 @@ export interface components {
             status: "ok" | "degraded";
             /** @description Running api build */
             version: string;
-        };
-        Instance: {
-            /** @description Provider's instance ID */
-            instanceId: string;
-            /**
-             * Format: uuid
-             * @description Airship runner ID the instance was launched for
-             */
-            runnerId: string;
-            /** @description The instance is already shutting down */
-            stopping?: boolean;
         };
         Job: {
             /**
@@ -718,11 +803,6 @@ export interface components {
             /** @description Whether the job ran on an Airship runner */
             onAirship: boolean;
             /**
-             * Format: uuid
-             * @description Profile that served the job, if any
-             */
-            profileId: string;
-            /**
              * Format: date-time
              * @description When the job was queued
              */
@@ -737,7 +817,7 @@ export interface components {
              * @description Why Airship did not run a job that asked for it
              * @enum {string|null}
              */
-            skipReason: "public_repository" | "unsatisfiable_labels" | "ambiguous_labels" | "installation_suspended" | "repository_inactive" | "config_invalid" | "access_denied" | "no_data_plane" | null;
+            skipReason: "public_repository" | "unsatisfiable_labels" | "installation_suspended" | "repository_inactive" | "config_invalid" | "access_denied" | "no_cloud" | null;
             /**
              * Format: date-time
              * @description When it started
@@ -756,76 +836,6 @@ export interface components {
             /** @description Pass as cursor to get the next page */
             nextCursor: string | null;
         };
-        Launch: {
-            /** @description Single-use GitHub runner registration. Treat as a secret. */
-            jitConfig: string;
-            /**
-             * Format: int64
-             * @description Hard deadline after which the instance powers itself off
-             */
-            maxLifetimeSeconds: number;
-            profile: components["schemas"]["LaunchProfile"];
-            /** @description Repository the runner is registered to (owner/name) */
-            repository: string;
-            /**
-             * Format: uuid
-             * @description Airship runner ID; tag the instance with it
-             */
-            runnerId: string;
-            /** @description GitHub runner name */
-            runnerName: string;
-            /** @description actions/runner version to run */
-            runnerVersion: string;
-        };
-        LaunchFailure: {
-            /** @description Provider error, shown to the customer */
-            error: string;
-            /** @description Whether launching again could succeed */
-            retryable: boolean;
-            /**
-             * Format: uuid
-             * @description Runner the launch was for
-             */
-            runnerId: string;
-        };
-        LaunchProfile: {
-            /**
-             * @description CPU architecture
-             * @enum {string}
-             */
-            arch: "x64" | "arm64";
-            /**
-             * Format: int64
-             * @description Root disk size in GiB
-             */
-            diskGb: number;
-            /**
-             * Format: int64
-             * @description Provisioned IOPS; 0 means the volume type's default
-             */
-            diskIops?: number;
-            /**
-             * Format: int64
-             * @description gp3 throughput in MiB/s; 0 means the default
-             */
-            diskThroughput?: number;
-            /** @description Root volume type (gp3, gp2, io1, io2); empty means gp3 */
-            diskType?: string;
-            /** @description Environment variables for the runner's jobs */
-            env?: {
-                [key: string]: string;
-            };
-            /** @description Machine image; empty means the agent's default for the arch */
-            image?: string;
-            /** @description Provider machine type, such as c7i.xlarge */
-            instanceType: string;
-            /** @description runs-on label */
-            label: string;
-            /** @description Run the container privileged (Docker provider) */
-            privileged?: boolean;
-            /** @description Use spot or preemptible capacity */
-            spot: boolean;
-        };
         Me: {
             /** @description Avatar image URL */
             avatarUrl: string | null;
@@ -835,6 +845,27 @@ export interface components {
             name: string | null;
             /** @description Organizations with Airship installed */
             organizations: components["schemas"]["Organization"][] | null;
+        };
+        Member: {
+            /** @description Avatar image URL */
+            avatarUrl: string | null;
+            /** @description GitHub login */
+            login: string;
+            /** @description Display name */
+            name: string | null;
+            /**
+             * Format: date-time
+             * @description When the role was last checked with GitHub
+             */
+            refreshedAt: string;
+            /**
+             * @description Dashboard role, from the GitHub organization role
+             * @enum {string}
+             */
+            role: "admin" | "member";
+        };
+        MemberList: {
+            items: components["schemas"]["Member"][] | null;
         };
         Organization: {
             /**
@@ -858,7 +889,7 @@ export interface components {
             type: "Organization" | "User";
         };
         OrganizationRunnerConfig: {
-            /** @description Whether the organization has a .airship.global.yml */
+            /** @description Whether the organization has a .cirun.global.yml */
             found: boolean;
             /** @description Why the files cannot be used */
             problem: string | null;
@@ -866,7 +897,7 @@ export interface components {
             restricted: boolean;
             /** @description Organization runner definitions */
             runners: components["schemas"]["ConfigRunner"][] | null;
-            /** @description Blob SHA of .airship.global.yml */
+            /** @description Blob SHA of .cirun.global.yml */
             sha: string | null;
         };
         Overview: {
@@ -940,7 +971,7 @@ export interface components {
             mode: "fixed" | "schedule" | "usage";
             /** @description Runner definition name */
             name: string;
-            /** @description Repository whose .airship.yml defines it */
+            /** @description Repository whose .cirun.yml defines it */
             repository: string;
             /**
              * Format: int32
@@ -961,60 +992,10 @@ export interface components {
         PoolList: {
             items: components["schemas"]["Pool"][] | null;
         };
-        Profile: {
-            /** @description Run jobs from public repositories, including fork pull requests */
-            allowPublicRepos: boolean;
-            /**
-             * @description CPU architecture
-             * @enum {string}
-             */
-            arch: "x64" | "arm64";
-            /**
-             * Format: date-time
-             * @description When the profile was created
-             */
-            createdAt: string;
-            /**
-             * Format: uuid
-             * @description Data plane that launches the runners
-             */
-            dataPlaneId: string;
-            /**
-             * Format: int32
-             * @description Root disk size in GiB
-             */
-            diskGb: number;
-            /**
-             * Format: uuid
-             * @description Profile ID
-             */
-            id: string;
-            /** @description Machine image; null uses the agent's default */
-            image: string | null;
-            /** @description Machine type, such as c7i.xlarge */
-            instanceType: string;
-            /** @description The runs-on label that selects this profile */
-            label: string;
-            /**
-             * Format: int32
-             * @description Most runners of this profile at once
-             */
-            maxRunners: number;
-            /** @description Use spot capacity */
-            spot: boolean;
-            /**
-             * Format: date-time
-             * @description When the profile last changed
-             */
-            updatedAt: string;
-        };
-        ProfileList: {
-            items: components["schemas"]["Profile"][] | null;
-        };
         Repository: {
             /** @description Whether the app can still access the repository */
             accessible: boolean;
-            /** @description Whether its .airship.yml launches runners */
+            /** @description Whether its .cirun.yml launches runners */
             activated: boolean;
             /**
              * Format: date-time
@@ -1023,7 +1004,7 @@ export interface components {
             activatedAt: string | null;
             /** @description Serve jobs while the repository is public */
             allowPublic: boolean;
-            /** @description The default branch's .airship.yml as last read */
+            /** @description The default branch's .cirun.yml as last read */
             config: components["schemas"]["ConfigState"];
             /** @description Branch idle runner config is read from */
             defaultBranch: string;
@@ -1040,6 +1021,25 @@ export interface components {
         RepositoryList: {
             items: components["schemas"]["Repository"][] | null;
         };
+        RepositoryUsage: {
+            /**
+             * Format: int64
+             * @description Jobs that ran on Airship
+             */
+            airshipJobs: number;
+            /**
+             * Format: int64
+             * @description Jobs queued
+             */
+            jobs: number;
+            /** @description Repository (owner/name) */
+            repository: string;
+            /**
+             * Format: double
+             * @description Minutes of jobs run on Airship
+             */
+            runnerMinutes: number;
+        };
         Runner: {
             /**
              * Format: date-time
@@ -1047,16 +1047,18 @@ export interface components {
              */
             busyAt: string | null;
             /**
+             * @description Cloud it launched in
+             * @enum {string}
+             */
+            cloud: "aws";
+            /**
              * Format: date-time
              * @description When demand for it was created
              */
             createdAt: string;
-            /**
-             * Format: uuid
-             * @description Data plane that runs it
-             */
-            dataPlaneId: string;
-            /** @description Launch error reported by the data plane */
+            /** @description Runner name from the config file */
+            definition: string;
+            /** @description Launch error from the cloud or GitHub */
             error: string | null;
             /** @description Why the runner finished */
             finishReason: string | null;
@@ -1070,34 +1072,41 @@ export interface components {
              * @description Runner ID
              */
             id: string;
-            /** @description Provider instance ID */
+            /** @description Cloud instance ID */
             instanceId: string | null;
             /** @description Machine type it launched as */
             instanceType: string;
+            /**
+             * Format: int64
+             * @description Job it was created for
+             */
+            jobId: number | null;
             /** @description Labels it registered with */
             labels: string[] | null;
             /** @description Name registered with GitHub */
             name: string;
-            /** @description Profile label, or config runner name */
-            profileLabel: string;
+            /** @description Region it launched in */
+            region: string;
             /** @description Repository the runner is registered to */
             repository: string;
             /**
              * Format: date-time
-             * @description When its instance was first seen
+             * @description When its instance was launched
              */
             runningAt: string | null;
             /**
-             * @description What defined the runner
+             * @description Which file defined the runner
              * @enum {string}
              */
-            source: "profile" | "repository" | "organization";
+            source: "repository" | "organization";
+            /** @description Whether it uses spot capacity */
+            spot: boolean;
             /**
              * @description Lifecycle state
              * @enum {string}
              */
-            state: "pending" | "assigned" | "running" | "busy" | "finished";
-            /** @description Whether it was started ahead of demand by a warm pool */
+            state: "pending" | "launching" | "running" | "busy" | "finished";
+            /** @description Whether it was started ahead of demand by an idle pool */
             warm: boolean;
         };
         RunnerCounts: {
@@ -1118,7 +1127,7 @@ export interface components {
             pending: number;
             /**
              * Format: int64
-             * @description Handed to an agent or booting
+             * @description Being launched
              */
             starting: number;
         };
@@ -1133,83 +1142,12 @@ export interface components {
             /** @description owner/name, or just the name */
             repository: string;
         };
-        SyncRequest: {
-            /** @description Agent build */
-            agentVersion: string;
-            /**
-             * Format: int64
-             * @description Launches the agent will accept in this response
-             */
-            capacity: number;
-            /** @description Launches that failed since the last sync */
-            failures: components["schemas"]["LaunchFailure"][] | null;
-            /** @description Every live runner instance the provider reports for this data plane */
-            instances: components["schemas"]["Instance"][] | null;
-            /** @description Instances is not a complete inventory; skip reconciliation */
-            inventoryUnknown?: boolean;
-            /**
-             * @description Provider the agent launches runners with
-             * @enum {string}
-             */
-            provider: "aws" | "docker" | "fake";
-            /** @description Runner IDs received in launches recently */
-            received?: string[] | null;
-            /** @description Region the provider launches in */
-            region?: string;
-            /**
-             * Format: int64
-             * @description Seconds to hold the request open when there is no work
-             */
-            waitSeconds: number;
-        };
-        SyncResponse: {
-            /**
-             * Format: uuid
-             * @description Data plane the token belongs to
-             */
-            dataPlaneId: string;
-            /** @description Runners to launch */
-            launch: components["schemas"]["Launch"][] | null;
-            /** @description Instances to terminate */
-            terminate: components["schemas"]["Terminate"][] | null;
-        };
-        Terminate: {
-            /** @description Provider's instance ID */
-            instanceId: string;
-            /** @description Why the instance should go */
-            reason: string;
-            /**
-             * Format: uuid
-             * @description Runner the instance belongs to
-             */
-            runnerId: string;
-        };
-        UpdateDataPlane: {
+        Settings: {
             /**
              * Format: int32
-             * @description Most active runners on this data plane at once, across profiles and config files
+             * @description Most live runners at once across every repository
              */
             maxRunners: number;
-        };
-        UpdateProfile: {
-            /** @description Run jobs from public repositories */
-            allowPublicRepos?: boolean;
-            /**
-             * Format: int32
-             * @description New root disk size in GiB
-             */
-            diskGb?: number;
-            /** @description New machine image; an empty string restores the agent's default */
-            image?: string;
-            /** @description New machine type */
-            instanceType?: string;
-            /**
-             * Format: int32
-             * @description Most runners at once
-             */
-            maxRunners?: number;
-            /** @description Use spot capacity */
-            spot?: boolean;
         };
         ValidateConfig: {
             /** @description The file's content */
@@ -1218,7 +1156,7 @@ export interface components {
              * @description Which file this is
              * @enum {string}
              */
-            file: ".airship.yml" | ".airship.global.yml" | ".access.yml";
+            file: ".cirun.yml" | ".cirun.global.yml" | ".access.yml";
         };
     };
     responses: never;
@@ -1229,6 +1167,101 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    cirunRunnerProvision: {
+        parameters: {
+            query: {
+                /** @description The runner's name, from the instance's Name tag */
+                runner_name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    cirunListClouds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CloudList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    cirunCloudConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloudConnect"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     cirunListRepositories: {
         parameters: {
             query?: never;
@@ -1307,42 +1340,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthStatus"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    agentSync: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Bearer data plane token */
-                Authorization: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SyncRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncResponse"];
                 };
             };
             /** @description Error */
@@ -1567,6 +1564,40 @@ export interface operations {
             };
         };
     };
+    getAnalytics: {
+        parameters: {
+            query?: {
+                /** @description Window length in days */
+                days?: number;
+            };
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Analytics"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     listApiTokens: {
         parameters: {
             query?: never;
@@ -1666,7 +1697,7 @@ export interface operations {
             };
         };
     };
-    listDataPlanes: {
+    listClouds: {
         parameters: {
             query?: never;
             header?: never;
@@ -1684,7 +1715,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DataPlaneList"];
+                    "application/json": components["schemas"]["CloudList"];
                 };
             };
             /** @description Error */
@@ -1698,7 +1729,7 @@ export interface operations {
             };
         };
     };
-    createDataPlane: {
+    connectAws: {
         parameters: {
             query?: never;
             header?: never;
@@ -1709,17 +1740,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateDataPlane"];
+                "application/json": components["schemas"]["ConnectAWS"];
             };
         };
         responses: {
-            /** @description Created */
-            201: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DataPlaneCredentials"];
+                    "application/json": components["schemas"]["Cloud"];
                 };
             };
             /** @description Error */
@@ -1733,15 +1764,14 @@ export interface operations {
             };
         };
     };
-    deleteDataPlane: {
+    disconnectCloud: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description GitHub organization login */
                 org: string;
-                /** @description Resource ID */
-                id: string;
+                /** @description Cloud name */
+                cloud: "aws";
             };
             cookie?: never;
         };
@@ -1765,51 +1795,19 @@ export interface operations {
             };
         };
     };
-    updateDataPlane: {
+    listEvents: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Only events of this level */
+                level?: "info" | "warning" | "error";
+                /** @description Cursor from a previous page */
+                cursor?: string;
+                /** @description Page size */
+                limit?: number;
+            };
             header?: never;
             path: {
                 org: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateDataPlane"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DataPlane"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    rotateDataPlaneToken: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description GitHub organization login */
-                org: string;
-                /** @description Resource ID */
-                id: string;
             };
             cookie?: never;
         };
@@ -1821,7 +1819,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DataPlaneCredentials"];
+                    "application/json": components["schemas"]["EventList"];
                 };
             };
             /** @description Error */
@@ -1860,6 +1858,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberList"];
                 };
             };
             /** @description Error */
@@ -1924,141 +1954,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PoolList"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    listProfiles: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description GitHub organization login */
-                org: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProfileList"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    createProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                org: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateProfile"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Profile"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    deleteProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description GitHub organization login */
-                org: string;
-                /** @description Resource ID */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    updateProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                org: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateProfile"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Profile"];
                 };
             };
             /** @description Error */
@@ -2264,6 +2159,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunnerList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Settings"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
                 };
             };
             /** @description Error */

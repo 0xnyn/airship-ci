@@ -156,7 +156,7 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 }
 
 const getInstallation = `-- name: GetInstallation :one
-select id, account_id, account_login, account_type, suspended_at, deleted_at, created_at, updated_at from installations where id = $1
+select id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at from installations where id = $1
 `
 
 func (q *Queries) GetInstallation(ctx context.Context, id int64) (Installation, error) {
@@ -167,6 +167,7 @@ func (q *Queries) GetInstallation(ctx context.Context, id int64) (Installation, 
 		&i.AccountID,
 		&i.AccountLogin,
 		&i.AccountType,
+		&i.MaxRunners,
 		&i.SuspendedAt,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -198,7 +199,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, tokenHash []byte) (User, e
 }
 
 const getUserInstallationByLogin = `-- name: GetUserInstallationByLogin :one
-select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
+select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
 from memberships
 join installations on installations.id = memberships.installation_id
 where memberships.user_id = $1 and installations.deleted_at is null
@@ -223,6 +224,7 @@ func (q *Queries) GetUserInstallationByLogin(ctx context.Context, arg GetUserIns
 		&i.Installation.AccountID,
 		&i.Installation.AccountLogin,
 		&i.Installation.AccountType,
+		&i.Installation.MaxRunners,
 		&i.Installation.SuspendedAt,
 		&i.Installation.DeletedAt,
 		&i.Installation.CreatedAt,
@@ -232,8 +234,52 @@ func (q *Queries) GetUserInstallationByLogin(ctx context.Context, arg GetUserIns
 	return i, err
 }
 
+const listInstallationMembers = `-- name: ListInstallationMembers :many
+select users.id, users.github_id, users.login, users.name, users.avatar_url, users.created_at, users.updated_at, memberships.role, memberships.refreshed_at
+from memberships
+join users on users.id = memberships.user_id
+where memberships.installation_id = $1
+order by memberships.role, lower(users.login)
+`
+
+type ListInstallationMembersRow struct {
+	User        User
+	Role        string
+	RefreshedAt time.Time
+}
+
+func (q *Queries) ListInstallationMembers(ctx context.Context, installationID int64) ([]ListInstallationMembersRow, error) {
+	rows, err := q.db.Query(ctx, listInstallationMembers, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInstallationMembersRow{}
+	for rows.Next() {
+		var i ListInstallationMembersRow
+		if err := rows.Scan(
+			&i.User.ID,
+			&i.User.GithubID,
+			&i.User.Login,
+			&i.User.Name,
+			&i.User.AvatarUrl,
+			&i.User.CreatedAt,
+			&i.User.UpdatedAt,
+			&i.Role,
+			&i.RefreshedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLiveInstallations = `-- name: ListLiveInstallations :many
-select id, account_id, account_login, account_type, suspended_at, deleted_at, created_at, updated_at from installations where deleted_at is null order by id
+select id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at from installations where deleted_at is null order by id
 `
 
 func (q *Queries) ListLiveInstallations(ctx context.Context) ([]Installation, error) {
@@ -250,6 +296,7 @@ func (q *Queries) ListLiveInstallations(ctx context.Context) ([]Installation, er
 			&i.AccountID,
 			&i.AccountLogin,
 			&i.AccountType,
+			&i.MaxRunners,
 			&i.SuspendedAt,
 			&i.DeletedAt,
 			&i.CreatedAt,
@@ -266,7 +313,7 @@ func (q *Queries) ListLiveInstallations(ctx context.Context) ([]Installation, er
 }
 
 const listUserInstallations = `-- name: ListUserInstallations :many
-select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
+select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
 from memberships
 join installations on installations.id = memberships.installation_id
 where memberships.user_id = $1 and installations.deleted_at is null
@@ -292,6 +339,7 @@ func (q *Queries) ListUserInstallations(ctx context.Context, userID uuid.UUID) (
 			&i.Installation.AccountID,
 			&i.Installation.AccountLogin,
 			&i.Installation.AccountType,
+			&i.Installation.MaxRunners,
 			&i.Installation.SuspendedAt,
 			&i.Installation.DeletedAt,
 			&i.Installation.CreatedAt,
@@ -315,6 +363,32 @@ update installations set deleted_at = now(), updated_at = now() where id = $1
 func (q *Queries) MarkInstallationDeleted(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, markInstallationDeleted, id)
 	return err
+}
+
+const setInstallationMaxRunners = `-- name: SetInstallationMaxRunners :one
+update installations set max_runners = $2, updated_at = now() where id = $1 returning id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at
+`
+
+type SetInstallationMaxRunnersParams struct {
+	ID         int64
+	MaxRunners int32
+}
+
+func (q *Queries) SetInstallationMaxRunners(ctx context.Context, arg SetInstallationMaxRunnersParams) (Installation, error) {
+	row := q.db.QueryRow(ctx, setInstallationMaxRunners, arg.ID, arg.MaxRunners)
+	var i Installation
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.AccountLogin,
+		&i.AccountType,
+		&i.MaxRunners,
+		&i.SuspendedAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setInstallationSuspended = `-- name: SetInstallationSuspended :exec
@@ -357,7 +431,7 @@ set account_id = excluded.account_id,
     suspended_at = excluded.suspended_at,
     deleted_at = null,
     updated_at = now()
-returning id, account_id, account_login, account_type, suspended_at, deleted_at, created_at, updated_at
+returning id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at
 `
 
 type UpsertInstallationParams struct {
@@ -382,6 +456,7 @@ func (q *Queries) UpsertInstallation(ctx context.Context, arg UpsertInstallation
 		&i.AccountID,
 		&i.AccountLogin,
 		&i.AccountType,
+		&i.MaxRunners,
 		&i.SuspendedAt,
 		&i.DeletedAt,
 		&i.CreatedAt,

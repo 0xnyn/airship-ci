@@ -6,19 +6,15 @@ import (
 )
 
 // One-line runners describe the machine in the label itself, so a
-// workflow needs no config file:
+// workflow needs no config file, as Cirun's "one line change" runners:
 //
-//	runs-on: airship-aws-c7i-xlarge--${{ github.run_id }}
-//	runs-on: airship-aws-t4g-large-ubuntu2204-spot
-//	runs-on: airship-onprem-4vcpu-8gb
+//	runs-on: cirun-aws-t2-large-ubuntu2204--${{ github.run_id }}
+//	runs-on: cirun-aws-c7g-xlarge-spot
 //
 // AWS labels are the instance type with "." written as "-", then optional
-// tokens: an Ubuntu release (ubuntu2204, ubuntu2404; default: the agent's
-// image) and "spot".
-const (
-	oneLineAWS    = LabelPrefix + "aws-"
-	oneLineOnPrem = LabelPrefix + "onprem-"
-)
+// tokens: an Ubuntu release (ubuntu2204, the default, or ubuntu2404) and
+// "spot". They launch in the connected cloud's default region.
+const oneLineAWS = LabelPrefix + "aws-"
 
 var (
 	// EC2 sizes: nano ... 48xlarge, metal, metal-24xl.
@@ -27,65 +23,32 @@ var (
 	familyPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 )
 
-// ubuntuImages maps one-line image tokens to Canonical's SSM parameters,
-// by architecture (the volume type segment changed with 23.10).
-var ubuntuImages = map[string]map[string]string{
-	"ubuntu2204": {
-		"x64":   "resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
-		"arm64": "resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id",
-	},
-	"ubuntu2404": {
-		"x64":   "resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
-		"arm64": "resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id",
-	},
-}
-
 // OneLine reads a one-line runner from a runs-on label (with or without
 // its suffix). ok is false for labels that are not one-line labels.
 func OneLine(label string) (Runner, bool) {
 	base, isConfig := BaseLabel(label)
-	if !isConfig {
+	if !isConfig || !strings.HasPrefix(base, oneLineAWS) {
 		return Runner{}, false
 	}
-	var variant Variant
-	cloud := ""
-	switch {
-	case strings.HasPrefix(base, oneLineAWS):
-		cloud = CloudAWS
-		v, ok := oneLineEC2(strings.TrimPrefix(base, oneLineAWS))
-		if !ok {
-			return Runner{}, false
-		}
-		variant = v
-	case strings.HasPrefix(base, oneLineOnPrem):
-		cloud = CloudOnPrem
-		shape := strings.TrimPrefix(base, oneLineOnPrem)
-		if !shapePattern.MatchString(shape) {
-			return Runner{}, false
-		}
-		variant = Variant{InstanceType: shape, Arch: "x64"}
-	default:
+	variant, ok := oneLineEC2(strings.TrimPrefix(base, oneLineAWS))
+	if !ok || !labelPattern.MatchString(base) {
 		return Runner{}, false
 	}
-	variant.Disk = Disk{SizeGB: defaultDiskGB}
-	if !labelPattern.MatchString(base) {
-		return Runner{}, false
-	}
+	variant.Disk = Disk{SizeGB: DefaultDiskGB}
 
-	return Runner{Name: base, Cloud: cloud, Labels: []string{base}, Variants: []Variant{variant}}, true
+	return Runner{Name: base, Cloud: CloudAWS, Labels: []string{base}, Variants: []Variant{variant}}, true
 }
 
 func oneLineEC2(rest string) (Variant, bool) {
 	tokens := strings.Split(rest, "-")
 	var out Variant
-	image := ""
 	// Optional trailing tokens, in either order.
 	for len(tokens) > 2 {
 		last := tokens[len(tokens)-1]
 		if last == "spot" && !out.Spot {
 			out.Spot = true
-		} else if ubuntuImages[last] != nil && image == "" {
-			image = last
+		} else if imageAliasPattern.MatchString(last) && out.Image == "" {
+			out.Image = last
 		} else {
 			break
 		}
@@ -108,9 +71,6 @@ func oneLineEC2(rest string) (Variant, bool) {
 	}
 	out.InstanceType = family + "." + size
 	out.Arch = ArchForInstanceType(out.InstanceType)
-	if image != "" {
-		out.Image = ubuntuImages[image][out.Arch]
-	}
 
 	return out, true
 }

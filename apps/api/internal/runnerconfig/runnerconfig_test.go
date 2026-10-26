@@ -27,14 +27,14 @@ runners:
     region: us-east-1
     preemptible: false
     labels:
-      - airship-small
+      - cirun-small
 `)
 	r := f.Runners[0]
 	if r.Name != "small-runner" || r.Cloud != CloudAWS || len(r.Variants) != 1 {
 		t.Fatalf("parsed %+v", r)
 	}
 	v := r.Variants[0]
-	if v.InstanceType != "c5.xlarge" || v.Image != "ami-0c55b159cbfafe1f0" || v.Region != "us-east-1" || v.Spot || v.Arch != "x64" || v.Disk.SizeGB != defaultDiskGB {
+	if v.InstanceType != "c5.xlarge" || v.Image != "ami-0c55b159cbfafe1f0" || v.Region != "us-east-1" || v.Spot || v.Arch != "x64" || v.Disk.SizeGB != DefaultDiskGB {
 		t.Fatalf("variant %+v", v)
 	}
 }
@@ -49,7 +49,7 @@ runners:
   machine_image: "ami-0123456789abcdef0"
   region: "eu-west-1"
   preemptible: [true, true, false]
-  labels: ["airship-multiple-runner-options"]
+  labels: ["cirun-multiple-runner-options"]
 `)
 	got := f.Runners[0].Variants
 	want := []struct {
@@ -73,20 +73,20 @@ runners:
   - name: a
     cloud: aws
     instance_type: c7i.large
-    labels: [airship-a]
+    labels: [cirun-a]
     instance_tpye: typo
 `, "unknown field instance_tpye"},
 		"unsupported cloud": {`
 runners:
-  - {name: a, cloud: gcp, instance_type: n1-standard-1, labels: [airship-a]}
+  - {name: a, cloud: gcp, instance_type: n1-standard-1, labels: [cirun-a]}
 `, `cloud "gcp" is not supported`},
 		"label prefix": {`
 runners:
-  - {name: a, cloud: aws, instance_type: c7i.large, labels: [cirun-a]}
-`, `must start with "airship-"`},
+  - {name: a, cloud: aws, instance_type: c7i.large, labels: [airship-a]}
+`, `must start with "cirun-"`},
 		"suffix separator in label": {`
 runners:
-  - {name: a, cloud: aws, instance_type: c7i.large, labels: [airship-a--b]}
+  - {name: a, cloud: aws, instance_type: c7i.large, labels: [cirun-a--b]}
 `, `may not contain "--"`},
 		"uneven fallbacks": {`
 runners:
@@ -94,23 +94,23 @@ runners:
     cloud: aws
     instance_type: [c7i.large, c7i.xlarge]
     region: [us-east-1, us-east-2, eu-west-1]
-    labels: [airship-a]
+    labels: [cirun-a]
 `, "fallback lists must be the same length"},
 		"bad ami": {`
 runners:
-  - {name: a, cloud: aws, instance_type: c7i.large, machine_image: ubuntu, labels: [airship-a]}
+  - {name: a, cloud: aws, instance_type: c7i.large, machine_image: ubuntu, labels: [cirun-a]}
 `, "must be an AMI ID"},
 		"duplicate name": {`
 runners:
-  - {name: a, cloud: aws, instance_type: c7i.large, labels: [airship-a]}
-  - {name: A, cloud: aws, instance_type: c7i.large, labels: [airship-b]}
+  - {name: a, cloud: aws, instance_type: c7i.large, labels: [cirun-a]}
+  - {name: A, cloud: aws, instance_type: c7i.large, labels: [cirun-b]}
 `, "defined twice"},
 		"reserved env": {`
 runners:
   - name: a
     cloud: aws
     instance_type: c7i.large
-    labels: [airship-a]
+    labels: [cirun-a]
     extra_config:
       env_vars: {GITHUB_TOKEN: x}
 `, "reserved for the runner"},
@@ -119,24 +119,53 @@ runners:
   - name: a
     cloud: aws
     instance_type: c7i.large
-    labels: [airship-a]
+    labels: [cirun-a]
     extra_config:
       env_vars: {FOO: "a\nb"}
 `, "line breaks"},
-		"cirun cache flag": {`
+		"gcp extra config": {`
 runners:
   - name: a
     cloud: aws
     instance_type: c7i.large
-    labels: [airship-a]
-    extra_config: {cache: true}
-`, "unknown field cache"},
+    labels: [cirun-a]
+    extra_config: {baseDisk: {diskSizeGb: 10}}
+`, "unknown field baseDisk"},
+		"bad provision_via": {`
+runners:
+  - name: a
+    cloud: aws
+    instance_type: c7i.large
+    labels: [cirun-a]
+    extra_config: {provision_via: push}
+`, "provision_via must be pull_from_api"},
+		"bad runner path": {`
+runners:
+  - name: a
+    cloud: aws
+    instance_type: c7i.large
+    labels: [cirun-a]
+    extra_config: {runner_path: "C:\\r\"; calc"}
+`, "runner_path must be a Windows path"},
+		"bad region": {`
+runners:
+  - {name: a, cloud: aws, instance_type: c7i.large, region: RegionOne, labels: [cirun-a]}
+`, "not an AWS region"},
+		"bad init rate": {`
+runners:
+  - name: a
+    cloud: aws
+    instance_type: c7i.large
+    labels: [cirun-a]
+    extra_config:
+      BlockDeviceMappings: [{DeviceName: /dev/sda1, VolumeSize: 100, VolumeInitializationRate: 50}]
+`, "VolumeInitializationRate must be between 100 and 300"},
 		"two idle forms": {`
 runners:
   - name: a
     cloud: aws
     instance_type: c7i.large
-    labels: [airship-a]
+    labels: [cirun-a]
     idle:
       replicas: 1
       usage_based: {trigger: runner_allocated, replicas: 1, duration: 10}
@@ -146,14 +175,14 @@ runners:
   - name: a
     cloud: aws
     instance_type: c7i.large
-    labels: [airship-a]
+    labels: [cirun-a]
     idle:
       schedule: [{day: mon-fri, time: 9-17, timezone: Mars/Olympus, replicas: 2}]
 `, "not a time zone"},
-		"on_prem spot": {`
+		"on_prem": {`
 runners:
-  - {name: a, cloud: on_prem, instance_type: 4vcpu-8gb, preemptible: true, labels: [airship-a]}
-`, "does not apply to on_prem"},
+  - {name: a, cloud: on_prem, instance_type: 4vcpu-8gb, labels: [cirun-a]}
+`, `cloud "on_prem" is not supported yet`},
 		"empty":      {"", "file is empty"},
 		"no runners": {"runners: []", "at least one runner"},
 	}
@@ -174,10 +203,10 @@ func TestParseRejectsHugeAndAliasBombs(t *testing.T) {
 	// gpu is the one field that accepts nested YAML, so the bomb lives
 	// there: each runner's gpu aliases the previous one nine times.
 	var b strings.Builder
-	b.WriteString("runners:\n  - {name: r0, cloud: aws, instance_type: c7i.large, labels: [airship-a], gpu: &a0 [x,x,x,x,x,x,x,x,x]}\n")
+	b.WriteString("runners:\n  - {name: r0, cloud: aws, instance_type: c7i.large, labels: [cirun-a], gpu: &a0 [x,x,x,x,x,x,x,x,x]}\n")
 	for i := 1; i <= 9; i++ {
 		prev := fmt.Sprintf("*a%d", i-1)
-		fmt.Fprintf(&b, "  - {name: r%d, cloud: aws, instance_type: c7i.large, labels: [airship-a], gpu: &a%d [%s]}\n",
+		fmt.Fprintf(&b, "  - {name: r%d, cloud: aws, instance_type: c7i.large, labels: [cirun-a], gpu: &a%d [%s]}\n",
 			i, i, strings.Repeat(prev+",", 8)+prev)
 	}
 	bomb := b.String()
@@ -193,6 +222,78 @@ func TestParseRejectsHugeAndAliasBombs(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("alias bomb hung the parser")
+	}
+}
+
+// Cirun's AWS extra_config and gpu fields all land on the runner.
+func TestParseExtraConfig(t *testing.T) {
+	f := mustParse(t, `
+runners:
+  - name: gpu
+    cloud: aws
+    gpu: nvidia-tesla-t4
+    instance_type: g4dn.xlarge
+    machine_image: ami-00ac0c28c01352e53
+    region: eu-west-1
+    labels: [cirun-gpu]
+    extra_config:
+      cache: true
+      provision_via: pull_from_api
+      run_as: interactive
+      runner_user: runner
+      runner_path: "C:\\r"
+      SubnetId: subnet-0123456789abcdef0
+      SecurityGroupIds: [sg-0123456789abcdef0]
+      IamInstanceProfile: ci-runner
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          VolumeSize: 100
+          VolumeType: gp3
+          Iops: 6000
+          Throughput: 1000
+          VolumeInitializationRate: 300
+      env_vars:
+        NODE_ENV: production
+`)
+	r := f.Runners[0]
+	if !r.GPU || !r.Cache || r.ProvisionVia != ProvisionPullFromAPI || !r.Windows.Interactive || r.Windows.User != "runner" || r.Windows.Path != `C:\r` {
+		t.Fatalf("runner = %+v", r)
+	}
+	if r.SubnetID != "subnet-0123456789abcdef0" || r.SecurityGroupIDs[0] != "sg-0123456789abcdef0" || r.InstanceProfile != "ci-runner" || r.Env["NODE_ENV"] != "production" {
+		t.Fatalf("runner = %+v", r)
+	}
+	d := r.Variants[0].Disk
+	if d.SizeGB != 100 || d.Type != "gp3" || d.IOPS != 6000 || d.Throughput != 1000 || d.InitRate != 300 {
+		t.Fatalf("disk = %+v", d)
+	}
+	plan := Plan([]string{"cirun-gpu"}, []Candidate{{Source: SourceRepository, Runner: r}})
+	if len(plan) != 1 || strings.Join(plan[0].Labels, ",") != "self-hosted,x64,aws,gpu,cirun-gpu" {
+		t.Fatalf("labels = %v", plan)
+	}
+}
+
+func TestOneLine(t *testing.T) {
+	cases := map[string]Variant{
+		"cirun-aws-t2-large-ubuntu2204--123":  {InstanceType: "t2.large", Image: "ubuntu2204", Arch: "x64"},
+		"cirun-aws-c7g-xlarge-spot":           {InstanceType: "c7g.xlarge", Arch: "arm64", Spot: true},
+		"cirun-aws-m7i-metal-24xl":            {InstanceType: "m7i.metal-24xl", Arch: "x64"},
+		"cirun-aws-g5-xlarge-ubuntu2404-spot": {InstanceType: "g5.xlarge", Image: "ubuntu2404", Arch: "x64", Spot: true},
+	}
+	for label, want := range cases {
+		r, ok := OneLine(label)
+		if !ok {
+			t.Fatalf("%s: not a one-line label", label)
+		}
+		got := r.Variants[0]
+		got.Disk = Disk{}
+		if got != want {
+			t.Errorf("%s = %+v, want %+v", label, got, want)
+		}
+	}
+	for _, label := range []string{"cirun-aws", "cirun-aws-large", "cirun-aws-t2-huge", "cirun-onprem-4vcpu-8gb", "cirun-gpu", "cirun-aws-t2-large-windows"} {
+		if _, ok := OneLine(label); ok {
+			t.Errorf("%s parsed as a one-line label", label)
+		}
 	}
 }
 
@@ -217,7 +318,7 @@ runners:
   - name: aws-cpu-runner
     cloud: aws
     instance_type: t3.medium
-    labels: [airship-runner]
+    labels: [cirun-runner]
     idle:
       schedule:
         - {day: mon-fri, time: 9-17, timezone: US/Eastern, replicas: 4}
@@ -252,17 +353,17 @@ runners:
 func TestIdleAlwaysAndUsage(t *testing.T) {
 	f := mustParse(t, `
 runners:
-  - name: macos
-    cloud: on_prem
-    instance_type: 8vcpu-8gb-100gb
-    machine_image: ghcr.io/acme/runner:latest
-    region: RegionOne
-    labels: [airship-docker]
+  - name: always
+    cloud: aws
+    instance_type: t3.medium
+    machine_image: ubuntu2404
+    region: eu-west-1
+    labels: [cirun-always]
     idle: {replicas: 2}
   - name: dev
     cloud: aws
     instance_type: t3.medium
-    labels: [airship-dev]
+    labels: [cirun-dev]
     idle:
       usage_based: {trigger: runner_allocated, replicas: 2, duration: 180}
 `)
@@ -281,25 +382,25 @@ runners:
   - name: local
     cloud: aws
     instance_type: [c7i.large, c7i.xlarge]
-    labels: [airship-runner]
+    labels: [cirun-runner]
 `)
 	global := mustParse(t, `
 runners:
   - name: shared-arm
     cloud: aws
     instance_type: c7g.large
-    labels: [airship-runner, airship-arm]
+    labels: [cirun-runner, cirun-arm]
   - name: other
     cloud: aws
     instance_type: c7i.large
-    labels: [airship-other]
+    labels: [cirun-other]
 `)
 	candidates := []Candidate{{Source: SourceRepository, Runner: repo.Runners[0]}}
 	for _, r := range global.Runners {
 		candidates = append(candidates, Candidate{Source: SourceOrganization, Runner: r})
 	}
 
-	plan := Plan([]string{"airship-runner--12345"}, candidates)
+	plan := Plan([]string{"cirun-runner--12345"}, candidates)
 	if len(plan) != 3 {
 		t.Fatalf("plan has %d attempts", len(plan))
 	}
@@ -310,23 +411,23 @@ runners:
 	// The runner registers with the job's own suffixed label, so only jobs
 	// from the same run are handed to it.
 	labels := strings.Join(plan[0].Labels, ",")
-	if labels != "self-hosted,linux,x64,airship-runner,airship-runner--12345" {
+	if labels != "self-hosted,x64,aws,cpu,cirun-runner,cirun-runner--12345" {
 		t.Fatalf("labels %s", labels)
 	}
 
 	// An arm64 job label rules out the x64 variants.
-	plan = Plan([]string{"self-hosted", "ARM64", "airship-runner"}, candidates)
+	plan = Plan([]string{"self-hosted", "ARM64", "cirun-runner"}, candidates)
 	if len(plan) != 1 || plan[0].Runner.Name != "shared-arm" {
 		t.Fatalf("arm plan %+v", plan)
 	}
 	// Labels from two definitions never combine into one machine.
-	if plan := Plan([]string{"airship-runner", "airship-other"}, candidates); len(plan) != 0 {
+	if plan := Plan([]string{"cirun-runner", "cirun-other"}, candidates); len(plan) != 0 {
 		t.Fatalf("combined plan %+v", plan)
 	}
 	if plan := Plan([]string{"ubuntu-latest"}, candidates); plan != nil {
 		t.Fatal("planned a non-Airship job")
 	}
-	if plan := Plan([]string{"airship-runner", "gpu"}, candidates); len(plan) != 0 {
+	if plan := Plan([]string{"cirun-runner", "gpu"}, candidates); len(plan) != 0 {
 		t.Fatal("planned a job asking for a label no runner has")
 	}
 }
@@ -334,11 +435,11 @@ runners:
 func TestPlanMatrixLabelsStayDistinct(t *testing.T) {
 	f := mustParse(t, `
 runners:
-  - {name: cirun-aws, cloud: aws, instance_type: t3.2xlarge, labels: [airship-runner]}
+  - {name: cirun-aws, cloud: aws, instance_type: t3.2xlarge, labels: [cirun-runner]}
 `)
 	c := []Candidate{{Source: SourceRepository, Runner: f.Runners[0]}}
-	a := Plan([]string{"airship-runner--10-999"}, c)
-	b := Plan([]string{"airship-runner--12-999"}, c)
+	a := Plan([]string{"cirun-runner--10-999"}, c)
+	b := Plan([]string{"cirun-runner--12-999"}, c)
 	if len(a) != 1 || len(b) != 1 || strings.Join(a[0].Labels, ",") == strings.Join(b[0].Labels, ",") {
 		t.Fatalf("matrix jobs share labels: %v %v", a, b)
 	}
@@ -348,7 +449,7 @@ func TestWantsConfig(t *testing.T) {
 	if WantsConfig([]string{"ubuntu-latest", "self-hosted"}) {
 		t.Fatal("ordinary job wants config")
 	}
-	if !WantsConfig([]string{"Airship-GPU--1"}) {
+	if !WantsConfig([]string{"Cirun-GPU--1"}) {
 		t.Fatal("airship job does not want config")
 	}
 }

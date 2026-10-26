@@ -2,16 +2,23 @@ package fleet_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/wizenheimer/airship/apps/api/internal/agentproto"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
+	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud/fake"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
+	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
+	"github.com/wizenheimer/airship/apps/api/internal/secrets"
 	"github.com/wizenheimer/airship/apps/api/internal/testsupport/fakegithub"
 	"github.com/wizenheimer/airship/apps/api/internal/testsupport/pgtest"
 
@@ -20,9 +27,26 @@ import (
 
 const (
 	installationID = int64(42)
+	repoID         = int64(9)
 	repoName       = "acme/widgets"
-	label          = "airship-4cpu"
+	headSHA        = "head0000"
+	cpuLabel       = "cirun-cpu"
+	region         = "us-east-1"
 )
+
+// baseConfig is the repository's .cirun.yml in most tests: one runner with
+// two instance types to fall back through.
+const baseConfig = `
+runners:
+  - name: cpu
+    cloud: aws
+    instance_type: [c7i.large, m7i.large]
+    machine_image: ami-0123456789abcdef0
+    labels: [cirun-cpu]
+    extra_config:
+      env_vars:
+        GREETING: hello
+`
 
 type harness struct {
 	t       *testing.T
@@ -31,12 +55,13 @@ type harness struct {
 	q       *db.Queries
 	gh      *fakegithub.Server
 	svc     *fleet.Service
-	dp      fleet.DataPlane
-	profile db.Profile
+	aws     *fake.Provider
 	nextJob int64
 }
 
-func newHarness(t *testing.T, maxRunners int32) *harness {
+// newHarness builds an installation with AWS connected and a repository
+// activated with baseConfig at headSHA, so a job on cpuLabel can be served.
+func newHarness(t *testing.T) *harness {
 	t.Helper()
 	ctx := context.Background()
 	pool := pgtest.New(t)
@@ -45,24 +70,65 @@ func newHarness(t *testing.T, maxRunners int32) *harness {
 
 	inst := github.Installation{ID: installationID, Account: github.Account{ID: 7, Login: "acme", Type: "Organization"}}
 	gh.AddInstallation(inst)
+	gh.AddRepository(installationID, github.Repository{ID: repoID, FullName: repoName, Private: true, DefaultBranch: "main"})
 
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, fleet.DefaultConfig(), slog.New(slog.DiscardHandler))
+	key, _ := secrets.ParseKey(secrets.NewKey())
+	keyring, _ := secrets.New(key)
+	aws := fake.New(cloud.AWS)
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, fleet.DefaultConfig(), slog.New(slog.DiscardHandler))
 	if _, err := svc.SaveInstallation(ctx, inst); err != nil {
 		t.Fatal(err)
 	}
-	plane, err := q.CreateDataPlane(ctx, db.CreateDataPlaneParams{InstallationID: installationID, Name: "prod", TokenHash: []byte("hash"), TokenHint: "asd_x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile, err := q.CreateProfile(ctx, db.CreateProfileParams{
-		InstallationID: installationID, DataPlaneID: plane.ID, Label: label, Arch: "x64",
-		InstanceType: "c7i.xlarge", DiskGb: 100, MaxRunners: maxRunners,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, nextJob: 100}
+	h.connect()
+	h.activate(false)
+	h.setRun("push", repoID, "alice")
+	h.setConfig(headSHA, baseConfig)
 
-	return &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, dp: fleet.DataPlane{DataPlane: plane}, profile: profile, nextJob: 100}
+	return h
+}
+
+func (h *harness) connect() {
+	h.t.Helper()
+	secret, _ := awscloud.EncodeSecret(awscloud.Secret{AccessKeyID: "AKIATEST", SecretAccessKey: "secret"})
+	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.AWS, secret, region, nil); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func (h *harness) disconnect() {
+	h.t.Helper()
+	if err := h.svc.DisconnectCloud(h.ctx, installationID, cloud.AWS); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func (h *harness) activate(allowPublic bool) {
+	h.t.Helper()
+	if _, err := h.q.ActivateRepository(h.ctx, db.ActivateRepositoryParams{
+		ID: repoID, InstallationID: installationID, FullName: repoName, Private: true, DefaultBranch: "main", AllowPublic: allowPublic,
+	}); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func (h *harness) deactivate() {
+	h.t.Helper()
+	if _, err := h.q.DeactivateRepository(h.ctx, db.DeactivateRepositoryParams{InstallationID: installationID, ID: repoID}); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func (h *harness) setConfig(ref, content string) {
+	h.gh.SetFile(repoName, ref, runnerconfig.RepoFile, []byte(content))
+}
+
+func (h *harness) setRun(event string, headRepoID int64, actor string) {
+	head := &github.Repository{ID: headRepoID}
+	h.gh.SetRunAttempt(repoName, github.RunAttempt{
+		ID: 1, RunAttempt: 1, Event: event, HeadSHA: headSHA,
+		Repository: github.Repository{ID: repoID}, HeadRepository: head, Actor: &github.Actor{Login: actor},
+	})
 }
 
 // event sends a workflow_job webhook for a job.
@@ -71,7 +137,7 @@ func (h *harness) event(action string, job github.WorkflowJob, private bool) {
 	err := h.svc.HandleWorkflowJob(h.ctx, github.WorkflowJobEvent{
 		Action:       action,
 		WorkflowJob:  job,
-		Repository:   github.Repository{ID: 9, FullName: repoName, Private: private},
+		Repository:   github.Repository{ID: repoID, FullName: repoName, Private: private},
 		Installation: &github.InstallationRef{ID: installationID},
 	})
 	if err != nil {
@@ -82,10 +148,10 @@ func (h *harness) event(action string, job github.WorkflowJob, private bool) {
 func (h *harness) newJob(labels ...string) github.WorkflowJob {
 	h.nextJob++
 	if len(labels) == 0 {
-		labels = []string{label}
+		labels = []string{cpuLabel}
 	}
 
-	return github.WorkflowJob{ID: h.nextJob, RunID: 1, RunAttempt: 1, Name: "build", Labels: labels, Status: "queued", CreatedAt: time.Now()}
+	return github.WorkflowJob{ID: h.nextJob, RunID: 1, RunAttempt: 1, Name: "build", Labels: labels, Status: "queued", HeadSHA: headSHA, CreatedAt: time.Now()}
 }
 
 func (h *harness) queue(labels ...string) github.WorkflowJob {
@@ -110,19 +176,34 @@ func (h *harness) complete(job github.WorkflowJob, runnerName *string, conclusio
 	h.event("completed", job, true)
 }
 
-func (h *harness) sync(instances []agentproto.Instance, capacity int) agentproto.SyncResponse {
+// launch runs one launcher pass and returns the machines it started, in
+// launch order.
+func (h *harness) launch() []fake.Instance {
 	h.t.Helper()
-	resp, err := h.svc.Sync(h.ctx, h.dp, agentproto.SyncRequest{AgentVersion: "test", Provider: "fake", Instances: instances, Capacity: capacity})
-	if err != nil {
-		h.t.Fatalf("sync: %v", err)
+	before := h.aws.Instances()
+	if _, err := h.svc.LaunchOnce(h.ctx); err != nil {
+		h.t.Fatalf("launch: %v", err)
+	}
+	var out []fake.Instance
+	for _, instance := range h.aws.Instances() {
+		if !slices.ContainsFunc(before, func(b fake.Instance) bool { return b.ID == instance.ID }) {
+			out = append(out, instance)
+		}
 	}
 
-	return resp
+	return out
+}
+
+func (h *harness) reconcile() {
+	h.t.Helper()
+	if err := h.svc.ReconcileOnce(h.ctx); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 func (h *harness) runners() []db.Runner {
 	h.t.Helper()
-	rows, err := h.pool.Query(h.ctx, "select id, state, coalesce(finish_reason, ''), trigger_job_id from runners order by created_at")
+	rows, err := h.pool.Query(h.ctx, "select id, name, state, coalesce(finish_reason, ''), trigger_job_id, coalesce(instance_id, ''), coalesce(error, '') from runners order by created_at")
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -130,12 +211,18 @@ func (h *harness) runners() []db.Runner {
 	var out []db.Runner
 	for rows.Next() {
 		var r db.Runner
-		var reason string
-		if err := rows.Scan(&r.ID, &r.State, &reason, &r.TriggerJobID); err != nil {
+		var reason, instance, errText string
+		if err := rows.Scan(&r.ID, &r.Name, &r.State, &reason, &r.TriggerJobID, &instance, &errText); err != nil {
 			h.t.Fatal(err)
 		}
 		if reason != "" {
 			r.FinishReason = &reason
+		}
+		if instance != "" {
+			r.InstanceID = &instance
+		}
+		if errText != "" {
+			r.Error = &errText
 		}
 		out = append(out, r)
 	}
@@ -143,15 +230,21 @@ func (h *harness) runners() []db.Runner {
 	return out
 }
 
+func (h *harness) job(id int64) db.Job {
+	h.t.Helper()
+	row, err := h.q.GetJob(h.ctx, id)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+
+	return row
+}
+
 func (h *harness) exec(sql string, args ...any) {
 	h.t.Helper()
 	if _, err := h.pool.Exec(h.ctx, sql, args...); err != nil {
 		h.t.Fatalf("%s: %v", sql, err)
 	}
-}
-
-func instanceFor(launch agentproto.Launch) agentproto.Instance {
-	return agentproto.Instance{RunnerID: launch.RunnerID, InstanceID: "i-" + launch.RunnerName}
 }
 
 func states(runners []db.Runner) []string {
@@ -170,92 +263,97 @@ func states(runners []db.Runner) []string {
 func wantStates(t *testing.T, h *harness, want ...string) {
 	t.Helper()
 	got := states(h.runners())
-	if len(got) != len(want) {
+	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("runner states = %v, want %v", got, want)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("runner states = %v, want %v", got, want)
-		}
+}
+
+func wantSkip(t *testing.T, h *harness, job github.WorkflowJob, reason, detail string) {
+	t.Helper()
+	row := h.job(job.ID)
+	if row.SkipReason == nil || *row.SkipReason != reason {
+		t.Fatalf("skip reason = %v, want %s (detail %v)", row.SkipReason, reason, row.SkipDetail)
+	}
+	if detail != "" && (row.SkipDetail == nil || !strings.Contains(*row.SkipDetail, detail)) {
+		t.Fatalf("skip detail = %v, want it to mention %q", row.SkipDetail, detail)
+	}
+	if n := len(h.runners()); n != 0 {
+		t.Fatalf("%d runners for a skipped job", n)
 	}
 }
 
 func TestHappyPath(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
 
-	job := h.queue(label)
-	h.queue(label) // a second, independent job
+	job := h.queue()
+	h.queue() // a second, independent job
 	h.event("queued", job, true)
 	wantStates(t, h, "pending", "pending") // duplicate delivery adds nothing
 
-	resp := h.sync(nil, 1)
-	if len(resp.Launch) != 1 {
-		t.Fatalf("launches = %d, want 1 (capacity)", len(resp.Launch))
+	launched := h.launch()
+	if len(launched) != 2 {
+		t.Fatalf("launched = %d, want 2", len(launched))
 	}
-	launch := resp.Launch[0]
-	registered, ok := h.gh.RunnerByJIT(launch.JITConfig)
-	if !ok || registered.Repo != repoName || registered.Name != launch.RunnerName {
+	wantStates(t, h, "running", "running")
+	first := launched[0].Launch
+	registered, ok := h.gh.RunnerByJIT(first.Boot.JITConfig)
+	if !ok || registered.Repo != repoName || registered.Name != first.RunnerName {
 		t.Fatalf("jit config does not match a registration: %+v", registered)
 	}
-	if got := registered.Labels; len(got) != 4 || got[3] != label {
-		t.Fatalf("registered labels = %v", got)
+	if !slices.Contains(registered.Labels, cpuLabel) || !slices.Contains(registered.Labels, "self-hosted") {
+		t.Fatalf("registered labels = %v", registered.Labels)
 	}
-	if launch.Profile.InstanceType != "c7i.xlarge" || launch.MaxLifetimeSeconds <= 0 || launch.RunnerVersion == "" {
-		t.Fatalf("launch spec incomplete: %+v", launch)
+	if first.Machine.InstanceType != "c7i.large" || first.Region != region || first.InstallationID != installationID ||
+		first.Boot.MaxLifetimeSeconds <= 0 || first.Boot.RunnerVersion == "" || first.Boot.Env["GREETING"] != "hello" {
+		t.Fatalf("launch incomplete: %+v", first)
 	}
-
-	instances := []agentproto.Instance{instanceFor(launch)}
-	resp = h.sync(instances, 0)
-	if len(resp.Terminate) != 0 {
-		t.Fatalf("unexpected terminate: %+v", resp.Terminate)
-	}
-	wantStates(t, h, "running", "pending")
-
-	h.start(job, launch.RunnerName)
-	wantStates(t, h, "busy", "pending")
-	stored, err := h.q.GetJob(h.ctx, job.ID)
-	if err != nil || stored.RunnerID == nil || stored.Status != "in_progress" {
-		t.Fatalf("job not linked to runner: %+v %v", stored, err)
+	for _, runner := range h.runners() {
+		i := slices.IndexFunc(launched, func(l fake.Instance) bool { return l.Launch.RunnerID == runner.ID.String() })
+		if i < 0 || runner.InstanceID == nil || *runner.InstanceID != launched[i].ID {
+			t.Fatalf("instance id not recorded: %+v", runner)
+		}
 	}
 
-	h.complete(job, &launch.RunnerName, "success")
-	wantStates(t, h, "finished:completed", "pending")
+	h.start(job, first.RunnerName)
+	wantStates(t, h, "busy", "running")
+	stored := h.job(job.ID)
+	if stored.RunnerID == nil || stored.Status != "in_progress" {
+		t.Fatalf("job not linked to runner: %+v", stored)
+	}
 
-	resp = h.sync(instances, 0)
-	if len(resp.Terminate) != 1 || resp.Terminate[0].InstanceID != instances[0].InstanceID {
-		t.Fatalf("finished runner's instance not terminated: %+v", resp.Terminate)
+	h.complete(job, &first.RunnerName, "success")
+	wantStates(t, h, "finished:completed", "running")
+	// The machine is gone without waiting for a reconcile pass.
+	if left := h.aws.Instances(); len(left) != 1 || left[0].ID == launched[0].ID {
+		t.Fatalf("finished runner's instance not terminated: %+v", left)
 	}
-	// Once the instance is shutting down it is not terminated again.
-	instances[0].Stopping = true
-	if resp = h.sync(instances, 0); len(resp.Terminate) != 0 {
-		t.Fatalf("stopping instance terminated again: %+v", resp.Terminate)
-	}
+	h.reconcile()
+	wantStates(t, h, "finished:completed", "running")
 }
 
 func TestOutOfOrderEventsNeverCreateRunners(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
 
-	job := h.newJob(label)
+	job := h.newJob()
 	h.start(job, "someone-elses-runner")
 	h.event("queued", job, true) // late
 	wantStates(t, h)
 
-	stored, err := h.q.GetJob(h.ctx, job.ID)
-	if err != nil || stored.Status != "in_progress" {
-		t.Fatalf("status moved backwards: %+v %v", stored, err)
+	if stored := h.job(job.ID); stored.Status != "in_progress" {
+		t.Fatalf("status moved backwards: %+v", stored)
 	}
 }
 
 func TestCancelledBeforeLaunch(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
 
-	job := h.queue(label)
+	job := h.queue()
 	h.complete(job, nil, "cancelled")
 	wantStates(t, h, "finished:cancelled")
-	if resp := h.sync(nil, 10); len(resp.Launch) != 0 {
+	if launched := h.launch(); len(launched) != 0 {
 		t.Fatalf("launched a runner for a cancelled job")
 	}
 	if h.gh.Calls("POST generate-jitconfig") != 0 {
@@ -265,33 +363,36 @@ func TestCancelledBeforeLaunch(t *testing.T) {
 
 func TestStolenRunnerIsReplacedImmediately(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
 
-	a := h.queue(label)
-	b := h.queue(label)
-	launch := h.sync(nil, 1).Launch[0] // created for job a
+	a := h.queue()
+	b := h.queue()
+	h.exec("update installations set max_runners = 1")
+	launched := h.launch() // created for job a
+	if len(launched) != 1 {
+		t.Fatalf("launched = %d, want 1 (max_runners)", len(launched))
+	}
 	// GitHub gives a's runner to job b instead. b's own runner is now spare
 	// and goes to a, rather than a waiting for the reconciler.
-	h.start(b, launch.RunnerName)
+	h.start(b, launched[0].Launch.RunnerName)
 	runners := h.runners()
 	if runners[0].State != "busy" || runners[1].State != "pending" || runners[1].TriggerJobID == nil || *runners[1].TriggerJobID != a.ID {
 		t.Fatalf("spare runner not handed to the robbed job: %v trigger=%v", states(runners), runners[1].TriggerJobID)
 	}
-	second := h.sync(nil, 10).Launch[0]
-	h.sync([]agentproto.Instance{instanceFor(launch), instanceFor(second)}, 0)
-	h.start(a, second.RunnerName)
+	h.exec("update installations set max_runners = 10")
+	second := h.launch()
+	h.start(a, second[0].Launch.RunnerName)
 	wantStates(t, h, "busy", "busy")
 }
 
 func TestCrossedRunnersBothStayServed(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
 
-	a := h.queue(label)
-	b := h.queue(label)
-	resp := h.sync(nil, 10)
-	ra, rb := resp.Launch[0], resp.Launch[1]
-	h.sync([]agentproto.Instance{instanceFor(ra), instanceFor(rb)}, 0)
+	a := h.queue()
+	b := h.queue()
+	launched := h.launch()
+	ra, rb := launched[0].Launch, launched[1].Launch
 
 	// Each job lands on the other's runner, with the events racing.
 	var wg sync.WaitGroup
@@ -301,208 +402,246 @@ func TestCrossedRunnersBothStayServed(t *testing.T) {
 	wantStates(t, h, "busy", "busy")
 }
 
-func TestMaxRunnersIsEnforcedUnderConcurrentSyncs(t *testing.T) {
+func TestMaxRunnersIsEnforcedUnderConcurrentLaunchers(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 3)
+	h := newHarness(t)
+	h.exec("update installations set max_runners = 3")
 	for range 40 {
-		h.queue(label)
+		h.queue()
 	}
 
-	var mu sync.Mutex
-	total := 0
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for range 40 {
+	for range 20 {
 		wg.Go(func() {
 			<-start
-			resp, err := h.svc.Sync(h.ctx, h.dp, agentproto.SyncRequest{Provider: "fake", Capacity: 10})
-			if err != nil {
+			if _, err := h.svc.LaunchOnce(h.ctx); err != nil {
 				t.Error(err)
-
-				return
 			}
-			mu.Lock()
-			total += len(resp.Launch)
-			mu.Unlock()
 		})
 	}
 	close(start)
 	wg.Wait()
-	if total != 3 {
-		t.Fatalf("launched %d runners across concurrent syncs, want exactly max_runners=3", total)
+	if n := h.aws.Launches(); n != 3 {
+		t.Fatalf("launched %d runners across concurrent launchers, want exactly max_runners=3", n)
 	}
 }
 
 func TestSkippedJobs(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
 
-	public := h.newJob(label)
+	public := h.newJob()
 	h.event("queued", public, false)
-	unsatisfiable := h.queue(label, "gpu")
-	h.queue("ubuntu-latest") // not ours at all
+	unsatisfiable := h.queue(cpuLabel, "gpu")
+	other := h.queue("ubuntu-latest") // not ours at all
 	wantStates(t, h)
 
 	for id, want := range map[int64]string{public.ID: fleet.SkipPublicRepository, unsatisfiable.ID: fleet.SkipUnsatisfiableLabels} {
-		job, err := h.q.GetJob(h.ctx, id)
-		if err != nil || job.SkipReason == nil || *job.SkipReason != want {
+		job := h.job(id)
+		if job.SkipReason == nil || *job.SkipReason != want {
 			t.Fatalf("job %d skip reason = %v, want %s", id, job.SkipReason, want)
 		}
+	}
+	if row := h.job(other.ID); row.SkipReason != nil || row.Plan != nil {
+		t.Fatalf("job for a GitHub-hosted label was planned or skipped: %+v", row)
+	}
+	if calls := h.gh.Calls("GET contents"); calls == 0 {
+		t.Fatal("config was never read")
+	}
+
+	h.activate(true)
+	h.event("queued", public, false)
+	if n := len(h.runners()); n != 1 {
+		t.Fatalf("runners = %d after allowing public access, want 1", n)
+	}
+}
+
+func TestNoCloudConnected(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.disconnect()
+	job := h.queue()
+	wantSkip(t, h, job, fleet.SkipNoCloud, "connect aws")
+
+	// Connecting the cloud lets the stale job refresh plan it.
+	h.connect()
+	h.gh.SetJob(job)
+	h.exec("update jobs set updated_at = now() - interval '1 hour'")
+	h.reconcile()
+	if row := h.job(job.ID); row.Plan != nil {
+		t.Log("stale refresh only revisits planned jobs; a redelivery plans it")
+	}
+	h.event("queued", job, true)
+	if row := h.job(job.ID); row.Plan == nil || row.SkipReason != nil {
+		t.Fatalf("job not planned after connecting: %+v", row)
+	}
+}
+
+func TestDisconnectRefusedWhileRunnersLive(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.queue()
+	h.launch()
+	if err := h.svc.DisconnectCloud(h.ctx, installationID, cloud.AWS); !errors.Is(err, fleet.ErrCloudInUse) {
+		t.Fatalf("disconnect with a live runner = %v", err)
 	}
 }
 
 func TestJITFailures(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
 
-	h.queue(label)
+	h.queue()
 	h.gh.FailNext("POST generate-jitconfig", http.StatusInternalServerError)
-	if resp := h.sync(nil, 10); len(resp.Launch) != 0 {
+	if launched := h.launch(); len(launched) != 0 {
 		t.Fatal("launched despite a jit failure")
 	}
 	wantStates(t, h, "pending") // transient: back in line, after a short backoff
-	if resp := h.sync(nil, 10); len(resp.Launch) != 0 {
+	if launched := h.launch(); len(launched) != 0 {
 		t.Fatal("retried without backing off")
 	}
 	h.exec("update runners set not_before = now() - interval '1 second'")
-	if resp := h.sync(nil, 10); len(resp.Launch) != 1 {
+	if launched := h.launch(); len(launched) != 1 {
 		t.Fatal("transient failure was not retried")
 	}
 
-	h.queue(label)
+	h.queue()
 	h.gh.FailNext("POST generate-jitconfig", http.StatusNotFound)
-	h.sync(nil, 10)
-	wantStates(t, h, "assigned", "finished:launch_failed")
+	h.launch()
+	// A permanent refusal fails the attempt; the plan's next instance type
+	// is tried.
+	wantStates(t, h, "running", "finished:launch_failed", "pending")
 }
 
 func TestJITConflictRecoversFromALostResponse(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
-	h.queue(label)
+	h := newHarness(t)
+	h.queue()
 	h.gh.FailNext("POST generate-jitconfig", http.StatusConflict)
-	if resp := h.sync(nil, 10); len(resp.Launch) != 1 {
+	if launched := h.launch(); len(launched) != 1 {
 		t.Fatal("409 from an earlier registration was not recovered")
 	}
 }
 
-func TestLaunchFailuresRetryUpToMaxAttempts(t *testing.T) {
+// Capacity errors retry the same shape; the plan's fallback order and
+// the attempt cap bound the total.
+func TestLaunchFailuresFallBackAndStop(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
-	h.queue(label)
-
+	h := newHarness(t)
+	h.aws.FailLaunch = func(cloud.Launch) error {
+		return &cloud.LaunchError{Err: errors.New("InsufficientInstanceCapacity"), Retryable: true}
+	}
+	job := h.queue()
 	for attempt := 1; attempt <= 4; attempt++ {
-		resp := h.sync(nil, 10)
-		if attempt > 3 {
-			if len(resp.Launch) != 0 {
-				t.Fatalf("attempt %d launched; max attempts is 3", attempt)
-			}
-
-			break
-		}
-		if len(resp.Launch) != 1 {
-			t.Fatalf("attempt %d: no launch", attempt)
-		}
-		_, err := h.svc.Sync(h.ctx, h.dp, agentproto.SyncRequest{Provider: "fake", Failures: []agentproto.LaunchFailure{
-			{RunnerID: resp.Launch[0].RunnerID, Error: "InsufficientInstanceCapacity", Retryable: true},
-		}})
+		n, err := h.svc.LaunchOnce(h.ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
+		if attempt > 3 && n != 0 {
+			t.Fatalf("attempt %d launched; max attempts is 3", attempt)
+		}
 	}
 	wantStates(t, h, "finished:launch_failed", "finished:launch_failed", "finished:launch_failed")
+	var types []string
+	for _, r := range h.runners() {
+		var spec struct {
+			InstanceType string `json:"instanceType"`
+		}
+		h.pool.QueryRow(h.ctx, "select spec from runners where id = $1", r.ID).Scan(&spec) //nolint:errcheck // test
+		types = append(types, spec.InstanceType)
+	}
+	if strings.Join(types, ",") != "c7i.large,m7i.large,c7i.large" {
+		t.Fatalf("fallback order = %v", types)
+	}
+	if row := h.job(job.ID); row.Plan == nil {
+		t.Fatal("job plan was not stored")
+	}
+
+	// A failure that would recur stops once every shape was tried.
+	h.aws.FailLaunch = func(cloud.Launch) error { return &cloud.LaunchError{Err: errors.New("InvalidAMIID.NotFound")} }
+	h.queue()
+	h.launch()
+	h.launch()
+	if n, _ := h.svc.LaunchOnce(h.ctx); n != 0 {
+		t.Fatal("kept retrying a permanent failure")
+	}
+	if got := states(h.runners()); len(got) != 5 {
+		t.Fatalf("runners = %v, want two more failed attempts", got)
+	}
+	if h.gh.Calls("POST generate-jitconfig") != 5 {
+		t.Fatalf("registrations = %d, want one per attempt", h.gh.Calls("POST generate-jitconfig"))
+	}
 }
 
-func TestOtherDataPlanesCannotTouchRunners(t *testing.T) {
+func TestLeaseExpiryRetriesAndALateListingRevives(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
-	h.queue(label)
-	launch := h.sync(nil, 10).Launch[0]
-
-	other, err := h.q.CreateDataPlane(h.ctx, db.CreateDataPlaneParams{InstallationID: installationID, Name: "other", TokenHash: []byte("other"), TokenHint: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := h.svc.Sync(h.ctx, fleet.DataPlane{DataPlane: other}, agentproto.SyncRequest{
-		Provider:  "fake",
-		Instances: []agentproto.Instance{instanceFor(launch)},
-		Failures:  []agentproto.LaunchFailure{{RunnerID: launch.RunnerID, Error: "forged"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantStates(t, h, "assigned")
-	if len(resp.Terminate) != 1 || resp.Terminate[0].Reason != "unknown runner" {
-		t.Fatalf("instance claimed by another data plane should be terminated: %+v", resp.Terminate)
-	}
-}
-
-func TestLeaseExpiryRetriesAndALateReportRevives(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, 10)
-	h.queue(label)
-	launch := h.sync(nil, 10).Launch[0]
-
-	h.exec("update runners set lease_expires_at = now() - interval '1 second'")
-	if err := h.svc.ReconcileOnce(h.ctx); err != nil {
-		t.Fatal(err)
-	}
+	h := newHarness(t)
+	h.queue()
+	// The launcher died between claiming and recording the instance.
+	h.aws.FailLaunch = func(cloud.Launch) error { return errors.New("process crashed") }
+	h.exec("update runners set state = 'launching', launching_at = now(), lease_expires_at = now() - interval '1 second'")
+	h.aws.FailLaunch = nil
+	h.reconcile()
 	wantStates(t, h, "finished:lease_expired", "pending")
 
-	// The launch did happen; the agent just reported it late.
-	h.sync([]agentproto.Instance{instanceFor(launch)}, 0)
+	// The machine was created after all: the cloud lists it.
 	runners := h.runners()
+	if _, err := h.aws.Launch(h.ctx, nil, cloud.Launch{RunnerID: runners[0].ID.String(), RunnerName: runners[0].Name, InstallationID: installationID, Region: region}); err != nil {
+		t.Fatal(err)
+	}
+	h.exec("update runners set github_runner_id = 1 where id = $1", runners[0].ID)
+	h.reconcile()
+	runners = h.runners()
 	if runners[0].State != "running" || runners[0].TriggerJobID != nil {
-		t.Fatalf("late report did not revive the runner: %v", states(runners))
+		t.Fatalf("late listing did not revive the runner: %v", states(runners))
+	}
+	if runners[1].State != "finished" {
+		t.Fatalf("retry runner for the same job not cancelled: %v", states(runners))
 	}
 }
 
 func TestVanishedInstances(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
-	job := h.queue(label)
-	launch := h.sync(nil, 10).Launch[0]
-	h.sync([]agentproto.Instance{instanceFor(launch)}, 0)
+	h := newHarness(t)
+	job := h.queue()
+	launched := h.launch()
+	h.aws.Exit(launched[0].ID)
 
 	// Within the grace period, a missing instance is not yet gone.
-	h.sync(nil, 0)
+	h.reconcile()
 	wantStates(t, h, "running")
 
 	h.exec("update runners set running_at = now() - interval '1 hour'")
-	h.sync(nil, 0)
+	h.reconcile()
 	wantStates(t, h, "finished:lost", "pending") // and the job gets another runner
 
-	second := h.sync(nil, 10).Launch[0]
-	h.sync([]agentproto.Instance{instanceFor(second)}, 0)
-	h.start(job, second.RunnerName)
+	second := h.launch()
+	h.start(job, second[0].Launch.RunnerName)
+	h.aws.Exit(second[0].ID)
 	h.exec("update runners set running_at = now() - interval '1 hour' where state = 'busy'")
-	h.sync(nil, 0) // busy runner's instance vanished: wait for GitHub
+	h.reconcile() // busy runner's instance vanished: wait for GitHub
 	wantStates(t, h, "finished:lost", "busy")
 	h.exec("update runners set instance_gone_at = now() - interval '1 hour' where state = 'busy'")
-	if err := h.svc.ReconcileOnce(h.ctx); err != nil {
-		t.Fatal(err)
-	}
+	h.reconcile()
 	wantStates(t, h, "finished:lost", "finished:lost")
 }
 
 func TestIdleRunnersAreReaped(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
-	h.queue(label)
-	h.queue(label)
-	resp := h.sync(nil, 10)
-	instances := []agentproto.Instance{instanceFor(resp.Launch[0]), instanceFor(resp.Launch[1])}
-	h.sync(instances, 0)
+	h := newHarness(t)
+	h.queue()
+	h.queue()
+	launched := h.launch()
 
 	// The second runner was picked up per GitHub, but its webhook was lost.
-	busy, _ := h.gh.RunnerByJIT(resp.Launch[1].JITConfig)
+	busy, _ := h.gh.RunnerByJIT(launched[1].Launch.Boot.JITConfig)
 	h.gh.SetRunnerBusy(busy.ID, true)
 	h.exec("update runners set running_at = now() - interval '1 hour'")
-	if err := h.svc.ReconcileOnce(h.ctx); err != nil {
-		t.Fatal(err)
-	}
+	h.reconcile()
 	for _, runner := range h.runners() {
 		want := "finished"
-		if runner.ID.String() == resp.Launch[1].RunnerID {
+		if runner.ID.String() == launched[1].Launch.RunnerID {
 			want = "busy"
 		}
 		if runner.State != want {
@@ -512,15 +651,15 @@ func TestIdleRunnersAreReaped(t *testing.T) {
 	if len(h.gh.Runners()) != 1 {
 		t.Fatalf("idle runner not deleted from GitHub: %+v", h.gh.Runners())
 	}
-	if got := h.sync(instances, 0); len(got.Terminate) != 1 || got.Terminate[0].RunnerID != resp.Launch[0].RunnerID {
-		t.Fatalf("idle runner's instance not terminated: %+v", got.Terminate)
+	if left := h.aws.Instances(); len(left) != 1 || left[0].ID != launched[1].ID {
+		t.Fatalf("idle runner's instance not terminated: %+v", left)
 	}
 }
 
 func TestStaleQueuedJobIsRefreshed(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
-	job := h.queue(label)
+	h := newHarness(t)
+	job := h.queue()
 
 	// GitHub cancelled the job but the webhook never arrived.
 	cancelled := job
@@ -529,55 +668,89 @@ func TestStaleQueuedJobIsRefreshed(t *testing.T) {
 	cancelled.Conclusion = &conclusion
 	h.gh.SetJob(cancelled)
 	h.exec("update jobs set updated_at = now() - interval '1 hour'")
-	if err := h.svc.ReconcileOnce(h.ctx); err != nil {
-		t.Fatal(err)
-	}
+	h.reconcile()
 	wantStates(t, h, "finished:cancelled")
 }
 
 func TestUninstallTearsEverythingDown(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
-	h.queue(label)
-	h.queue(label)
-	launch := h.sync(nil, 1).Launch[0]
-	h.sync([]agentproto.Instance{instanceFor(launch)}, 0)
+	h := newHarness(t)
+	h.queue()
+	h.queue()
+	h.exec("update installations set max_runners = 1")
+	h.launch()
 
 	if err := h.svc.HandleInstallation(h.ctx, github.InstallationEvent{Action: "deleted", Installation: github.Installation{ID: installationID}}); err != nil {
 		t.Fatal(err)
 	}
 	wantStates(t, h, "finished:deleted", "finished:deleted")
-	h.dp.Retired = true
-	resp := h.sync([]agentproto.Instance{instanceFor(launch)}, 10)
-	if len(resp.Terminate) != 1 || len(resp.Launch) != 0 {
-		t.Fatalf("retired data plane: %+v", resp)
+	h.reconcile()
+	if left := h.aws.Instances(); len(left) != 0 {
+		t.Fatalf("instances after uninstall: %+v", left)
+	}
+	if n, _ := h.svc.LaunchOnce(h.ctx); n != 0 {
+		t.Fatal("launched for an uninstalled installation")
 	}
 }
 
-func TestLongPollWakesOnNewWork(t *testing.T) {
+// Instances the cloud lists under our tag that belong to no runner are
+// terminated: they cost money and nothing will ever clean them up.
+func TestUnknownInstancesAreTerminated(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, 10)
+	h := newHarness(t)
+	h.queue()
+	h.launch() // so the (credential, region) is scanned
+	if _, err := h.aws.Launch(h.ctx, nil, cloud.Launch{RunnerID: "not-a-runner", InstallationID: installationID, Region: region}); err != nil {
+		t.Fatal(err)
+	}
+	h.reconcile()
+	if left := h.aws.Instances(); len(left) != 1 || left[0].Launch.RunnerID == "not-a-runner" {
+		t.Fatalf("unknown instance survived: %+v", left)
+	}
+	wantStates(t, h, "running")
+}
 
-	done := make(chan agentproto.SyncResponse, 1)
+func TestLauncherWakesOnNewWork(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	ctx, cancel := context.WithCancel(h.ctx)
+	defer cancel()
+	done := make(chan struct{})
 	go func() {
-		resp, err := h.svc.Sync(h.ctx, h.dp, agentproto.SyncRequest{Provider: "fake", Capacity: 1, WaitSeconds: 20})
-		if err != nil {
-			t.Error(err)
-		}
-		done <- resp
+		h.svc.RunLauncher(ctx, time.Hour)
+		close(done)
 	}()
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	start := time.Now()
-	h.queue(label)
-	select {
-	case resp := <-done:
-		if len(resp.Launch) != 1 {
-			t.Fatalf("long poll returned without the new runner: %+v", resp)
-		}
-		if waited := time.Since(start); waited > time.Second {
-			t.Fatalf("long poll took %v to notice new work", waited)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("long poll did not wake")
+	h.queue()
+	deadline := time.Now().Add(10 * time.Second)
+	for len(h.aws.Instances()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(h.aws.Instances()) != 1 {
+		t.Fatal("launcher did not wake for new work")
+	}
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Fatalf("launcher took %v to notice new work", waited)
+	}
+	cancel()
+	<-done
+}
+
+func TestEventsAreRecorded(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.queue()
+	h.launch()
+	rows, err := h.q.ListEvents(h.ctx, db.ListEventsParams{InstallationID: installationID, MaxResults: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, row := range rows {
+		kinds = append(kinds, row.Kind)
+	}
+	if !slices.Contains(kinds, "runner.launched") || !slices.Contains(kinds, "cloud.connected") {
+		t.Fatalf("events = %v", kinds)
 	}
 }

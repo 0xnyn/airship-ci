@@ -21,19 +21,33 @@ type ApiToken struct {
 	LastUsedAt     *time.Time
 }
 
-type DataPlane struct {
+type CloudCredential struct {
 	ID             uuid.UUID
 	InstallationID int64
-	Name           string
-	TokenHash      []byte
-	TokenHint      string
-	AgentVersion   *string
-	AgentProvider  *string
-	AgentRegion    *string
-	MaxRunners     int32
-	LastSeenAt     *time.Time
+	Cloud          string
+	Secret         []byte
+	Identity       string
+	AccountID      *string
+	Principal      *string
+	DefaultRegion  string
+	Status         string
+	Error          *string
+	VerifiedAt     *time.Time
+	CreatedBy      *uuid.UUID
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type Event struct {
+	ID             uuid.UUID
+	InstallationID int64
+	Kind           string
+	Level          string
+	Message        string
+	Repository     *string
+	RunnerID       *uuid.UUID
+	JobID          *int64
+	CreatedAt      time.Time
 }
 
 type FailedDelivery struct {
@@ -62,6 +76,7 @@ type Installation struct {
 	AccountID    int64
 	AccountLogin string
 	AccountType  string
+	MaxRunners   int32
 	SuspendedAt  *time.Time
 	DeletedAt    *time.Time
 	CreatedAt    time.Time
@@ -82,7 +97,6 @@ type Job struct {
 	Labels             []string
 	Status             string
 	Conclusion         *string
-	ProfileID          *uuid.UUID
 	HeadSha            *string
 	Plan               []byte
 	SkipReason         *string
@@ -103,22 +117,6 @@ type Membership struct {
 	RefreshedAt    time.Time
 }
 
-type Profile struct {
-	ID               uuid.UUID
-	InstallationID   int64
-	DataPlaneID      uuid.UUID
-	Label            string
-	Arch             string
-	InstanceType     string
-	Image            *string
-	DiskGb           int32
-	Spot             bool
-	MaxRunners       int32
-	AllowPublicRepos bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-}
-
 type Repository struct {
 	ID              int64
 	InstallationID  int64
@@ -135,34 +133,39 @@ type Repository struct {
 }
 
 type Runner struct {
-	ID                 uuid.UUID
-	InstallationID     int64
-	ProfileID          *uuid.UUID
-	ProfileLabel       string
-	Source             string
-	Spec               []byte
-	Labels             []string
-	Attempt            int32
-	PoolID             *uuid.UUID
-	DataPlaneID        uuid.UUID
-	RepositoryID       int64
-	RepositoryFullName string
-	TriggerJobID       *int64
-	Name               string
-	State              string
-	FinishReason       *string
-	GithubRunnerID     *int64
-	InstanceID         *string
-	Error              *string
-	LeaseExpiresAt     *time.Time
-	NotBefore          *time.Time
-	CreatedAt          time.Time
-	AssignedAt         *time.Time
-	RunningAt          *time.Time
-	BusyAt             *time.Time
-	FinishedAt         *time.Time
-	InstanceGoneAt     *time.Time
-	DeregisteredAt     *time.Time
+	ID                   uuid.UUID
+	InstallationID       int64
+	Definition           string
+	Source               string
+	Cloud                string
+	CredentialID         *uuid.UUID
+	Region               string
+	Spec                 []byte
+	Labels               []string
+	Attempt              int32
+	PoolID               *uuid.UUID
+	RepositoryID         int64
+	RepositoryFullName   string
+	TriggerJobID         *int64
+	Name                 string
+	State                string
+	FinishReason         *string
+	GithubRunnerID       *int64
+	InstanceID           *string
+	Error                *string
+	LeaseExpiresAt       *time.Time
+	NotBefore            *time.Time
+	CreatedAt            time.Time
+	LaunchingAt          *time.Time
+	RunningAt            *time.Time
+	BusyAt               *time.Time
+	FinishedAt           *time.Time
+	InstanceSeenAt       *time.Time
+	InstanceGoneAt       *time.Time
+	TerminateRequestedAt *time.Time
+	DeregisteredAt       *time.Time
+	ProvisionSecret      []byte
+	ProvisionedAt        *time.Time
 }
 
 type Session struct {

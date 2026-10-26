@@ -12,7 +12,7 @@ import (
 )
 
 const authenticateAPIToken = `-- name: AuthenticateAPIToken :one
-select api_tokens.id, api_tokens.installation_id, api_tokens.name, api_tokens.token_hash, api_tokens.token_hint, api_tokens.created_by, api_tokens.created_at, api_tokens.last_used_at, installations.id, installations.account_id, installations.account_login, installations.account_type, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at
+select api_tokens.id, api_tokens.installation_id, api_tokens.name, api_tokens.token_hash, api_tokens.token_hint, api_tokens.created_by, api_tokens.created_at, api_tokens.last_used_at, installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at
 from api_tokens
 join installations on installations.id = api_tokens.installation_id
 where api_tokens.token_hash = $1
@@ -42,6 +42,7 @@ func (q *Queries) AuthenticateAPIToken(ctx context.Context, tokenHash []byte) (A
 		&i.Installation.AccountID,
 		&i.Installation.AccountLogin,
 		&i.Installation.AccountType,
+		&i.Installation.MaxRunners,
 		&i.Installation.SuspendedAt,
 		&i.Installation.DeletedAt,
 		&i.Installation.CreatedAt,

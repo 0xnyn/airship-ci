@@ -66,6 +66,8 @@ func (s *Service) ReconcileOnce(ctx context.Context) error {
 		run  func(context.Context) error
 	}{
 		{"expire leases", s.expireLeases},
+		{"scan instances", s.scanInstances},
+		{"terminate finished runners", s.terminateFinished},
 		{"reap idle runners", s.reapIdle},
 		{"reap lost runners", s.reapLostBusy},
 		{"deregister runners", s.deregister},
@@ -73,6 +75,7 @@ func (s *Service) ReconcileOnce(ctx context.Context) error {
 		{"refresh configs", s.refreshConfigs},
 		{"balance pools", s.balancePools},
 		{"expire sessions", s.expireSessions},
+		{"expire events", s.expireEvents},
 	}
 	var errs []error
 	for _, step := range steps {
@@ -84,8 +87,9 @@ func (s *Service) ReconcileOnce(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// expireLeases finishes runners an agent was handed but never reported.
-// If the launch did happen after all, the next report revives the runner.
+// expireLeases finishes runners a launcher claimed but never finished
+// launching (the process died mid-call). If the machine was created after
+// all, the next inventory scan revives the runner.
 func (s *Service) expireLeases(ctx context.Context) error {
 	expired, err := s.q.ExpireRunnerLeases(ctx)
 	if err != nil {
@@ -123,12 +127,16 @@ func (s *Service) reapIdle(ctx context.Context) error {
 
 func (s *Service) reapIdleRunner(ctx context.Context, runner db.Runner) error {
 	finish := func() error {
-		_, err := s.q.FinishRunner(ctx, db.FinishRunnerParams{
+		finished, err := s.q.FinishRunner(ctx, db.FinishRunnerParams{
 			ID: runner.ID, Reason: ReasonIdle, Deregistered: true, FromStates: []string{StateRunning},
 		})
-		if err != nil && !isNoRows(err) {
+		if isNoRows(err) {
+			return nil
+		}
+		if err != nil {
 			return fmt.Errorf("finish idle runner: %w", err)
 		}
+		s.terminateRunner(ctx, finished)
 
 		return nil
 	}
@@ -184,11 +192,19 @@ func (s *Service) reapLostBusy(ctx context.Context) error {
 		if runner.InstanceGoneAt == nil {
 			reason = ReasonMaxLifetime
 		}
-		if _, err := s.q.FinishRunner(ctx, db.FinishRunnerParams{
+		finished, err := s.q.FinishRunner(ctx, db.FinishRunnerParams{
 			ID: runner.ID, Reason: reason, FromStates: []string{StateBusy},
-		}); err != nil && !isNoRows(err) {
+		})
+		if isNoRows(err) {
+			continue
+		}
+		if err != nil {
 			return fmt.Errorf("finish lost runner: %w", err)
 		}
+		s.record(ctx, runner.InstallationID, "runner.lost", levelWarning,
+			fmt.Sprintf("%s was written off (%s) while running a job for %s", runner.Name, reason, runner.RepositoryFullName),
+			eventFields{repository: runner.RepositoryFullName, runnerID: &runner.ID})
+		s.terminateRunner(ctx, finished)
 	}
 
 	return nil
@@ -288,6 +304,14 @@ func (s *Service) refreshJob(ctx context.Context, job db.Job) error {
 func (s *Service) expireSessions(ctx context.Context) error {
 	if _, err := s.q.DeleteExpiredSessions(ctx); err != nil {
 		return fmt.Errorf("delete expired sessions: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) expireEvents(ctx context.Context) error {
+	if _, err := s.q.DeleteOldEvents(ctx, time.Now().Add(-s.cfg.EventRetention)); err != nil {
+		return fmt.Errorf("delete old events: %w", err)
 	}
 
 	return nil

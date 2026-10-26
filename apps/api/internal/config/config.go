@@ -36,6 +36,12 @@ type Config struct {
 	// refused outside APP_ENV=development.
 	DevLogin bool `env:"DEV_LOGIN" envDefault:"false"`
 
+	// CredentialsKey is the base64 32-byte key that seals customers' cloud
+	// credentials in the database.
+	CredentialsKey string `env:"CREDENTIALS_KEY,required,notEmpty"`
+	// AWSEndpoint points the AWS provider at an emulator (moto) in tests.
+	AWSEndpoint string `env:"AWS_ENDPOINT"`
+
 	// RunnerVersion is the actions/runner release agents install. GitHub
 	// stops sending jobs to runners more than 30 days behind a release.
 	RunnerVersion string `env:"RUNNER_VERSION" envDefault:"2.338.2"`
@@ -45,6 +51,9 @@ type Config struct {
 	RunnerIdleTimeout time.Duration `env:"RUNNER_IDLE_TIMEOUT" envDefault:"10m"`
 	// ReconcileInterval is how often the reconciler runs.
 	ReconcileInterval time.Duration `env:"RECONCILE_INTERVAL" envDefault:"15s"`
+	// LaunchInterval bounds how long a pending runner waits for a launcher
+	// pass when no webhook woke it on this replica.
+	LaunchInterval time.Duration `env:"LAUNCH_INTERVAL" envDefault:"2s"`
 }
 
 // GitHub is the GitHub App the api acts as.

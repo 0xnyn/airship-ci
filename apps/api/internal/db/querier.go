@@ -13,23 +13,23 @@ import (
 
 type Querier interface {
 	ActivateRepository(ctx context.Context, arg ActivateRepositoryParams) (Repository, error)
-	AssignRunners(ctx context.Context, arg AssignRunnersParams) ([]Runner, error)
 	// Tokens of uninstalled or suspended installations do not authenticate.
 	AuthenticateAPIToken(ctx context.Context, tokenHash []byte) (AuthenticateAPITokenRow, error)
-	AuthenticateDataPlane(ctx context.Context, tokenHash []byte) (AuthenticateDataPlaneRow, error)
 	CancelPendingRunnersForJob(ctx context.Context, triggerJobID *int64) ([]Runner, error)
 	// Due retries; the next one is scheduled with exponential backoff, capped
 	// at an hour. Deliveries that keep failing are dropped after max_attempts.
 	ClaimDueDeliveries(ctx context.Context, arg ClaimDueDeliveriesParams) ([]FailedDelivery, error)
+	// Moves up to max_results pending runners of one installation to
+	// launching, oldest first, with a lease. The caller holds the installation
+	// lock and passes how many its cap allows.
+	ClaimRunners(ctx context.Context, arg ClaimRunnersParams) ([]Runner, error)
 	// Memberships whose role has not been checked with GitHub since before.
 	// Claiming bumps refreshed_at, so concurrent API replicas share the work.
 	ClaimStaleMemberships(ctx context.Context, arg ClaimStaleMembershipsParams) ([]ClaimStaleMembershipsRow, error)
 	ClearRunnerTrigger(ctx context.Context, id uuid.UUID) error
 	CountAPITokens(ctx context.Context, installationID int64) (int64, error)
-	CountActiveRunners(ctx context.Context, installationID int64) ([]CountActiveRunnersRow, error)
-	CountActiveRunnersByProfile(ctx context.Context, dataPlaneID uuid.UUID) ([]CountActiveRunnersByProfileRow, error)
-	CountActiveRunnersForProfile(ctx context.Context, profileID *uuid.UUID) (int64, error)
-	CountDataPlaneProfiles(ctx context.Context, dataPlaneID uuid.UUID) (int64, error)
+	CountActiveRunners(ctx context.Context, installationID int64) (int32, error)
+	CountActiveRunnersForCredential(ctx context.Context, credentialID *uuid.UUID) (int64, error)
 	// Failed attempts at serving one job, to cap retries.
 	CountFailedRunnersForJob(ctx context.Context, triggerJobID *int64) (int64, error)
 	// Runners in the pool still waiting for a job, launched or not.
@@ -37,15 +37,15 @@ type Querier interface {
 	// Per pool: runners waiting for a job and runners running one.
 	CountInstallationPoolRunners(ctx context.Context, installationID int64) ([]CountInstallationPoolRunnersRow, error)
 	CountRecentPoolFailures(ctx context.Context, arg CountRecentPoolFailuresParams) (int64, error)
+	CountRunnersByState(ctx context.Context, installationID int64) ([]CountRunnersByStateRow, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (ApiToken, error)
-	CreateDataPlane(ctx context.Context, arg CreateDataPlaneParams) (DataPlane, error)
-	CreateProfile(ctx context.Context, arg CreateProfileParams) (Profile, error)
+	CreateEvent(ctx context.Context, arg CreateEventParams) error
 	// Returns no row when a live runner for the triggering job already exists.
 	CreateRunner(ctx context.Context, arg CreateRunnerParams) (Runner, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	DeactivateRepository(ctx context.Context, arg DeactivateRepositoryParams) (int64, error)
 	DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) (int64, error)
-	DeleteDataPlane(ctx context.Context, arg DeleteDataPlaneParams) (int64, error)
+	DeleteCloudCredential(ctx context.Context, arg DeleteCloudCredentialParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
 	// Removes pools a config no longer defines. Their runners lose pool_id and
 	// the idle reaper takes them.
@@ -54,56 +54,71 @@ type Querier interface {
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) error
 	// GitHub keeps deliveries for three days; nothing older can be resent.
 	DeleteOldDeliveries(ctx context.Context, before time.Time) error
+	DeleteOldEvents(ctx context.Context, before time.Time) (int64, error)
 	// Drops memberships GitHub no longer reports for the user.
 	DeleteOtherMemberships(ctx context.Context, arg DeleteOtherMembershipsParams) error
-	DeleteProfile(ctx context.Context, arg DeleteProfileParams) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash []byte) error
 	// Takes an idle runner out of its pool before it is trimmed.
 	DetachPoolRunner(ctx context.Context, id uuid.UUID) (Runner, error)
+	// The instance may exist (the launcher died after the cloud call), so
+	// instance_gone_at is left for the inventory scan to decide: it revives
+	// the runner if the instance turns up, or marks it gone after the grace
+	// period.
 	ExpireRunnerLeases(ctx context.Context) ([]Runner, error)
 	// A runner from this definition was allocated a job: usage-based pools for
 	// it stay warm for their duration from now.
 	ExtendUsagePools(ctx context.Context, arg ExtendUsagePoolsParams) (int64, error)
-	FindProfilesByLabels(ctx context.Context, arg FindProfilesByLabelsParams) ([]Profile, error)
 	// The app was uninstalled: nothing more will run, so every runner ends and
-	// agents terminate the instances on their next sync.
+	// the reconciler terminates the instances.
 	FinishInstallationRunners(ctx context.Context, installationID int64) ([]Runner, error)
 	// Moves a runner to finished if it is still in one of from_states. Runners
 	// that never got an instance are marked gone at the same time.
 	FinishRunner(ctx context.Context, arg FinishRunnerParams) (Runner, error)
-	GetDataPlane(ctx context.Context, arg GetDataPlaneParams) (DataPlane, error)
+	GetCloudCredential(ctx context.Context, arg GetCloudCredentialParams) (CloudCredential, error)
+	GetCloudCredentialByID(ctx context.Context, id uuid.UUID) (CloudCredential, error)
 	GetInstallation(ctx context.Context, id int64) (Installation, error)
+	GetInstallationRunner(ctx context.Context, arg GetInstallationRunnerParams) (Runner, error)
 	GetJob(ctx context.Context, id int64) (Job, error)
-	GetProfile(ctx context.Context, arg GetProfileParams) (Profile, error)
 	GetRepository(ctx context.Context, arg GetRepositoryParams) (Repository, error)
 	GetRunner(ctx context.Context, id uuid.UUID) (Runner, error)
 	GetRunnerByName(ctx context.Context, arg GetRunnerByNameParams) (Runner, error)
 	GetSessionUser(ctx context.Context, tokenHash []byte) (User, error)
 	GetUserInstallationByLogin(ctx context.Context, arg GetUserInstallationByLoginParams) (GetUserInstallationByLoginRow, error)
 	GetWebhookWatermark(ctx context.Context) (int64, error)
+	// Per-day totals for the analytics page: jobs seen, jobs run on Airship,
+	// failures, and minutes of runner time.
+	JobDailyStats(ctx context.Context, arg JobDailyStatsParams) ([]JobDailyStatsRow, error)
 	JobHasLiveRunner(ctx context.Context, triggerJobID *int64) (bool, error)
+	// Per-repository totals for the analytics page.
+	JobRepositoryStats(ctx context.Context, arg JobRepositoryStatsParams) ([]JobRepositoryStatsRow, error)
 	// Totals for jobs queued since a point in time. Queue time is measured only
 	// for jobs Airship ran, from queued to started.
 	JobStats(ctx context.Context, arg JobStatsParams) (JobStatsRow, error)
 	ListAPITokens(ctx context.Context, installationID int64) ([]ApiToken, error)
-	// Pending runners an agent could be handed now, oldest first. The caller
-	// holds the data plane lock and picks among them within each cap.
-	ListClaimableRunners(ctx context.Context, arg ListClaimableRunnersParams) ([]Runner, error)
-	ListDataPlaneProfileLimits(ctx context.Context, dataPlaneID uuid.UUID) ([]ListDataPlaneProfileLimitsRow, error)
-	ListDataPlanes(ctx context.Context, installationID int64) ([]DataPlane, error)
+	ListCloudCredentials(ctx context.Context, installationID int64) ([]CloudCredential, error)
+	ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error)
 	ListIdlePools(ctx context.Context) ([]IdlePool, error)
 	// Launched runners that never got a job. Warm-pool runners waiting for one
 	// are idle on purpose; their pool decides when they go.
 	ListIdleRunners(ctx context.Context, arg ListIdleRunnersParams) ([]Runner, error)
 	ListInstallationIdlePools(ctx context.Context, installationID int64) ([]IdlePool, error)
+	ListInstallationMembers(ctx context.Context, installationID int64) ([]ListInstallationMembersRow, error)
+	// Installations that have work for the launcher, excluding suspended and
+	// uninstalled ones, whose runners wait until they are unsuspended.
+	ListInstallationsWithPendingRunners(ctx context.Context) ([]int64, error)
+	// Every (credential, region) with runners whose instance may still exist,
+	// so the reconciler knows where to look.
+	ListInventoryScopes(ctx context.Context) ([]ListInventoryScopesRow, error)
 	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
 	ListLiveInstallations(ctx context.Context) ([]Installation, error)
 	ListLostBusyRunners(ctx context.Context, arg ListLostBusyRunnersParams) ([]Runner, error)
-	ListProfiles(ctx context.Context, installationID int64) ([]Profile, error)
 	ListRepositories(ctx context.Context, installationID int64) ([]Repository, error)
 	ListRepositoryIdlePools(ctx context.Context, repositoryID int64) ([]IdlePool, error)
 	ListRunners(ctx context.Context, arg ListRunnersParams) ([]Runner, error)
 	ListRunnersToDeregister(ctx context.Context, arg ListRunnersToDeregisterParams) ([]Runner, error)
+	// Finished runners whose instance may still be running: never asked to
+	// terminate, or asked a while ago and still listed.
+	ListRunnersToTerminate(ctx context.Context, arg ListRunnersToTerminateParams) ([]Runner, error)
 	// Queued jobs Airship should run that it has heard nothing about for a
 	// while; the reconciler asks GitHub about them in case a webhook was lost.
 	// Each installation gets at most per_installation jobs per pass, so one
@@ -119,41 +134,42 @@ type Querier interface {
 	// and they are trimmed once running.
 	ListSurplusPoolRunners(ctx context.Context, arg ListSurplusPoolRunnersParams) ([]Runner, error)
 	ListUserInstallations(ctx context.Context, userID uuid.UUID) ([]ListUserInstallationsRow, error)
-	// Serialises claims for one data plane, so its max_runners and every
-	// profile's hold even when an agent runs as more than one replica.
-	LockDataPlane(ctx context.Context, id uuid.UUID) (int32, error)
 	// Serializes filling and trimming one pool, so two passes cannot both see
 	// a deficit and overshoot it.
 	LockIdlePool(ctx context.Context, id uuid.UUID) (IdlePool, error)
+	// Serializes claiming within one installation, so its max_runners holds
+	// across concurrent launchers on several API replicas.
+	LockInstallation(ctx context.Context, id int64) (int32, error)
 	// Serializes giving one job a runner, so a retry and a webhook cannot both
 	// pass the "no live runner yet" check. (Webhooks already hold the row
 	// lock from UpsertJob; retries do not.)
 	LockJob(ctx context.Context, id int64) error
-	// Blocks runner creation for the profile until the transaction ends.
-	LockProfile(ctx context.Context, arg LockProfileParams) (Profile, error)
 	MarkInstallationDeleted(ctx context.Context, id int64) error
-	// Runners whose instance the agent no longer reports. A grace period covers
-	// cloud APIs that list new instances late. A runner that was waiting for a
-	// job is finished as lost; a busy runner waits for GitHub's completed event.
+	// Runners in a (credential, region) whose instance the cloud no longer
+	// lists. A grace period covers clouds that list new instances late. A
+	// runner that was waiting for a job is finished as lost; a busy runner
+	// waits for GitHub's completed event.
 	MarkInstancesGone(ctx context.Context, arg MarkInstancesGoneParams) ([]Runner, error)
 	// Clearing config_checked_at puts the repository first in line for the
 	// next refresh pass.
 	MarkRepositoryConfigStale(ctx context.Context, id int64) (int64, error)
 	MarkRunnerBusy(ctx context.Context, id uuid.UUID) (Runner, error)
 	MarkRunnerDeregistered(ctx context.Context, id uuid.UUID) error
+	// Hands out the boot script once per runner, while it is still booting,
+	// and forgets it. The sealed script comes back as boot_secret.
+	MarkRunnerProvisioned(ctx context.Context, arg MarkRunnerProvisionedParams) (MarkRunnerProvisionedRow, error)
+	// The cloud accepted the launch.
+	MarkRunnerRunning(ctx context.Context, arg MarkRunnerRunningParams) (Runner, error)
+	MarkTerminateRequested(ctx context.Context, id uuid.UUID) error
 	// Hands a job's spare runner to another job that lost its own.
 	MoveLiveRunners(ctx context.Context, arg MoveLiveRunnersParams) (int64, error)
 	// A failed attempt. A delivery already being retried keeps its schedule.
 	RecordFailedDelivery(ctx context.Context, arg RecordFailedDeliveryParams) error
-	// Puts an assigned runner back in the queue after a transient failure, not
+	// Puts a launching runner back in the queue after a transient failure, not
 	// to be claimed again for retry_after_seconds.
 	ReleaseRunner(ctx context.Context, arg ReleaseRunnerParams) error
-	// Records the instances the agent sees; assigned runners become running.
+	// Records the instances the cloud lists for a (credential, region).
 	ReportInstances(ctx context.Context, arg ReportInstancesParams) ([]Runner, error)
-	// Assigned runners the agent never received: their sync response was lost.
-	// Only runners assigned before the agent sent this request count, because
-	// a response still in flight when the request was sent cannot be in it.
-	RequeueUnacknowledgedRunners(ctx context.Context, arg RequeueUnacknowledgedRunnersParams) ([]Runner, error)
 	// Points an idle pool runner at a queued job, so the job is not given an
 	// on-demand runner too and the pool replaces the one it will take.
 	ReserveIdleRunner(ctx context.Context, arg ReserveIdleRunnerParams) (Runner, error)
@@ -162,29 +178,31 @@ type Querier interface {
 	// GitHub gave the job a different runner, so pool runners reserved for it
 	// go back to waiting in their pool.
 	ReturnPoolRunners(ctx context.Context, arg ReturnPoolRunnersParams) (int64, error)
-	// A runner whose lease expired but whose instance the agent now reports did
+	// A runner whose lease expired but whose instance the cloud now lists did
 	// launch, and may already be running a job, so it is revived rather than
-	// terminated, as long as GitHub still has it registered. It returns the job
-	// it was started for, so the retry runner queued for that job can be
-	// cancelled and the profile stays within max_runners.
+	// terminated, as long as GitHub still has it registered. It returns the
+	// job it was started for, so the retry runner queued for that job can be
+	// cancelled and the installation stays within max_runners.
 	ReviveRunners(ctx context.Context, arg ReviveRunnersParams) ([]ReviveRunnersRow, error)
-	RotateDataPlaneToken(ctx context.Context, arg RotateDataPlaneTokenParams) (DataPlane, error)
-	SetDataPlaneMaxRunners(ctx context.Context, arg SetDataPlaneMaxRunnersParams) (DataPlane, error)
+	SetCloudCredentialDefaultRegion(ctx context.Context, arg SetCloudCredentialDefaultRegionParams) (CloudCredential, error)
+	SetCloudCredentialStatus(ctx context.Context, arg SetCloudCredentialStatusParams) error
+	SetInstallationMaxRunners(ctx context.Context, arg SetInstallationMaxRunnersParams) (Installation, error)
 	SetInstallationSuspended(ctx context.Context, arg SetInstallationSuspendedParams) error
 	SetJobRunner(ctx context.Context, arg SetJobRunnerParams) error
 	SetMembershipRole(ctx context.Context, arg SetMembershipRoleParams) error
 	SetRepositoryConfig(ctx context.Context, arg SetRepositoryConfigParams) error
 	SetRunnerGitHubID(ctx context.Context, arg SetRunnerGitHubIDParams) error
+	SetRunnerProvisionSecret(ctx context.Context, arg SetRunnerProvisionSecretParams) error
 	SetWebhookWatermark(ctx context.Context, watermark int64) error
 	// At most once a minute, so a busy script does not write on every call.
 	TouchAPIToken(ctx context.Context, id uuid.UUID) error
-	// Returns the database's clock, which runner timestamps are compared to.
-	TouchDataPlane(ctx context.Context, arg TouchDataPlaneParams) (time.Time, error)
 	TouchJob(ctx context.Context, id int64) error
 	TouchRepositoryConfig(ctx context.Context, id int64) error
-	UpdateProfile(ctx context.Context, arg UpdateProfileParams) (Profile, error)
 	// Keeps name, visibility and default branch current from webhooks.
 	UpdateRepositoryMetadata(ctx context.Context, arg UpdateRepositoryMetadataParams) error
+	// Saving credentials for a cloud that already has some replaces them in
+	// place, so runners in flight keep their credential_id.
+	UpsertCloudCredential(ctx context.Context, arg UpsertCloudCredentialParams) (CloudCredential, error)
 	UpsertIdlePool(ctx context.Context, arg UpsertIdlePoolParams) (IdlePool, error)
 	UpsertInstallation(ctx context.Context, arg UpsertInstallationParams) (Installation, error)
 	// Folds one workflow_job event into the job row. Status only moves forward

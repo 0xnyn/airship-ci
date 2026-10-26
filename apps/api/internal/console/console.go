@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
@@ -19,31 +18,24 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Store is the subset of db.Querier the dashboard needs.
 type Store interface {
 	GetUserInstallationByLogin(ctx context.Context, arg db.GetUserInstallationByLoginParams) (db.GetUserInstallationByLoginRow, error)
-
-	CreateDataPlane(ctx context.Context, arg db.CreateDataPlaneParams) (db.DataPlane, error)
-	ListDataPlanes(ctx context.Context, installationID int64) ([]db.DataPlane, error)
-	GetDataPlane(ctx context.Context, arg db.GetDataPlaneParams) (db.DataPlane, error)
-	RotateDataPlaneToken(ctx context.Context, arg db.RotateDataPlaneTokenParams) (db.DataPlane, error)
-	DeleteDataPlane(ctx context.Context, arg db.DeleteDataPlaneParams) (int64, error)
-	CountDataPlaneProfiles(ctx context.Context, dataPlaneID uuid.UUID) (int64, error)
-
-	CreateProfile(ctx context.Context, arg db.CreateProfileParams) (db.Profile, error)
-	ListProfiles(ctx context.Context, installationID int64) ([]db.Profile, error)
-	GetProfile(ctx context.Context, arg db.GetProfileParams) (db.Profile, error)
-	UpdateProfile(ctx context.Context, arg db.UpdateProfileParams) (db.Profile, error)
+	SetInstallationMaxRunners(ctx context.Context, arg db.SetInstallationMaxRunnersParams) (db.Installation, error)
+	ListInstallationMembers(ctx context.Context, installationID int64) ([]db.ListInstallationMembersRow, error)
 
 	ListJobs(ctx context.Context, arg db.ListJobsParams) ([]db.Job, error)
 	JobStats(ctx context.Context, arg db.JobStatsParams) (db.JobStatsRow, error)
+	JobDailyStats(ctx context.Context, arg db.JobDailyStatsParams) ([]db.JobDailyStatsRow, error)
+	JobRepositoryStats(ctx context.Context, arg db.JobRepositoryStatsParams) ([]db.JobRepositoryStatsRow, error)
 	ListRunners(ctx context.Context, arg db.ListRunnersParams) ([]db.Runner, error)
-	CountActiveRunners(ctx context.Context, installationID int64) ([]db.CountActiveRunnersRow, error)
+	CountRunnersByState(ctx context.Context, installationID int64) ([]db.CountRunnersByStateRow, error)
+	ListEvents(ctx context.Context, arg db.ListEventsParams) ([]db.Event, error)
 
-	SetDataPlaneMaxRunners(ctx context.Context, arg db.SetDataPlaneMaxRunnersParams) (db.DataPlane, error)
+	ListCloudCredentials(ctx context.Context, installationID int64) ([]db.CloudCredential, error)
+
 	ListRepositories(ctx context.Context, installationID int64) ([]db.Repository, error)
 	ListInstallationIdlePools(ctx context.Context, installationID int64) ([]db.IdlePool, error)
 	CountInstallationPoolRunners(ctx context.Context, installationID int64) ([]db.CountInstallationPoolRunnersRow, error)
@@ -54,16 +46,20 @@ type Store interface {
 	DeleteAPIToken(ctx context.Context, arg db.DeleteAPITokenParams) (int64, error)
 	AuthenticateAPIToken(ctx context.Context, tokenHash []byte) (db.AuthenticateAPITokenRow, error)
 	TouchAPIToken(ctx context.Context, id uuid.UUID) error
+	MarkRunnerProvisioned(ctx context.Context, arg db.MarkRunnerProvisionedParams) (db.MarkRunnerProvisionedRow, error)
 }
 
 // Fleet is the scheduling work the dashboard triggers: it coordinates with
-// runners in flight or calls GitHub, so it lives in the fleet service.
+// runners in flight or calls GitHub and the clouds, so it lives in the
+// fleet service.
 type Fleet interface {
-	DeleteProfile(ctx context.Context, installationID int64, id uuid.UUID) error
 	ListInstallationRepositories(ctx context.Context, installationID int64) ([]github.Repository, error)
 	ActivateRepository(ctx context.Context, installationID, repoID int64, allowPublic bool, by *uuid.UUID) (db.Repository, error)
 	DeactivateRepository(ctx context.Context, installationID, repoID int64) error
 	OrganizationConfig(ctx context.Context, installation db.Installation) (fleet.OrganizationConfig, error)
+	ConnectCloud(ctx context.Context, installationID int64, cloud string, secret []byte, defaultRegion string, by *uuid.UUID) (db.CloudCredential, error)
+	DisconnectCloud(ctx context.Context, installationID int64, cloud string) error
+	ProvisionScript(ctx context.Context, sealed []byte) (string, error)
 }
 
 // Config wires the dashboard API.
@@ -72,7 +68,7 @@ type Config struct {
 	Fleet          Fleet
 	Sessions       *auth.Sessions
 	AllowedOrigins []string
-	// PublicURL is the control plane URL agents connect to.
+	// PublicURL is the control plane's URL, shown in setup instructions.
 	PublicURL string
 }
 
@@ -94,25 +90,25 @@ func Register(api huma.API, cfg Config) {
 	huma.Register(api, op("getOverview", http.MethodGet, "/v1/orgs/{org}/overview", "Get an organization's overview", "Activity", 0), h.overview)
 	huma.Register(api, op("listJobs", http.MethodGet, "/v1/orgs/{org}/jobs", "List jobs", "Activity", 0), h.listJobs)
 	huma.Register(api, op("listRunners", http.MethodGet, "/v1/orgs/{org}/runners", "List runners", "Activity", 0), h.listRunners)
+	huma.Register(api, op("listEvents", http.MethodGet, "/v1/orgs/{org}/events", "List events", "Activity", 0), h.listEvents)
+	huma.Register(api, op("getAnalytics", http.MethodGet, "/v1/orgs/{org}/analytics", "Get usage analytics", "Activity", 0), h.analytics)
 
-	huma.Register(api, op("listDataPlanes", http.MethodGet, "/v1/orgs/{org}/data-planes", "List data planes", "Data planes", 0), h.listDataPlanes)
-	huma.Register(api, op("createDataPlane", http.MethodPost, "/v1/orgs/{org}/data-planes", "Create a data plane", "Data planes", http.StatusCreated), h.createDataPlane)
-	huma.Register(api, op("rotateDataPlaneToken", http.MethodPost, "/v1/orgs/{org}/data-planes/{id}/rotate-token", "Rotate a data plane's agent token", "Data planes", 0), h.rotateToken)
-	huma.Register(api, op("updateDataPlane", http.MethodPatch, "/v1/orgs/{org}/data-planes/{id}", "Update a data plane", "Data planes", 0), h.updateDataPlane)
-	huma.Register(api, op("deleteDataPlane", http.MethodDelete, "/v1/orgs/{org}/data-planes/{id}", "Delete a data plane", "Data planes", http.StatusNoContent), h.deleteDataPlane)
+	huma.Register(api, op("listClouds", http.MethodGet, "/v1/orgs/{org}/clouds", "List connected clouds", "Cloud", 0), h.listClouds)
+	huma.Register(api, op("connectAws", http.MethodPut, "/v1/orgs/{org}/clouds/aws", "Connect AWS", "Cloud", 0), h.connectAWS)
+	huma.Register(api, op("disconnectCloud", http.MethodDelete, "/v1/orgs/{org}/clouds/{cloud}", "Disconnect a cloud", "Cloud", http.StatusNoContent), h.disconnectCloud)
 
-	huma.Register(api, op("listProfiles", http.MethodGet, "/v1/orgs/{org}/profiles", "List runner profiles", "Profiles", 0), h.listProfiles)
-	huma.Register(api, op("createProfile", http.MethodPost, "/v1/orgs/{org}/profiles", "Create a runner profile", "Profiles", http.StatusCreated), h.createProfile)
-	huma.Register(api, op("updateProfile", http.MethodPatch, "/v1/orgs/{org}/profiles/{id}", "Update a runner profile", "Profiles", 0), h.updateProfile)
-	huma.Register(api, op("deleteProfile", http.MethodDelete, "/v1/orgs/{org}/profiles/{id}", "Delete a runner profile", "Profiles", http.StatusNoContent), h.deleteProfile)
+	huma.Register(api, op("listRepositories", http.MethodGet, "/v1/orgs/{org}/repositories", "List repositories and their runner config", "Repositories", 0), h.listRepositories)
+	huma.Register(api, op("activateRepository", http.MethodPut, "/v1/orgs/{org}/repositories/{repo}/activation", "Activate a repository", "Repositories", 0), h.activateRepository)
+	huma.Register(api, op("deactivateRepository", http.MethodDelete, "/v1/orgs/{org}/repositories/{repo}/activation", "Deactivate a repository", "Repositories", http.StatusNoContent), h.deactivateRepository)
+	huma.Register(api, op("getOrganizationConfig", http.MethodGet, "/v1/orgs/{org}/runner-config", "Get the organization's runner config", "Repositories", 0), h.organizationConfig)
+	huma.Register(api, op("validateRunnerConfig", http.MethodPost, "/v1/orgs/{org}/runner-config/validate", "Check a runner config file", "Repositories", 0), h.validateConfig)
+	huma.Register(api, op("listPools", http.MethodGet, "/v1/orgs/{org}/pools", "List idle runner pools", "Repositories", 0), h.listPools)
 
-	huma.Register(api, op("listRepositories", http.MethodGet, "/v1/orgs/{org}/repositories", "List repositories and their runner config", "Runner config", 0), h.listRepositories)
-	huma.Register(api, op("activateRepository", http.MethodPut, "/v1/orgs/{org}/repositories/{repo}/activation", "Activate a repository's runner config", "Runner config", 0), h.activateRepository)
-	huma.Register(api, op("deactivateRepository", http.MethodDelete, "/v1/orgs/{org}/repositories/{repo}/activation", "Deactivate a repository's runner config", "Runner config", http.StatusNoContent), h.deactivateRepository)
-	huma.Register(api, op("getOrganizationConfig", http.MethodGet, "/v1/orgs/{org}/runner-config", "Get the organization's runner config", "Runner config", 0), h.organizationConfig)
-	huma.Register(api, op("validateRunnerConfig", http.MethodPost, "/v1/orgs/{org}/runner-config/validate", "Check a runner config file", "Runner config", 0), h.validateConfig)
+	huma.Register(api, op("listMembers", http.MethodGet, "/v1/orgs/{org}/members", "List organization members with dashboard access", "Organization", 0), h.listMembers)
+	huma.Register(api, op("getSettings", http.MethodGet, "/v1/orgs/{org}/settings", "Get organization settings", "Organization", 0), h.getSettings)
+	huma.Register(api, op("updateSettings", http.MethodPatch, "/v1/orgs/{org}/settings", "Update organization settings", "Organization", 0), h.updateSettings)
+
 	registerAPITokens(api, h, op)
-	huma.Register(api, op("listPools", http.MethodGet, "/v1/orgs/{org}/pools", "List warm pools", "Runner config", 0), h.listPools)
 }
 
 type orgInput struct {
@@ -139,24 +135,12 @@ func (h *handlers) org(ctx context.Context, login string, admin bool) (db.Instal
 		return db.Installation{}, fmt.Errorf("resolve organization: %w", err)
 	}
 	if admin && row.Role != "admin" {
-		return db.Installation{}, huma.Error403Forbidden("only organization owners can change Airship settings")
+		return db.Installation{}, huma.Error403Forbidden("only organization owners can change settings")
 	}
 
 	return row.Installation, nil
 }
 
-// isUniqueViolation reports a unique constraint failure.
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
-}
-
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
 }
-
-// onlineWindow is how recently an agent must have synced to count as
-// online. Agents long-poll for 25 seconds, so this allows for one missed
-// round trip.
-const onlineWindow = 90 * time.Second

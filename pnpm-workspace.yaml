@@ -1,7 +1,6 @@
 packages:
   - apps/*
   - packages/*
-  - deploy/*
 
 allowBuilds:
   esbuild: true

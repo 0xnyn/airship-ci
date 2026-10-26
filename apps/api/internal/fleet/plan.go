@@ -4,44 +4,75 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/wizenheimer/airship/apps/api/internal/agentproto"
-	"github.com/wizenheimer/airship/apps/api/internal/db"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
+	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 
 	"github.com/google/uuid"
 )
 
 // Definition sources, mirroring runners.source.
 const (
-	SourceProfile      = "profile"
 	SourceRepository   = "repository"
 	SourceOrganization = "organization"
 )
 
 // Spec is the machine a runner launches as. It is fixed when the runner is
-// created, so editing a profile or config never changes a runner in flight.
+// created, so editing a config never changes a runner in flight.
 type Spec struct {
-	Arch           string            `json:"arch"`
-	InstanceType   string            `json:"instanceType"`
-	Image          string            `json:"image,omitempty"`
-	DiskGB         int               `json:"diskGb"`
-	DiskType       string            `json:"diskType,omitempty"`
-	DiskIOPS       int               `json:"diskIops,omitempty"`
-	DiskThroughput int               `json:"diskThroughput,omitempty"`
-	Spot           bool              `json:"spot"`
-	Env            map[string]string `json:"env,omitempty"`
-	Privileged     bool              `json:"privileged,omitempty"`
+	Arch         string            `json:"arch"`
+	InstanceType string            `json:"instanceType"`
+	Image        string            `json:"image,omitempty"`
+	Spot         bool              `json:"spot"`
+	Disk         cloud.Disk        `json:"disk"`
+	Env          map[string]string `json:"env,omitempty"`
+	GPU          bool              `json:"gpu,omitempty"`
+	Cache        bool              `json:"cache,omitempty"`
+	ProvisionVia string            `json:"provisionVia,omitempty"`
+	Windows      cloud.Windows     `json:"windows,omitempty"`
+	SubnetID     string            `json:"subnetId,omitempty"`
+	// SecurityGroupIDs and InstanceProfile override the cloud's defaults.
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+	InstanceProfile  string   `json:"instanceProfile,omitempty"`
 }
 
-// Attempt is one way to serve a job: a definition, a machine and the data
-// plane to launch it on.
+func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
+	return Spec{
+		Arch:         v.Arch,
+		InstanceType: v.InstanceType,
+		Image:        v.Image,
+		Spot:         v.Spot,
+		Disk:         cloud.Disk{SizeGB: v.Disk.SizeGB, Type: v.Disk.Type, IOPS: v.Disk.IOPS, Throughput: v.Disk.Throughput, InitRate: v.Disk.InitRate},
+		Env:          r.Env,
+		GPU:          r.GPU,
+		Cache:        r.Cache,
+		ProvisionVia: r.ProvisionVia,
+		Windows:      cloud.Windows{Interactive: r.Windows.Interactive, User: r.Windows.User, Path: r.Windows.Path},
+		SubnetID:     r.SubnetID,
+		// Copied so a later change to the parsed file cannot alias a stored spec.
+		SecurityGroupIDs: append([]string(nil), r.SecurityGroupIDs...),
+		InstanceProfile:  r.InstanceProfile,
+	}
+}
+
+// machine is the provider's view of a spec.
+func (s Spec) machine() cloud.Machine {
+	return cloud.Machine{
+		InstanceType: s.InstanceType, Image: s.Image, Arch: s.Arch, Spot: s.Spot, Disk: s.Disk,
+		SubnetID: s.SubnetID, SecurityGroupIDs: s.SecurityGroupIDs, InstanceProfile: s.InstanceProfile,
+	}
+}
+
+// Attempt is one way to serve a job: a definition, a machine, and the
+// cloud credential and region to launch it with.
 type Attempt struct {
 	Source string `json:"source"`
-	// Name is the profile label or config runner name.
-	Name        string     `json:"name"`
-	ProfileID   *uuid.UUID `json:"profileId,omitempty"`
-	DataPlaneID uuid.UUID  `json:"dataPlaneId"`
-	Spec        Spec       `json:"spec"`
-	Labels      []string   `json:"labels"`
+	// Name is the config runner name.
+	Name         string    `json:"name"`
+	Cloud        string    `json:"cloud"`
+	CredentialID uuid.UUID `json:"credentialId"`
+	Region       string    `json:"region"`
+	Spec         Spec      `json:"spec"`
+	Labels       []string  `json:"labels"`
 }
 
 // Plan is a job's attempts in fallback order. A failed launch moves on to
@@ -90,39 +121,4 @@ func decodeSpec(raw []byte) (Spec, error) {
 	}
 
 	return s, nil
-}
-
-// profileAttempt is the single attempt for a dashboard profile.
-func profileAttempt(profile db.Profile) Attempt {
-	return Attempt{
-		Source:      SourceProfile,
-		Name:        profile.Label,
-		ProfileID:   uuidPtr(profile.ID),
-		DataPlaneID: profile.DataPlaneID,
-		Spec: Spec{
-			Arch:         profile.Arch,
-			InstanceType: profile.InstanceType,
-			Image:        deref(profile.Image),
-			DiskGB:       int(profile.DiskGb),
-			Spot:         profile.Spot,
-		},
-		Labels: RunnerLabels(profile),
-	}
-}
-
-// launchProfile is what the agent is told to launch.
-func (s Spec) launchProfile(label string) agentproto.LaunchProfile {
-	return agentproto.LaunchProfile{
-		Label:          label,
-		Arch:           s.Arch,
-		InstanceType:   s.InstanceType,
-		Image:          s.Image,
-		DiskGB:         s.DiskGB,
-		DiskType:       s.DiskType,
-		DiskIOPS:       s.DiskIOPS,
-		DiskThroughput: s.DiskThroughput,
-		Spot:           s.Spot,
-		Env:            s.Env,
-		Privileged:     s.Privileged,
-	}
 }

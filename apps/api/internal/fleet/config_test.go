@@ -5,135 +5,30 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wizenheimer/airship/apps/api/internal/agentproto"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
 	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 )
 
-const (
-	repoID   = int64(9)
-	headSHA  = "head0000"
-	cpuLabel = "airship-cpu"
-)
-
-const fallbackConfig = `
-runners:
-  - name: cpu
-    cloud: aws
-    instance_type: [c7i.large, m7i.large]
-    machine_image: ami-0123456789abcdef0
-    labels: [airship-cpu]
-    extra_config:
-      env_vars:
-        GREETING: hello
-`
-
-// configHarness is a harness whose repository serves jobs from config
-// files: activated, connected, with a run attempt GitHub can describe.
-func newConfigHarness(t *testing.T) *harness {
-	t.Helper()
-	h := newHarness(t, 10)
-	h.gh.AddRepository(installationID, github.Repository{ID: repoID, FullName: repoName, Private: true, DefaultBranch: "main"})
-	h.activate(false)
-	h.setRun("push", repoID, "alice")
-	h.sync(nil, 0) // the agent reports its provider
-
-	return h
-}
-
-func (h *harness) activate(allowPublic bool) {
-	h.t.Helper()
-	if _, err := h.q.ActivateRepository(h.ctx, db.ActivateRepositoryParams{
-		ID: repoID, InstallationID: installationID, FullName: repoName, Private: true, DefaultBranch: "main", AllowPublic: allowPublic,
-	}); err != nil {
-		h.t.Fatal(err)
-	}
-}
-
-func (h *harness) setRun(event string, headRepoID int64, actor string) {
-	head := &github.Repository{ID: headRepoID}
-	h.gh.SetRunAttempt(repoName, github.RunAttempt{
-		ID: 1, RunAttempt: 1, Event: event, HeadSHA: headSHA,
-		Repository: github.Repository{ID: repoID}, HeadRepository: head, Actor: &github.Actor{Login: actor},
-	})
-}
-
-func (h *harness) queueAt(sha string, labels ...string) github.WorkflowJob {
-	h.t.Helper()
-	job := h.newJob(labels...)
-	job.HeadSHA = sha
-	h.event("queued", job, true)
-
-	return job
-}
-
-func (h *harness) job(id int64) db.Job {
-	h.t.Helper()
-	row, err := h.q.GetJob(h.ctx, id)
-	if err != nil {
-		h.t.Fatal(err)
-	}
-
-	return row
-}
-
-func wantSkip(t *testing.T, h *harness, job github.WorkflowJob, reason, detail string) {
-	t.Helper()
-	row := h.job(job.ID)
-	if row.SkipReason == nil || *row.SkipReason != reason {
-		t.Fatalf("skip reason = %v, want %s (detail %v)", row.SkipReason, reason, row.SkipDetail)
-	}
-	if detail != "" && (row.SkipDetail == nil || !strings.Contains(*row.SkipDetail, detail)) {
-		t.Fatalf("skip detail = %v, want it to mention %q", row.SkipDetail, detail)
-	}
-	if n := len(h.runners()); n != 0 {
-		t.Fatalf("%d runners for a skipped job", n)
-	}
-}
-
 func TestConfigFallbackAndSuffix(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(fallbackConfig))
+	h := newHarness(t)
 
 	suffixed := cpuLabel + "--1234"
-	job := h.queueAt(headSHA, suffixed)
-	resp := h.sync(nil, 5)
-	if len(resp.Launch) != 1 {
-		t.Fatalf("launches = %d, want 1", len(resp.Launch))
+	job := h.queue(suffixed)
+	launched := h.launch()
+	if len(launched) != 1 {
+		t.Fatalf("launches = %d, want 1", len(launched))
 	}
-	first := resp.Launch[0]
-	if first.Profile.InstanceType != "c7i.large" || first.Profile.Label != "cpu" || first.Profile.Env["GREETING"] != "hello" {
-		t.Fatalf("first launch profile = %+v", first.Profile)
+	first := launched[0].Launch
+	if first.Machine.InstanceType != "c7i.large" || first.Boot.Env["GREETING"] != "hello" {
+		t.Fatalf("first launch = %+v", first)
 	}
-	registered, _ := h.gh.RunnerByJIT(first.JITConfig)
+	registered, _ := h.gh.RunnerByJIT(first.Boot.JITConfig)
 	if !slices.Contains(registered.Labels, suffixed) || !slices.Contains(registered.Labels, cpuLabel) {
 		t.Fatalf("registered labels = %v, want the suffixed and plain label", registered.Labels)
 	}
-
-	// Capacity for this instance type is gone: not worth retrying as is,
-	// but the plan has another type to try.
-	resp, err := h.svc.Sync(h.ctx, h.dp, agentproto.SyncRequest{
-		AgentVersion: "test", Provider: "fake", Capacity: 5,
-		Failures: []agentproto.LaunchFailure{{RunnerID: first.RunnerID, Error: "InsufficientInstanceCapacity", Retryable: false}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resp.Launch) != 1 || resp.Launch[0].Profile.InstanceType != "m7i.large" {
-		t.Fatalf("fallback launch = %+v, want m7i.large", resp.Launch)
-	}
-
-	// The second option fails the same way: the plan is used up.
-	resp, err = h.svc.Sync(h.ctx, h.dp, agentproto.SyncRequest{
-		AgentVersion: "test", Provider: "fake", Capacity: 5,
-		Failures: []agentproto.LaunchFailure{{RunnerID: resp.Launch[0].RunnerID, Error: "InsufficientInstanceCapacity"}},
-	})
-	if err != nil || len(resp.Launch) != 0 {
-		t.Fatalf("launches after both options failed = %+v, %v", resp.Launch, err)
-	}
-	wantStates(t, h, "finished:launch_failed", "finished:launch_failed")
 	if row := h.job(job.ID); row.Plan == nil {
 		t.Fatal("job plan was not stored")
 	}
@@ -141,13 +36,10 @@ func TestConfigFallbackAndSuffix(t *testing.T) {
 
 func TestConfigNotActivated(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(fallbackConfig))
-	if _, err := h.q.DeactivateRepository(h.ctx, db.DeactivateRepositoryParams{InstallationID: installationID, ID: repoID}); err != nil {
-		t.Fatal(err)
-	}
+	h := newHarness(t)
+	h.deactivate()
 
-	job := h.queueAt(headSHA, cpuLabel)
+	job := h.queue()
 	wantSkip(t, h, job, "repository_inactive", "not activated")
 	if calls := h.gh.Calls("GET contents"); calls != 0 {
 		t.Fatalf("read config %d times for an inactive repository", calls)
@@ -156,22 +48,22 @@ func TestConfigNotActivated(t *testing.T) {
 
 func TestConfigIgnoresUnprefixedLabels(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	job := h.queueAt(headSHA, "ubuntu-latest")
+	h := newHarness(t)
+	job := h.queue("ubuntu-latest")
 	if row := h.job(job.ID); row.SkipReason != nil || row.Plan != nil {
 		t.Fatalf("job for a GitHub-hosted label was planned or skipped: %+v", row)
 	}
 	if calls := h.gh.Calls("GET contents") + h.gh.Calls("GET run attempt"); calls != 0 {
-		t.Fatalf("made %d GitHub calls for a job that is not Airship's", calls)
+		t.Fatalf("made %d GitHub calls for a job that is not ours", calls)
 	}
 }
 
 func TestConfigInvalid(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte("runners:\n  - name: cpu\n    cloud: gcp\n"))
-	job := h.queueAt(headSHA, cpuLabel)
-	wantSkip(t, h, job, "config_invalid", ".airship.yml")
+	h := newHarness(t)
+	h.setConfig(headSHA, "runners:\n  - name: cpu\n    cloud: gcp\n")
+	job := h.queue()
+	wantSkip(t, h, job, "config_invalid", ".cirun.yml")
 }
 
 // A pull request from a fork must not choose the machines its code runs
@@ -179,51 +71,38 @@ func TestConfigInvalid(t *testing.T) {
 // config, never its own.
 func TestConfigForkUsesDefaultBranch(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
+	h := newHarness(t)
 	h.setRun("pull_request", 555, "mallory")
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(strings.ReplaceAll(fallbackConfig, "[c7i.large, m7i.large]", "p5.48xlarge")))
-	h.gh.SetFile(repoName, "main", runnerconfig.RepoFile, []byte(fallbackConfig))
+	h.setConfig(headSHA, strings.ReplaceAll(baseConfig, "[c7i.large, m7i.large]", "p5.48xlarge"))
+	h.setConfig("main", baseConfig)
 
-	h.queueAt(headSHA, cpuLabel)
-	resp := h.sync(nil, 5)
-	if len(resp.Launch) != 1 || resp.Launch[0].Profile.InstanceType != "c7i.large" {
-		t.Fatalf("fork launch = %+v, want the default branch's c7i.large", resp.Launch)
+	h.queue()
+	launched := h.launch()
+	if len(launched) != 1 || launched[0].Launch.Machine.InstanceType != "c7i.large" {
+		t.Fatalf("fork launch = %+v, want the default branch's c7i.large", launched)
 	}
 }
 
-func TestConfigPublicRepository(t *testing.T) {
+// The region comes from the file, or the connected cloud's default.
+func TestConfigRegion(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(fallbackConfig))
-	job := h.newJob(cpuLabel)
-	job.HeadSHA = headSHA
-	h.event("queued", job, false)
-	wantSkip(t, h, job, "public_repository", "")
-
-	h.activate(true)
-	job = h.newJob(cpuLabel)
-	job.HeadSHA = headSHA
-	h.event("queued", job, false)
-	if n := len(h.runners()); n != 1 {
-		t.Fatalf("runners = %d after allowing public access, want 1", n)
+	h := newHarness(t)
+	h.setConfig(headSHA, strings.ReplaceAll(baseConfig, "labels:", "region: [eu-west-1, eu-west-1]\n    labels:"))
+	h.queue()
+	launched := h.launch()
+	if len(launched) != 1 || launched[0].Launch.Region != "eu-west-1" {
+		t.Fatalf("launch region = %+v, want eu-west-1", launched)
 	}
-}
-
-func TestConfigNoMatchingDataPlane(t *testing.T) {
-	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(strings.ReplaceAll(fallbackConfig, "labels:", "data_plane: staging\n    labels:")))
-	job := h.queueAt(headSHA, cpuLabel)
-	wantSkip(t, h, job, "no_data_plane", "data plane staging")
 }
 
 const globalConfig = `
 runners:
   - name: gpu
     cloud: aws
+    gpu: nvidia-tesla-t4
     instance_type: g5.xlarge
     machine_image: ami-0123456789abcdef0
-    labels: [airship-gpu]
+    labels: [cirun-gpu]
 `
 
 const accessConfig = `
@@ -240,9 +119,9 @@ access_control:
 
 func TestOrganizationRunnerAccess(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile("acme/.airship", "", runnerconfig.GlobalFile, []byte(globalConfig))
-	h.gh.SetFile("acme/.airship", "", runnerconfig.AccessFile, []byte(accessConfig))
+	h := newHarness(t)
+	h.gh.SetFile("acme/.cirun", "", runnerconfig.GlobalFile, []byte(globalConfig))
+	h.gh.SetFile("acme/.cirun", "", runnerconfig.AccessFile, []byte(accessConfig))
 
 	cases := []struct {
 		name, event, actor string
@@ -262,8 +141,8 @@ func TestOrganizationRunnerAccess(t *testing.T) {
 			ID: run, RunAttempt: 1, Event: tc.event, Repository: github.Repository{ID: repoID},
 			HeadRepository: &github.Repository{ID: repoID}, Actor: &github.Actor{Login: tc.actor},
 		})
-		job := h.newJob("airship-gpu")
-		job.RunID, job.HeadSHA = run, headSHA
+		job := h.newJob("cirun-gpu")
+		job.RunID = run
 		h.event("queued", job, true)
 		row := h.job(job.ID)
 		if served := row.Plan != nil; served != tc.served {
@@ -273,17 +152,25 @@ func TestOrganizationRunnerAccess(t *testing.T) {
 			t.Fatalf("%s: skip reason = %v, want access_denied", tc.name, row.SkipReason)
 		}
 	}
+	launched := h.launch()
+	if len(launched) != 2 || !launched[0].Launch.Boot.GPU {
+		t.Fatalf("gpu launches = %+v", launched)
+	}
+	registered, _ := h.gh.RunnerByJIT(launched[0].Launch.Boot.JITConfig)
+	if !slices.Contains(registered.Labels, "gpu") {
+		t.Fatalf("gpu runner labels = %v", registered.Labels)
+	}
 }
 
 // A broken .access.yml closes organization runners rather than opening
 // them to every repository.
 func TestOrganizationAccessFailsClosed(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile("acme/.airship", "", runnerconfig.GlobalFile, []byte(globalConfig))
-	h.gh.SetFile("acme/.airship", "", runnerconfig.AccessFile, []byte("version: 2\n"))
+	h := newHarness(t)
+	h.gh.SetFile("acme/.cirun", "", runnerconfig.GlobalFile, []byte(globalConfig))
+	h.gh.SetFile("acme/.cirun", "", runnerconfig.AccessFile, []byte("version: 2\n"))
 
-	job := h.queueAt(headSHA, "airship-gpu")
+	job := h.queue("cirun-gpu")
 	wantSkip(t, h, job, "unsatisfiable_labels", "closed")
 }
 
@@ -293,7 +180,7 @@ runners:
     cloud: aws
     instance_type: c7i.large
     machine_image: ami-0123456789abcdef0
-    labels: [airship-cpu]
+    labels: [cirun-cpu]
     idle:
       replicas: 2
 `
@@ -307,9 +194,7 @@ func (h *harness) refreshPools() {
 	if err := h.svc.RefreshRepositoryConfig(h.ctx, repo); err != nil {
 		h.t.Fatal(err)
 	}
-	if err := h.svc.ReconcileOnce(h.ctx); err != nil {
-		h.t.Fatal(err)
-	}
+	h.reconcile()
 }
 
 func (h *harness) poolRunners() (idle, reserved int) {
@@ -317,7 +202,7 @@ func (h *harness) poolRunners() (idle, reserved int) {
 	err := h.pool.QueryRow(h.ctx, `select
 		count(*) filter (where trigger_job_id is null),
 		count(*) filter (where trigger_job_id is not null)
-		from runners where pool_id is not null and state in ('pending', 'assigned', 'running')`).Scan(&idle, &reserved)
+		from runners where pool_id is not null and state in ('pending', 'launching', 'running')`).Scan(&idle, &reserved)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -327,9 +212,9 @@ func (h *harness) poolRunners() (idle, reserved int) {
 
 func TestWarmPool(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, "main", runnerconfig.RepoFile, []byte(poolConfig))
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(poolConfig))
+	h := newHarness(t)
+	h.setConfig("main", poolConfig)
+	h.setConfig(headSHA, poolConfig)
 
 	h.refreshPools()
 	if idle, _ := h.poolRunners(); idle != 2 {
@@ -339,10 +224,13 @@ func TestWarmPool(t *testing.T) {
 	if idle, _ := h.poolRunners(); idle != 2 {
 		t.Fatalf("idle pool runners after a second pass = %d, want still 2", idle)
 	}
+	if launched := h.launch(); len(launched) != 2 {
+		t.Fatalf("pool launched %d machines, want 2", len(launched))
+	}
 
 	// A job with the plain label takes a pool runner instead of a new one,
 	// and the pool replaces it straight away.
-	h.queueAt(headSHA, cpuLabel)
+	h.queue()
 	if idle, reserved := h.poolRunners(); idle != 2 || reserved != 1 {
 		t.Fatalf("after a job: idle = %d, reserved = %d; want 2 and 1", idle, reserved)
 	}
@@ -351,13 +239,14 @@ func TestWarmPool(t *testing.T) {
 	}
 
 	// A suffixed job cannot use the pool: its runner must carry the suffix.
-	h.queueAt(headSHA, cpuLabel+"--77")
+	h.queue(cpuLabel + "--77")
 	if n := len(h.runners()); n != 4 {
 		t.Fatalf("runners = %d, want an on-demand runner for the suffixed job", n)
 	}
 
-	// Scaling the pool to zero drops the idle runners that never launched.
-	h.gh.SetFile(repoName, "main", runnerconfig.RepoFile, []byte(strings.ReplaceAll(poolConfig, "replicas: 2", "replicas: 0")))
+	// Scaling the pool to zero drops the idle runners: the one that never
+	// launched outright, the launched one by terminating it.
+	h.setConfig("main", strings.ReplaceAll(poolConfig, "replicas: 2", "replicas: 0"))
 	h.refreshPools()
 	if idle, reserved := h.poolRunners(); idle != 0 || reserved != 1 {
 		t.Fatalf("after scaling to zero: idle = %d, reserved = %d; want 0 and 1", idle, reserved)
@@ -368,30 +257,25 @@ func TestWarmPool(t *testing.T) {
 // to the pool rather than idling until it is reaped.
 func TestWarmPoolRunnerSwap(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, "main", runnerconfig.RepoFile, []byte(poolConfig))
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(poolConfig))
+	h := newHarness(t)
+	h.setConfig("main", poolConfig)
+	h.setConfig(headSHA, poolConfig)
 	h.refreshPools()
 
-	job := h.queueAt(headSHA, cpuLabel)
-	resp := h.sync(nil, 10)
-	if len(resp.Launch) != 3 {
-		t.Fatalf("launches = %d, want 3", len(resp.Launch))
+	job := h.queue()
+	launched := h.launch()
+	if len(launched) != 3 {
+		t.Fatalf("launches = %d, want 3", len(launched))
 	}
-	var instances []agentproto.Instance
-	var other string
-	for _, launch := range resp.Launch {
-		instances = append(instances, instanceFor(launch))
-	}
-	h.sync(instances, 0)
 	// Pick a runner that was not reserved for the job.
 	var reserved string
 	if err := h.pool.QueryRow(h.ctx, "select name from runners where trigger_job_id = $1", job.ID).Scan(&reserved); err != nil {
 		t.Fatal(err)
 	}
-	for _, launch := range resp.Launch {
-		if launch.RunnerName != reserved {
-			other = launch.RunnerName
+	var other string
+	for _, instance := range launched {
+		if instance.Launch.RunnerName != reserved {
+			other = instance.Launch.RunnerName
 		}
 	}
 	h.start(job, other)
@@ -400,31 +284,30 @@ func TestWarmPoolRunnerSwap(t *testing.T) {
 	}
 }
 
-func TestDataPlaneMaxRunners(t *testing.T) {
+// Pools wait for a cloud and fill as soon as one is connected.
+func TestWarmPoolWaitsForCloud(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(fallbackConfig))
-	if _, err := h.q.SetDataPlaneMaxRunners(h.ctx, db.SetDataPlaneMaxRunnersParams{InstallationID: installationID, ID: h.dp.ID, MaxRunners: 2}); err != nil {
-		t.Fatal(err)
+	h := newHarness(t)
+	h.disconnect()
+	h.setConfig("main", poolConfig)
+	h.refreshPools()
+	if idle, _ := h.poolRunners(); idle != 0 {
+		t.Fatalf("pool runners without a cloud = %d", idle)
 	}
-	for range 3 {
-		h.queueAt(headSHA, cpuLabel)
-	}
-	h.queue(label) // a profile job shares the same cap
-	if resp := h.sync(nil, 10); len(resp.Launch) != 2 {
-		t.Fatalf("launches = %d, want the data plane's cap of 2", len(resp.Launch))
+	h.connect()
+	if idle, _ := h.poolRunners(); idle != 2 {
+		t.Fatalf("pool runners after connecting = %d, want 2", idle)
 	}
 }
 
 func TestPlanIsStoredOnce(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(fallbackConfig))
-	job := h.queueAt(headSHA, cpuLabel)
+	h := newHarness(t)
+	job := h.queue()
 	before := h.job(job.ID).Plan
 
 	// Redelivery after the config changed keeps the original plan.
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(strings.ReplaceAll(fallbackConfig, "c7i.large", "c7i.4xlarge")))
+	h.setConfig(headSHA, strings.ReplaceAll(baseConfig, "c7i.large", "c7i.4xlarge"))
 	h.event("queued", job, true)
 	if after := h.job(job.ID).Plan; string(after) != string(before) || strings.Contains(string(after), "4xlarge") {
 		t.Fatalf("plan changed on redelivery: %s", after)
@@ -435,12 +318,9 @@ func TestPlanIsStoredOnce(t *testing.T) {
 // later delivery finds it activated, and loses the old reason.
 func TestSkippedJobIsPlannedLater(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(fallbackConfig))
-	if _, err := h.q.DeactivateRepository(h.ctx, db.DeactivateRepositoryParams{InstallationID: installationID, ID: repoID}); err != nil {
-		t.Fatal(err)
-	}
-	job := h.queueAt(headSHA, cpuLabel)
+	h := newHarness(t)
+	h.deactivate()
+	job := h.queue()
 	wantSkip(t, h, job, "repository_inactive", "")
 
 	h.activate(false)
@@ -458,13 +338,12 @@ func TestSkippedJobIsPlannedLater(t *testing.T) {
 // them, never two, and never fail on the one-live-runner-per-job index.
 func TestConcurrentDeliveriesReserveOnce(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
-	h.gh.SetFile(repoName, "main", runnerconfig.RepoFile, []byte(poolConfig))
-	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, []byte(poolConfig))
+	h := newHarness(t)
+	h.setConfig("main", poolConfig)
+	h.setConfig(headSHA, poolConfig)
 	h.refreshPools()
 
-	job := h.newJob(cpuLabel)
-	job.HeadSHA = headSHA
+	job := h.newJob()
 	const deliveries = 8
 	errs := make(chan error, deliveries)
 	for range deliveries {
@@ -492,19 +371,21 @@ func TestConcurrentDeliveriesReserveOnce(t *testing.T) {
 
 func TestOneLineRunner(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t) // no config file anywhere
+	h := newHarness(t)
+	h.setConfig(headSHA, "") // no config file anywhere
+	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, nil)
 
-	label := "airship-aws-m7g-xlarge-ubuntu2404-spot--42"
-	h.queueAt(headSHA, label)
-	resp := h.sync(nil, 5)
-	if len(resp.Launch) != 1 {
-		t.Fatalf("launches = %d, want 1", len(resp.Launch))
+	label := "cirun-aws-m7g-xlarge-ubuntu2404-spot--42"
+	h.queue(label)
+	launched := h.launch()
+	if len(launched) != 1 {
+		t.Fatalf("launches = %d, want 1", len(launched))
 	}
-	p := resp.Launch[0].Profile
-	if p.InstanceType != "m7g.xlarge" || !p.Spot || p.Arch != "arm64" || !strings.Contains(p.Image, "24.04/stable/current/arm64") {
-		t.Fatalf("profile = %+v", p)
+	m := launched[0].Launch.Machine
+	if m.InstanceType != "m7g.xlarge" || !m.Spot || m.Arch != "arm64" || m.Image != "ubuntu2404" || launched[0].Launch.Region != region {
+		t.Fatalf("machine = %+v", m)
 	}
-	registered, _ := h.gh.RunnerByJIT(resp.Launch[0].JITConfig)
+	registered, _ := h.gh.RunnerByJIT(launched[0].Launch.Boot.JITConfig)
 	if !slices.Contains(registered.Labels, label) {
 		t.Fatalf("registered labels = %v, want %s", registered.Labels, label)
 	}
@@ -512,9 +393,44 @@ func TestOneLineRunner(t *testing.T) {
 
 func TestOneLineRunnerRefusedForForks(t *testing.T) {
 	t.Parallel()
-	h := newConfigHarness(t)
+	h := newHarness(t)
 	h.setRun("pull_request", 555, "mallory")
 
-	job := h.queueAt(headSHA, "airship-aws-p5-48xlarge")
+	job := h.queue("cirun-aws-p5-48xlarge")
 	wantSkip(t, h, job, "unsatisfiable_labels", "forks cannot use one-line labels")
+}
+
+// Every extra_config knob reaches the cloud launch.
+func TestConfigReachesTheLaunch(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.setConfig(headSHA, `
+runners:
+  - name: win
+    cloud: aws
+    instance_type: t3.large
+    machine_image: ami-0f9c44e98edf38a2b
+    labels: [cirun-win]
+    extra_config:
+      provision_via: pull_from_api
+      run_as: interactive
+      runner_path: "C:\\r"
+      SubnetId: subnet-0123456789abcdef0
+      IamInstanceProfile: ci
+      BlockDeviceMappings:
+        - {DeviceName: /dev/sda1, VolumeSize: 120, VolumeType: gp3, Throughput: 500}
+`)
+	h.queue("cirun-win")
+	launched := h.launch()
+	if len(launched) != 1 {
+		t.Fatalf("launches = %d", len(launched))
+	}
+	l := launched[0].Launch
+	want := cloud.Machine{InstanceType: "t3.large", Image: "ami-0f9c44e98edf38a2b", Arch: "x64", Disk: cloud.Disk{SizeGB: 120, Type: "gp3", Throughput: 500}, SubnetID: "subnet-0123456789abcdef0", InstanceProfile: "ci"}
+	if l.Machine.InstanceType != want.InstanceType || l.Machine.Disk != want.Disk || l.Machine.SubnetID != want.SubnetID || l.Machine.InstanceProfile != want.InstanceProfile {
+		t.Fatalf("machine = %+v", l.Machine)
+	}
+	if !l.Boot.PullFromAPI || !l.Boot.Windows.Interactive || l.Boot.Windows.Path != `C:\r` {
+		t.Fatalf("boot = %+v", l.Boot)
+	}
 }

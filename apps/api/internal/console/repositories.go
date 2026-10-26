@@ -28,10 +28,10 @@ type Repository struct {
 	// Accessible is false for an activated repository the app can no
 	// longer see.
 	Accessible  bool         `doc:"Whether the app can still access the repository"  json:"accessible"`
-	Activated   bool         `doc:"Whether its .airship.yml launches runners"         json:"activated"`
+	Activated   bool         `doc:"Whether its .cirun.yml launches runners"           json:"activated"`
 	AllowPublic bool         `doc:"Serve jobs while the repository is public"         json:"allowPublic"`
 	ActivatedAt *time.Time   `doc:"When it was activated"                             json:"activatedAt"`
-	Config      *ConfigState `doc:"The default branch's .airship.yml as last read"    json:"config"`
+	Config      *ConfigState `doc:"The default branch's .cirun.yml as last read"      json:"config"`
 }
 
 // ConfigState is the result of reading a config file.
@@ -145,7 +145,7 @@ func (h *handlers) activateRepository(ctx context.Context, in *activateRepositor
 	user, _ := auth.UserFrom(ctx)
 	row, err := h.Fleet.ActivateRepository(ctx, inst.ID, in.Repo, in.Body.AllowPublic, &user.ID)
 	if errors.Is(err, fleet.ErrRepositoryNotFound) {
-		return nil, huma.Error404NotFound("repository not found; is the Airship app installed on it?")
+		return nil, huma.Error404NotFound("repository not found; is the GitHub App installed on it?")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("activate repository: %w", err)
@@ -172,10 +172,10 @@ func (h *handlers) deactivateRepository(ctx context.Context, in *repositoryInput
 	return &struct{}{}, nil
 }
 
-// Pool is a warm pool from an idle: section.
+// Pool is an idle runner pool from an idle: section.
 type Pool struct {
 	ID         uuid.UUID  `doc:"Pool ID"                                         format:"uuid" json:"id"`
-	Repository string     `doc:"Repository whose .airship.yml defines it"        json:"repository"`
+	Repository string     `doc:"Repository whose .cirun.yml defines it"          json:"repository"`
 	Name       string     `doc:"Runner definition name"                          json:"name"`
 	Mode       string     `doc:"How the pool's size is decided"                  enum:"fixed,schedule,usage" json:"mode"`
 	Desired    int        `doc:"Idle runners the pool wants now"                 json:"desired"`
@@ -248,7 +248,7 @@ func (h *handlers) listPools(ctx context.Context, in *orgInput) (*poolListOutput
 
 // ValidateConfig is a config file to check.
 type ValidateConfig struct {
-	File    string `doc:"Which file this is" enum:".airship.yml,.airship.global.yml,.access.yml" json:"file"`
+	File    string `doc:"Which file this is" enum:".cirun.yml,.cirun.global.yml,.access.yml" json:"file"`
 	Content string `doc:"The file's content" json:"content" maxLength:"65536"`
 }
 
@@ -265,12 +265,11 @@ type ConfigProblem struct {
 
 // ConfigRunner summarizes one runner definition.
 type ConfigRunner struct {
-	Name      string   `doc:"Runner name"                                  json:"name"`
-	Cloud     string   `doc:"Where it launches"                            enum:"aws,on_prem" json:"cloud"`
-	DataPlane string   `doc:"Data plane it is pinned to, if any"           json:"dataPlane,omitempty"`
-	Labels    []string `doc:"runs-on labels it serves"                     json:"labels"`
-	Machines  []string `doc:"Machine shapes to try, in fallback order"     json:"machines"`
-	Idle      string   `doc:"Warm pool summary, if it has one"             json:"idle,omitempty"`
+	Name     string   `doc:"Runner name"                                  json:"name"`
+	Cloud    string   `doc:"Where it launches"                            enum:"aws" json:"cloud"`
+	Labels   []string `doc:"runs-on labels it serves"                     json:"labels"`
+	Machines []string `doc:"Machine shapes to try, in fallback order"     json:"machines"`
+	Idle     string   `doc:"Idle pool summary, if it has one"             json:"idle,omitempty"`
 }
 
 // ConfigValidation is the result of checking a config file.
@@ -319,7 +318,7 @@ func configProblem(err error) *ConfigProblem {
 func summarizeRunners(runners []runnerconfig.Runner) []ConfigRunner {
 	out := make([]ConfigRunner, 0, len(runners))
 	for _, r := range runners {
-		item := ConfigRunner{Name: r.Name, Cloud: r.Cloud, DataPlane: r.DataPlane, Labels: r.Labels, Machines: []string{}}
+		item := ConfigRunner{Name: r.Name, Cloud: r.Cloud, Labels: r.Labels, Machines: []string{}}
 		for _, v := range r.Variants {
 			machine := v.InstanceType + " (" + v.Arch
 			if v.Region != "" {
@@ -350,11 +349,11 @@ func idleSummary(idle *runnerconfig.Idle) string {
 	}
 }
 
-// OrganizationRunnerConfig is the organization's .airship repository as
+// OrganizationRunnerConfig is the organization's .cirun repository as
 // jobs see it now.
 type OrganizationRunnerConfig struct {
-	Found      bool           `doc:"Whether the organization has a .airship.global.yml" json:"found"`
-	SHA        *string        `doc:"Blob SHA of .airship.global.yml"                   json:"sha"`
+	Found      bool           `doc:"Whether the organization has a .cirun.global.yml" json:"found"`
+	SHA        *string        `doc:"Blob SHA of .cirun.global.yml"                   json:"sha"`
 	Restricted bool           `doc:"Whether .access.yml limits who can use the runners" json:"restricted"`
 	Problem    *string        `doc:"Why the files cannot be used"                      json:"problem"`
 	Runners    []ConfigRunner `doc:"Organization runner definitions"                   json:"runners"`
@@ -371,7 +370,7 @@ func (h *handlers) organizationConfig(ctx context.Context, in *orgInput) (*organ
 	}
 	cfg, err := h.Fleet.OrganizationConfig(ctx, inst)
 	if err != nil {
-		return nil, huma.Error502BadGateway("could not read the organization's .airship repository", err)
+		return nil, huma.Error502BadGateway("could not read the organization's .cirun repository", err)
 	}
 	out := OrganizationRunnerConfig{Found: cfg.Found, Restricted: cfg.Restricted, Runners: summarizeRunners(cfg.Runners)}
 	if cfg.SHA != "" {

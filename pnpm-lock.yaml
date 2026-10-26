@@ -150,12 +150,6 @@ importers:
         specifier: 'catalog:'
         version: 6.0.3
 
-  deploy/aws:
-    devDependencies:
-      '@cloud-copilot/iam-simulate':
-        specifier: 0.1.173
-        version: 0.1.173
-
   packages/client:
     dependencies:
       openapi-fetch:
@@ -470,18 +464,6 @@ packages:
   '@clack/prompts@1.8.1':
     resolution: {integrity: sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ==}
     engines: {node: '>= 20.12.0'}
-
-  '@cloud-copilot/iam-data@0.21.202610241':
-    resolution: {integrity: sha512-lyr2EpSaKyV2TF+FehVSto8cu+qUmpSD0ADUul8CcK1Nv/WUKozVtSTqbObMaTJFEnkj6SrqzDtHU/WDwHMpgg==}
-
-  '@cloud-copilot/iam-policy@0.1.109':
-    resolution: {integrity: sha512-hVgOn0x/dvFd96G2/n9JIUvf85osOveNxhHOJKZ+E25yK74K/cIxCCnlNdKAa60iZbIKoHBwTKYPBR+/8DTO+Q==}
-
-  '@cloud-copilot/iam-simulate@0.1.173':
-    resolution: {integrity: sha512-RQ29lKnj3FeWGnzENNrOZGc355JVDteYonbHOy9ypIUPhby98R4JBG5g7QwyUQhqHkevi0uDWRPlcFz1Xa3VOg==}
-
-  '@cloud-copilot/iam-utils@0.1.82':
-    resolution: {integrity: sha512-qtUyjSDnKFUj/cJXmr6/IpxcJEvqj6mINQKC5x0Xmm/39HXOz4Mk8cF+fSt6SbhwWiyuqW5+AQ5pz4k/LS4aLw==}
 
   '@corvu/utils@0.4.2':
     resolution: {integrity: sha512-Ox2kYyxy7NoXdKWdHeDEjZxClwzO4SKM8plAaVwmAJPxHMqA0rLOoAsa+hBDwRLpctf+ZRnAd/ykguuJidnaTA==}
@@ -2858,18 +2840,6 @@ snapshots:
       fast-string-width: 3.0.2
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
-
-  '@cloud-copilot/iam-data@0.21.202610241': {}
-
-  '@cloud-copilot/iam-policy@0.1.109': {}
-
-  '@cloud-copilot/iam-simulate@0.1.173':
-    dependencies:
-      '@cloud-copilot/iam-data': 0.21.202610241
-      '@cloud-copilot/iam-policy': 0.1.109
-      '@cloud-copilot/iam-utils': 0.1.82
-
-  '@cloud-copilot/iam-utils@0.1.82': {}
 
   '@corvu/utils@0.4.2(solid-js@1.9.17)':
     dependencies:

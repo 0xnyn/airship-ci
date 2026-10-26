@@ -1,5 +1,5 @@
 // Command api runs the Airship control plane: the HTTP API, the GitHub
-// webhook receiver and the background reconcilers.
+// webhook receiver, the runner launcher and the background reconcilers.
 package main
 
 import (
@@ -17,10 +17,13 @@ import (
 	"time"
 
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
+	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
 	"github.com/wizenheimer/airship/apps/api/internal/config"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
+	"github.com/wizenheimer/airship/apps/api/internal/secrets"
 	"github.com/wizenheimer/airship/apps/api/internal/server"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -68,6 +71,15 @@ func run(ctx context.Context) error {
 	}
 	defer pool.Close()
 
+	key, err := secrets.ParseKey(cfg.CredentialsKey)
+	if err != nil {
+		return fmt.Errorf("CREDENTIALS_KEY: %w", err)
+	}
+	keyring, err := secrets.New(key)
+	if err != nil {
+		return fmt.Errorf("CREDENTIALS_KEY: %w", err)
+	}
+
 	app, oauth, err := newGitHub(cfg)
 	if err != nil {
 		return err
@@ -84,7 +96,8 @@ func run(ctx context.Context) error {
 	if app != nil {
 		gh = fleet.AppGitHub{App: app}
 	}
-	scheduler := fleet.New(pool, gh, fleetCfg, logger)
+	clouds := cloud.Registry{cloud.AWS: awscloud.New(awscloud.Options{Endpoint: cfg.AWSEndpoint})}
+	scheduler := fleet.New(pool, gh, clouds, keyring, fleetCfg, logger)
 
 	queries := db.New(pool)
 	handler := server.NewHandler(server.Deps{
@@ -106,6 +119,7 @@ func run(ctx context.Context) error {
 
 	var background sync.WaitGroup
 	background.Go(func() { scheduler.Run(ctx, cfg.ReconcileInterval) })
+	background.Go(func() { scheduler.RunLauncher(ctx, cfg.LaunchInterval) })
 	if app != nil {
 		background.Go(func() { fleet.NewRedeliverer(pool, app, logger).Run(ctx, redeliveryInterval) })
 		roles := &auth.RoleRefresher{Store: queries, App: app, Logger: logger, RefreshAfter: roleRefreshAfter, Batch: roleRefreshBatch}
@@ -136,8 +150,6 @@ func run(ctx context.Context) error {
 		logger.Info("shutting down")
 	}
 
-	// Long polls end when ctx is cancelled, so shutdown does not wait out
-	// their 25 seconds.
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	err = srv.Shutdown(shutdownCtx)

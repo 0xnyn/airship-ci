@@ -73,17 +73,13 @@ func TestGitHubSignInAndRoles(t *testing.T) {
 	}
 
 	// Members can look but not change anything.
-	e.call(http.MethodGet, "/v1/orgs/globex/data-planes", nil, http.StatusOK)
-	e.call(http.MethodPost, "/v1/orgs/globex/data-planes", map[string]any{"name": "x"}, http.StatusForbidden)
+	e.call(http.MethodGet, "/v1/orgs/globex/clouds", nil, http.StatusOK)
+	e.call(http.MethodPatch, "/v1/orgs/globex/settings", map[string]any{"maxRunners": 3}, http.StatusForbidden)
 
-	// A data plane from one organization cannot back another's profile.
-	globexPlane := e.call(http.MethodPost, "/v1/orgs/acme/data-planes", map[string]any{"name": "acme-plane"}, http.StatusCreated)
 	e.gh.SetOrgRole("globex", "octo", "admin")
 	e.gh.AddUser("code-2", github.User{ID: 50, Login: "octo"}, 1, 2)
 	e.signIn("code-2", "/", false)
-	e.call(http.MethodPost, "/v1/orgs/globex/profiles", map[string]any{
-		"label": "airship-x", "dataPlaneId": globexPlane["dataPlane"].(map[string]any)["id"], "arch": "x64", "instanceType": "m7i.large",
-	}, http.StatusUnprocessableEntity)
+	e.call(http.MethodPatch, "/v1/orgs/globex/settings", map[string]any{"maxRunners": 3}, http.StatusOK)
 
 	// Signing in again drops installations GitHub no longer reports.
 	roles = orgRoles(e.call(http.MethodGet, "/v1/me", nil, http.StatusOK))
@@ -113,33 +109,6 @@ func TestSignInRejectsForgedStateAndOpenRedirects(t *testing.T) {
 	}
 }
 
-func TestProfileValidation(t *testing.T) {
-	t.Parallel()
-	e := newEnv(t)
-	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
-	plane := e.call(http.MethodPost, "/v1/orgs/acme/data-planes", map[string]any{"name": "main"}, http.StatusCreated)
-	planeID := plane["dataPlane"].(map[string]any)["id"]
-
-	for _, label := range []string{"self-hosted", "ubuntu-latest", "linux"} {
-		e.call(http.MethodPost, "/v1/orgs/acme/profiles", map[string]any{
-			"label": label, "dataPlaneId": planeID, "arch": "x64", "instanceType": "m7i.large",
-		}, http.StatusUnprocessableEntity)
-	}
-	profile := e.call(http.MethodPost, "/v1/orgs/acme/profiles", map[string]any{
-		"label": "airship-8cpu", "dataPlaneId": planeID, "arch": "arm64", "instanceType": "c8g.2xlarge",
-	}, http.StatusCreated)
-	if profile["diskGb"].(float64) != 75 || profile["maxRunners"].(float64) != 20 || profile["allowPublicRepos"] != false {
-		t.Fatalf("defaults not applied: %v", profile)
-	}
-	e.call(http.MethodPost, "/v1/orgs/acme/profiles", map[string]any{
-		"label": "airship-8cpu", "dataPlaneId": planeID, "arch": "x64", "instanceType": "m7i.large",
-	}, http.StatusConflict)
-	// A data plane with profiles cannot be deleted out from under them.
-	e.call(http.MethodDelete, "/v1/orgs/acme/data-planes/"+planeID.(string), nil, http.StatusConflict)
-	e.call(http.MethodDelete, "/v1/orgs/acme/profiles/"+profile["id"].(string), nil, http.StatusNoContent)
-	e.call(http.MethodDelete, "/v1/orgs/acme/data-planes/"+planeID.(string), nil, http.StatusNoContent)
-}
-
 func TestOnlyOrganizationMembersSeeAnOrganization(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -166,7 +135,7 @@ func TestRoleChangesReachExistingSessions(t *testing.T) {
 	e.gh.SetOrgRole("acme", "carol", "member")
 	e.gh.AddUser("code-carol", github.User{ID: 60, Login: "carol"}, 1)
 	e.signIn("code-carol", "/", false)
-	e.call(http.MethodPost, "/v1/orgs/acme/data-planes", map[string]any{"name": "x"}, http.StatusForbidden)
+	e.call(http.MethodPatch, "/v1/orgs/acme/settings", map[string]any{"maxRunners": 3}, http.StatusForbidden)
 
 	refresher := &auth.RoleRefresher{Store: db.New(e.pool), App: e.app, Logger: slog.New(slog.DiscardHandler), RefreshAfter: time.Hour, Batch: 10}
 	refresh := func() {
@@ -182,7 +151,7 @@ func TestRoleChangesReachExistingSessions(t *testing.T) {
 	// Promoted on GitHub: admin without signing in again.
 	e.gh.SetOrgRole("acme", "carol", "admin")
 	refresh()
-	e.call(http.MethodPost, "/v1/orgs/acme/data-planes", map[string]any{"name": "x"}, http.StatusCreated)
+	e.call(http.MethodPatch, "/v1/orgs/acme/settings", map[string]any{"maxRunners": 3}, http.StatusOK)
 
 	// Removed from the organization: access ends.
 	e.gh.SetOrgRole("acme", "carol", "")

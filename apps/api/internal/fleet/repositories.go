@@ -27,7 +27,7 @@ func (s *Service) ListInstallationRepositories(ctx context.Context, installation
 	return repos, nil
 }
 
-// ActivateRepository lets a repository's .airship.yml launch runners, and
+// ActivateRepository lets a repository's .cirun.yml launch runners, and
 // reads its config straight away so its pools start and its problems show.
 // The repository is looked up on GitHub by ID, so only one the
 // installation can access can be activated. by is the user who did it;
@@ -53,6 +53,7 @@ func (s *Service) ActivateRepository(ctx context.Context, installationID, repoID
 	if err != nil {
 		return db.Repository{}, fmt.Errorf("activate repository: %w", err)
 	}
+	s.record(ctx, installationID, "repository.activated", levelInfo, "Activated "+row.FullName, eventFields{repository: row.FullName})
 	if err := s.RefreshRepositoryConfig(ctx, row); err != nil {
 		s.log.WarnContext(ctx, "read config after activation", slog.String("repository", row.FullName), slog.Any("error", err))
 	} else {
@@ -65,6 +66,13 @@ func (s *Service) ActivateRepository(ctx context.Context, installationID, repoID
 // DeactivateRepository stops a repository's config from launching runners.
 // Its pools go with it; their idle runners lose their pool and are reaped.
 func (s *Service) DeactivateRepository(ctx context.Context, installationID, repoID int64) error {
+	repo, err := s.q.GetRepository(ctx, db.GetRepositoryParams{InstallationID: installationID, ID: repoID})
+	if isNoRows(err) {
+		return ErrRepositoryNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get repository: %w", err)
+	}
 	n, err := s.q.DeactivateRepository(ctx, db.DeactivateRepositoryParams{InstallationID: installationID, ID: repoID})
 	if err != nil {
 		return fmt.Errorf("deactivate repository: %w", err)
@@ -72,15 +80,16 @@ func (s *Service) DeactivateRepository(ctx context.Context, installationID, repo
 	if n == 0 {
 		return ErrRepositoryNotFound
 	}
+	s.record(ctx, installationID, "repository.deactivated", levelInfo, "Deactivated "+repo.FullName, eventFields{repository: repo.FullName})
 
 	return nil
 }
 
-// OrganizationConfig is the organization's .airship repository as jobs
-// see it now.
+// OrganizationConfig is the organization's .cirun repository as jobs see
+// it now.
 type OrganizationConfig struct {
-	// Found is false when there is no .airship.global.yml (or the app
-	// cannot read the .airship repository).
+	// Found is false when there is no .cirun.global.yml (or the app
+	// cannot read the .cirun repository).
 	Found   bool
 	SHA     string
 	Runners []runnerconfig.Runner

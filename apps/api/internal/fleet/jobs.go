@@ -68,15 +68,11 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 	if err != nil {
 		return err
 	}
-	var profileID *uuid.UUID
-	if len(plan) > 0 {
-		profileID = plan[0].ProfileID
-	}
 
-	var wake []uuid.UUID
-	var refill bool
+	var wake, refill bool
+	var finished *uuid.UUID
 	err = s.inTx(ctx, func(q *db.Queries) error {
-		wake, refill = nil, false
+		wake, refill, finished = false, false, nil
 		row, err := q.UpsertJob(ctx, db.UpsertJobParams{
 			ID:                 job.ID,
 			InstallationID:     installation.ID,
@@ -92,7 +88,6 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 			Labels:             job.Labels,
 			Status:             status,
 			Conclusion:         job.Conclusion,
-			ProfileID:          profileID,
 			Plan:               rawPlan,
 			SkipReason:         nilIfEmpty(why.reason),
 			SkipDetail:         nilIfEmpty(why.detail),
@@ -112,11 +107,8 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 			if err != nil || len(stored) == 0 {
 				return err
 			}
-			dp, fromPool, err := s.serveJob(ctx, q, row, stored, s.cfg.MaxAttempts)
-			if dp != nil {
-				wake = append(wake, *dp)
-			}
-			refill = fromPool
+			added, fromPool, err := s.serveJob(ctx, q, row, stored, s.cfg.MaxAttempts)
+			wake, refill = added, fromPool
 
 			return err
 		}
@@ -144,45 +136,57 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 			return nil
 		}
 
-		if refill, err = s.bindRunner(ctx, q, row, runner); err != nil {
+		var done bool
+		if refill, done, err = s.bindRunner(ctx, q, row, runner); err != nil {
 			return err
 		}
-		// Wake the agent so a finished runner's machine goes promptly.
-		wake = append(wake, runner.DataPlaneID)
+		if done {
+			finished = &runner.ID
+		}
 
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	for _, id := range wake {
-		s.notifier.Notify(id)
+	if wake {
+		s.wakeLauncher()
+	}
+	if finished != nil {
+		// Destroy the machine now rather than on the next reconcile pass.
+		s.terminateSoon(ctx, *finished)
 	}
 	if refill {
 		// A pool runner was taken, or a usage-based pool just woke up.
 		s.fillRepositoryPools(ctx, repo.ID)
 	}
+	if why.reason != "" && (existing.SkipReason == nil || *existing.SkipReason != why.reason) {
+		s.record(ctx, installation.ID, "job.skipped", levelWarning,
+			fmt.Sprintf("%s in %s was not started (%s): %s", jobName(dbJobFrom(job)), repo.FullName, why.reason, cmpOr(why.detail, "see the job")),
+			eventFields{repository: repo.FullName, jobID: &job.ID})
+	}
 
 	return nil
 }
 
+func dbJobFrom(job github.WorkflowJob) db.Job {
+	return db.Job{Name: job.Name, WorkflowName: job.WorkflowName}
+}
+
 // serveJob gives a queued job a runner: an idle one from a warm pool if
-// one fits, otherwise a new one from the plan. It returns the data plane
-// to wake, if any, and whether the runner came from a pool.
-func (s *Service) serveJob(ctx context.Context, q *db.Queries, job db.Job, plan Plan, maxAttempts int64) (*uuid.UUID, bool, error) {
+// one fits, otherwise a new one from the plan. It reports whether a new
+// runner was queued, and whether the job took a pool runner.
+func (s *Service) serveJob(ctx context.Context, q *db.Queries, job db.Job, plan Plan, maxAttempts int64) (added bool, fromPool bool, err error) {
 	if err := q.LockJob(ctx, job.ID); err != nil {
-		return nil, false, fmt.Errorf("lock job: %w", err)
+		return false, false, fmt.Errorf("lock job: %w", err)
 	}
 	reserved, err := s.reservePoolRunner(ctx, q, job, plan)
-	if err != nil || reserved != nil {
-		return reserved, reserved != nil, err
+	if err != nil || reserved {
+		return false, reserved, err
 	}
-	added, err := s.createRunner(ctx, q, job, plan, maxAttempts)
-	if err != nil || added == nil {
-		return nil, false, err
-	}
+	runner, err := s.createRunner(ctx, q, job, plan, maxAttempts)
 
-	return &added.DataPlaneID, false, nil
+	return runner != nil, false, err
 }
 
 // lookupRunner finds the Airship runner GitHub says a job ran on.
@@ -231,24 +235,25 @@ func (s *Service) handOff(ctx context.Context, q *db.Queries, job db.Job, runner
 }
 
 // bindRunner links a started or finished job to the runner it ran on and
-// advances that runner.
-// extended reports that a usage-based pool for the runner's definition was
-// extended and may need filling.
-func (s *Service) bindRunner(ctx context.Context, q *db.Queries, job db.Job, runner db.Runner) (extended bool, err error) {
+// advances that runner. extended reports that a usage-based pool for the
+// runner's definition was extended and may need filling; finished that
+// the runner just finished and its machine should go.
+func (s *Service) bindRunner(ctx context.Context, q *db.Queries, job db.Job, runner db.Runner) (extended bool, finished bool, err error) {
 	if err := q.SetJobRunner(ctx, db.SetJobRunnerParams{ID: job.ID, RunnerID: &runner.ID}); err != nil {
-		return false, fmt.Errorf("link job to runner: %w", err)
+		return false, false, fmt.Errorf("link job to runner: %w", err)
 	}
 
 	if job.Status == "in_progress" {
 		busy, err := q.MarkRunnerBusy(ctx, runner.ID)
 		if isNoRows(err) {
-			return false, nil
+			return false, false, nil
 		}
 		if err != nil {
-			return false, fmt.Errorf("mark runner busy: %w", err)
+			return false, false, fmt.Errorf("mark runner busy: %w", err)
 		}
+		extended, err = s.extendUsagePools(ctx, q, busy)
 
-		return s.extendUsagePools(ctx, q, busy)
+		return extended, false, err
 	}
 
 	// Completed. GitHub removes an ephemeral runner after its job, so it is
@@ -257,13 +262,16 @@ func (s *Service) bindRunner(ctx context.Context, q *db.Queries, job db.Job, run
 		ID:           runner.ID,
 		Reason:       ReasonCompleted,
 		Deregistered: true,
-		FromStates:   []string{StateAssigned, StateRunning, StateBusy},
+		FromStates:   []string{StateLaunching, StateRunning, StateBusy},
 	})
-	if err != nil && !isNoRows(err) {
-		return false, fmt.Errorf("finish runner: %w", err)
+	if isNoRows(err) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("finish runner: %w", err)
 	}
 
-	return false, nil
+	return false, true, nil
 }
 
 // ensureInstallation returns the installation, fetching it from GitHub when
@@ -308,8 +316,8 @@ func (s *Service) SaveInstallation(ctx context.Context, inst github.Installation
 func (s *Service) HandleInstallation(ctx context.Context, event github.InstallationEvent) error {
 	switch event.Action {
 	case "deleted":
-		// Keep the rows so agents can still sync: every runner is finished,
-		// and the next sync tells each agent to terminate its instances.
+		// Keep the rows: every runner is finished, and the reconciler
+		// terminates their instances with the credentials still stored.
 		id := event.Installation.ID
 		err := s.inTx(ctx, func(q *db.Queries) error {
 			if err := q.MarkInstallationDeleted(ctx, id); err != nil {
@@ -341,6 +349,14 @@ func (s *Service) HandleInstallation(ctx context.Context, event github.Installat
 
 		return err
 	}
+}
+
+func cmpOr(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+
+	return value
 }
 
 func nilIfEmpty(value string) *string {

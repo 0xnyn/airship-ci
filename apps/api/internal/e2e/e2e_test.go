@@ -1,6 +1,6 @@
 // Package e2e_test runs the control plane over HTTP against Postgres, a
-// fake GitHub and a real agent loop with an in-memory provider: every hop of
-// a job's life except the machine itself.
+// fake GitHub and a fake cloud: every hop of a job's life except the
+// machine itself.
 package e2e_test
 
 import (
@@ -18,13 +18,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/wizenheimer/airship/apps/api/internal/agent"
-	"github.com/wizenheimer/airship/apps/api/internal/agent/fake"
-	"github.com/wizenheimer/airship/apps/api/internal/agentproto"
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
+	"github.com/wizenheimer/airship/apps/api/internal/cloud/fake"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
+	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
+	"github.com/wizenheimer/airship/apps/api/internal/secrets"
 	"github.com/wizenheimer/airship/apps/api/internal/server"
 	"github.com/wizenheimer/airship/apps/api/internal/testsupport/fakegithub"
 	"github.com/wizenheimer/airship/apps/api/internal/testsupport/pgtest"
@@ -39,6 +40,7 @@ type env struct {
 	t       *testing.T
 	api     *httptest.Server
 	gh      *fakegithub.Server
+	aws     *fake.Provider
 	browser *http.Client
 	svc     *fleet.Service
 	pool    *pgxpool.Pool
@@ -52,7 +54,10 @@ func newEnv(t *testing.T) *env {
 	gh.AddInstallation(github.Installation{ID: 1, Account: github.Account{ID: 1, Login: "acme", Type: "Organization"}})
 	logger := slog.New(slog.DiscardHandler)
 	queries := db.New(pool)
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, fleet.DefaultConfig(), logger)
+	key, _ := secrets.ParseKey(secrets.NewKey())
+	keyring, _ := secrets.New(key)
+	aws := fake.New(cloud.AWS)
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, fleet.DefaultConfig(), logger)
 
 	app := gh.App(t)
 	oauth := github.NewOAuth(github.OAuthConfig{ClientID: fakegithub.ClientID, ClientSecret: "secret", WebURL: gh.URL, APIURL: gh.URL})
@@ -64,11 +69,15 @@ func newEnv(t *testing.T) *env {
 	}))
 	t.Cleanup(api.Close)
 
-	jar, _ := cookiejar.New(nil)
+	// The launcher runs as it would in production.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go svc.RunLauncher(ctx, 50*time.Millisecond)
 
+	jar, _ := cookiejar.New(nil)
 	browser := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
-	return &env{t: t, api: api, gh: gh, browser: browser, svc: svc, pool: pool, app: app}
+	return &env{t: t, api: api, gh: gh, aws: aws, browser: browser, svc: svc, pool: pool, app: app}
 }
 
 // call makes a dashboard request as the signed-in browser.
@@ -97,17 +106,34 @@ func (e *env) call(method, path string, body any, want int) map[string]any {
 	return out
 }
 
+// connectAWS connects the fake cloud as the signed-in admin.
+func (e *env) connectAWS() {
+	e.t.Helper()
+	got := e.call(http.MethodPut, "/v1/orgs/acme/clouds/aws", map[string]any{
+		"accessKeyId": "AKIAIOSFODNN7EXAMPLE", "secretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "defaultRegion": "us-east-1",
+	}, http.StatusOK)
+	if got["status"] != "ok" || got["identity"] != "AKIAIOSFODNN7EXAMPLE" || got["accountId"] != "123456789012" {
+		e.t.Fatalf("connect = %v", got)
+	}
+}
+
 // webhook sends a signed workflow_job event, as GitHub would.
 func (e *env) webhook(action string, job github.WorkflowJob) {
 	e.t.Helper()
-	body, _ := json.Marshal(github.WorkflowJobEvent{
+	e.send("workflow_job", github.WorkflowJobEvent{
 		Action: action, WorkflowJob: job,
-		Repository:   github.Repository{ID: 5, FullName: "acme/api", Private: true},
+		Repository:   github.Repository{ID: 5, FullName: "acme/api", Private: true, DefaultBranch: "main"},
 		Installation: &github.InstallationRef{ID: 1},
 	})
+}
+
+// send delivers any signed webhook.
+func (e *env) send(event string, payload any) {
+	e.t.Helper()
+	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, e.api.URL+"/v1/github/webhook", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "workflow_job")
-	req.Header.Set("X-GitHub-Delivery", fmt.Sprintf("delivery-%d-%s", job.ID, action))
+	req.Header.Set("X-GitHub-Event", event)
+	req.Header.Set("X-GitHub-Delivery", event+"-"+time.Now().Format(time.RFC3339Nano))
 	req.Header.Set("X-Hub-Signature-256", github.Sign([]byte(webhookSecret), body))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -115,7 +141,7 @@ func (e *env) webhook(action string, job github.WorkflowJob) {
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
-		e.t.Fatalf("webhook %s = %d", action, resp.StatusCode)
+		e.t.Fatalf("%s webhook = %d", event, resp.StatusCode)
 	}
 }
 
@@ -131,52 +157,55 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
+const e2eConfig = `
+runners:
+  - name: build
+    cloud: aws
+    instance_type: c7i.large
+    machine_image: ami-0123456789abcdef0
+    labels: [cirun-build]
+`
+
 func TestJobLifecycleEndToEnd(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	repo := github.Repository{ID: 5, FullName: "acme/api", Private: true, DefaultBranch: "main"}
+	e.gh.AddRepository(1, repo)
+	e.gh.SetFile("acme/api", "abc123", runnerconfig.RepoFile, []byte(e2eConfig))
+	e.gh.SetRunAttempt("acme/api", github.RunAttempt{ID: 1, RunAttempt: 1, Event: "push", Repository: repo, HeadRepository: &repo, Actor: &github.Actor{Login: "alice"}})
 
-	// An admin signs in and sets up a data plane and a profile.
+	// An admin signs in, connects AWS and activates the repository.
 	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
 	me := e.call(http.MethodGet, "/v1/me", nil, http.StatusOK)
 	if orgs := me["organizations"].([]any); len(orgs) != 1 {
 		t.Fatalf("organizations = %v", orgs)
 	}
-	created := e.call(http.MethodPost, "/v1/orgs/acme/data-planes", map[string]any{"name": "us-east-1"}, http.StatusCreated)
-	token := created["token"].(string)
-	dataPlaneID := created["dataPlane"].(map[string]any)["id"].(string)
-	e.call(http.MethodPost, "/v1/orgs/acme/profiles", map[string]any{
-		"label": "airship-2cpu", "dataPlaneId": dataPlaneID, "arch": "x64", "instanceType": "c7i.large", "maxRunners": 5,
-	}, http.StatusCreated)
-
-	// The customer starts the agent with the token.
-	provider := fake.New()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	worker := agent.New(agent.NewClient(e.api.URL, token, nil), provider, agent.Config{Version: "test"}, slog.New(slog.DiscardHandler))
-	go func() { _ = worker.Run(ctx) }()
-	eventually(t, "agent online", func() bool {
-		list := e.call(http.MethodGet, "/v1/orgs/acme/data-planes", nil, http.StatusOK)
-		return list["items"].([]any)[0].(map[string]any)["status"] == "online"
-	})
+	e.connectAWS()
+	clouds := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any)
+	if len(clouds) != 1 || clouds[0].(map[string]any)["defaultRegion"] != "us-east-1" {
+		t.Fatalf("clouds = %v", clouds)
+	}
+	e.call(http.MethodPut, "/v1/orgs/acme/repositories/5/activation", map[string]any{}, http.StatusOK)
 
 	// A workflow asks for the label.
-	job := github.WorkflowJob{ID: 77, RunID: 1, RunAttempt: 1, Name: "test", Labels: []string{"self-hosted", "airship-2cpu"}, Status: "queued", CreatedAt: time.Now()}
+	job := github.WorkflowJob{ID: 77, RunID: 1, RunAttempt: 1, HeadSHA: "abc123", Name: "test", Labels: []string{"self-hosted", "cirun-build--1"}, Status: "queued", CreatedAt: time.Now()}
 	e.webhook("queued", job)
 
 	var instance fake.Instance
 	eventually(t, "runner launched", func() bool {
-		instances := provider.Instances()
+		instances := e.aws.Instances()
 		if len(instances) == 1 {
 			instance = instances[0]
 		}
+
 		return len(instances) == 1
 	})
-	registration, ok := e.gh.RunnerByJIT(instance.Launch.JITConfig)
+	registration, ok := e.gh.RunnerByJIT(instance.Launch.Boot.JITConfig)
 	if !ok || registration.Repo != "acme/api" {
 		t.Fatalf("instance carries no valid registration: %+v", instance.Launch)
 	}
-	if instance.DataPlaneID != dataPlaneID {
-		t.Fatalf("instance tagged for %s, want %s", instance.DataPlaneID, dataPlaneID)
+	if instance.Launch.InstallationID != 1 || instance.Region != "us-east-1" || instance.Launch.Machine.InstanceType != "c7i.large" {
+		t.Fatalf("instance = %+v", instance.Launch)
 	}
 
 	// The runner picks the job up and finishes it.
@@ -188,8 +217,8 @@ func TestJobLifecycleEndToEnd(t *testing.T) {
 	job.Status, job.CompletedAt, job.Conclusion = "completed", &completed, &conclusion
 	e.webhook("completed", job)
 
-	// The agent is told to tear the machine down.
-	eventually(t, "instance terminated", func() bool { return len(provider.Instances()) == 0 })
+	// The machine is torn down.
+	eventually(t, "instance terminated", func() bool { return len(e.aws.Instances()) == 0 })
 
 	jobs := e.call(http.MethodGet, "/v1/orgs/acme/jobs", nil, http.StatusOK)["items"].([]any)
 	got := jobs[0].(map[string]any)
@@ -201,20 +230,22 @@ func TestJobLifecycleEndToEnd(t *testing.T) {
 		t.Fatalf("overview = %v", overview)
 	}
 	runners := e.call(http.MethodGet, "/v1/orgs/acme/runners", nil, http.StatusOK)["items"].([]any)
-	if r := runners[0].(map[string]any); r["state"] != "finished" || r["finishReason"] != "completed" {
+	if r := runners[0].(map[string]any); r["state"] != "finished" || r["finishReason"] != "completed" || r["region"] != "us-east-1" {
 		t.Fatalf("runner = %v", r)
+	}
+	events := e.call(http.MethodGet, "/v1/orgs/acme/events", nil, http.StatusOK)["items"].([]any)
+	if len(events) < 3 {
+		t.Fatalf("events = %v", events)
+	}
+	analytics := e.call(http.MethodGet, "/v1/orgs/acme/analytics?days=7", nil, http.StatusOK)
+	if daily := analytics["daily"].([]any); len(daily) != 1 || daily[0].(map[string]any)["airshipJobs"].(float64) != 1 {
+		t.Fatalf("analytics = %v", analytics)
 	}
 }
 
-func TestAgentAndWebhookAuth(t *testing.T) {
+func TestWebhookAndSessionAuth(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-
-	// A bad agent token is refused.
-	_, err := agent.NewClient(e.api.URL, "asd_not-a-real-token", nil).Sync(context.Background(), agentSyncRequest())
-	if err == nil {
-		t.Fatal("sync with a bad token succeeded")
-	}
 
 	// An unsigned or wrongly signed webhook is refused.
 	for _, signature := range []string{"", "sha256=00", github.Sign([]byte("wrong"), []byte("{}"))} {
@@ -243,7 +274,7 @@ func TestAgentAndWebhookAuth(t *testing.T) {
 		t.Fatalf("anonymous /v1/me = %d", resp.StatusCode)
 	}
 	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, e.api.URL+"/v1/orgs/acme/data-planes", bytes.NewReader([]byte(`{"name":"x"}`)))
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPatch, e.api.URL+"/v1/orgs/acme/settings", bytes.NewReader([]byte(`{"maxRunners":5}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://evil.example")
 	resp, err = e.browser.Do(req)
@@ -252,7 +283,7 @@ func TestAgentAndWebhookAuth(t *testing.T) {
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("cross-origin create = %d, want 403", resp.StatusCode)
+		t.Fatalf("cross-origin update = %d, want 403", resp.StatusCode)
 	}
 	// Signing out from another site is refused too, and leaves the session.
 	req, _ = http.NewRequestWithContext(context.Background(), http.MethodPost, e.api.URL+"/v1/auth/sign-out", nil)
@@ -270,6 +301,50 @@ func TestAgentAndWebhookAuth(t *testing.T) {
 	e.call(http.MethodGet, "/v1/orgs/globex/jobs", nil, http.StatusNotFound)
 }
 
-func agentSyncRequest() agentproto.SyncRequest {
-	return agentproto.SyncRequest{Provider: "fake", Instances: []agentproto.Instance{}, Failures: []agentproto.LaunchFailure{}}
+func TestCloudCredentialsAreVerifiedAndNeverEchoed(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+
+	// The cloud rejects the key: nothing is stored.
+	bad, _ := json.Marshal(map[string]string{"accessKeyId": "AKIABADBADBADBADBAD1", "secretAccessKey": "nope-nope-nope-nope"})
+	e.aws.BadSecret = string(bad)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/aws", map[string]any{"accessKeyId": "AKIABADBADBADBADBAD1", "secretAccessKey": "nope-nope-nope-nope"}, http.StatusUnprocessableEntity)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("rejected credentials were stored: %v", items)
+	}
+
+	e.connectAWS()
+	raw := fmt.Sprint(e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK))
+	if bytes.Contains([]byte(raw), []byte("wJalrXUtnFEMI")) {
+		t.Fatal("the secret access key was echoed")
+	}
+	var stored []byte
+	if err := e.pool.QueryRow(context.Background(), "select secret from cloud_credentials").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(stored, []byte("wJalrXUtnFEMI")) || bytes.Contains(stored, []byte("AKIAIOSFODNN7EXAMPLE")) {
+		t.Fatal("the secret is stored in the clear")
+	}
+
+	// Members can look but not change anything; owners can disconnect.
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/aws", nil, http.StatusNoContent)
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/aws", nil, http.StatusNotFound)
+}
+
+func TestSettingsAndMembers(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	if got := e.call(http.MethodGet, "/v1/orgs/acme/settings", nil, http.StatusOK); got["maxRunners"].(float64) != 50 {
+		t.Fatalf("default settings = %v", got)
+	}
+	if got := e.call(http.MethodPatch, "/v1/orgs/acme/settings", map[string]any{"maxRunners": 7}, http.StatusOK); got["maxRunners"].(float64) != 7 {
+		t.Fatalf("settings = %v", got)
+	}
+	e.call(http.MethodPatch, "/v1/orgs/acme/settings", map[string]any{"maxRunners": 0}, http.StatusUnprocessableEntity)
+	members := e.call(http.MethodGet, "/v1/orgs/acme/members", nil, http.StatusOK)["items"].([]any)
+	if len(members) != 1 || members[0].(map[string]any)["role"] != "admin" {
+		t.Fatalf("members = %v", members)
+	}
 }

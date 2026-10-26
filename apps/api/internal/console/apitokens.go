@@ -14,6 +14,8 @@ import (
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
+	"github.com/wizenheimer/airship/apps/api/internal/github"
+	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -98,6 +100,113 @@ func registerAPITokens(api huma.API, h *handlers, op func(id, method, path, summ
 	huma.Register(api, tokenOp("cirunListClouds", http.MethodGet, "/api/v1/cloud-connect", "List connected clouds (Cirun-compatible)", 0), h.apiListClouds)
 	huma.Register(api, tokenOp("cirunCloudConnect", http.MethodPost, "/api/v1/cloud-connect", "Connect a cloud (Cirun-compatible)", 0), h.cirunCloudConnect)
 	huma.Register(api, tokenOp("cirunRunnerProvision", http.MethodGet, "/api/runner-provision", "Fetch a runner's boot script (provision_via: pull_from_api)", 0), h.runnerProvision)
+	huma.Register(api, tokenOp("cirunGetAccessControl", http.MethodGet, "/api/v1/access-control", "Read the organization's .access.yml (Cirun-compatible)", 0), h.getAccessControl)
+	huma.Register(api, tokenOp("cirunUpdateAccessControl", http.MethodPut, "/api/v1/access-control", "Open a pull request changing .access.yml (Cirun-compatible)", 0), h.updateAccessControl)
+}
+
+// AccessControlFile is .access.yml as the developer API returns it.
+type AccessControlFile struct {
+	Found     bool                        `doc:"Whether the .cirun repository has an .access.yml" json:"found"`
+	AccessYML runnerconfig.AccessDocument `doc:"The file's content"                              json:"access_yml"`
+}
+
+type accessControlOutput struct {
+	Body AccessControlFile
+}
+
+func (h *handlers) getAccessControl(ctx context.Context, _ *struct{}) (*accessControlOutput, error) {
+	p := principal(ctx)
+	current, err := h.Fleet.ReadAccessControl(ctx, p.installation)
+	if err != nil {
+		return nil, accessControlError(err)
+	}
+
+	return &accessControlOutput{Body: AccessControlFile{Found: current.Found, AccessYML: current.Document}}, nil
+}
+
+// RepositoryResourceAccess is one change in Cirun's access-control
+// request: grant ("add") or revoke ("remove") a repository's access to
+// resources, for the listed teams, roles and users.
+type RepositoryResourceAccess struct {
+	Repository string            `doc:"Repository name, with or without the organization" json:"repository" maxLength:"200" minLength:"1"`
+	Resources  []string          `doc:"Runner names from .cirun.global.yml"               json:"resources" maxItems:"100" minItems:"1"`
+	Action     string            `default:"add" doc:"add grants, remove revokes"          enum:"add,remove" json:"action,omitempty"`
+	Teams      []string          `doc:"Team slugs allowed"                                 json:"teams,omitempty" maxItems:"100"`
+	Roles      []string          `doc:"Repository roles allowed"                           json:"roles,omitempty" maxItems:"20"`
+	Users      []string          `doc:"GitHub logins allowed"                              json:"users,omitempty" maxItems:"500"`
+	PolicyArgs map[string]any    `doc:"Policy options, such as {\"pull_request\": true}"  json:"policy_args,omitempty" maxProperties:"5"`
+	UsersJSON  *string           `doc:"Not supported; refused"                             json:"users_from_json,omitempty"`
+	Extra      map[string]string `hidden:"true" json:"-"`
+}
+
+// UpdateAccessControl is Cirun's PUT access-control body.
+type UpdateAccessControl struct {
+	Org     string                     `doc:"Organization; must match the token's" json:"org,omitempty" maxLength:"100"`
+	Changes []RepositoryResourceAccess `doc:"Changes to apply"                     json:"repository_resource_access" maxItems:"50" minItems:"1"`
+}
+
+type updateAccessControlInput struct {
+	Body UpdateAccessControl
+}
+
+// AccessControlUpdate is the pull request opened for a change.
+type AccessControlUpdate struct {
+	PullRequestURL string                      `doc:"Pull request to review and merge" json:"pull_request_url"`
+	Branch         string                      `doc:"Branch the change was pushed to"  json:"branch"`
+	AccessYML      runnerconfig.AccessDocument `doc:"The file as proposed"             json:"access_yml"`
+}
+
+type accessControlUpdateOutput struct {
+	Body AccessControlUpdate
+}
+
+func (h *handlers) updateAccessControl(ctx context.Context, in *updateAccessControlInput) (*accessControlUpdateOutput, error) {
+	p := principal(ctx)
+	if in.Body.Org != "" && !strings.EqualFold(in.Body.Org, p.installation.AccountLogin) {
+		return nil, huma.Error403Forbidden("this token belongs to " + p.installation.AccountLogin)
+	}
+	changes := make([]runnerconfig.AccessChange, 0, len(in.Body.Changes))
+	for _, c := range in.Body.Changes {
+		if c.UsersJSON != nil {
+			return nil, huma.Error422UnprocessableEntity("users_from_json is not supported; list users directly")
+		}
+		change := runnerconfig.AccessChange{
+			Repository: c.Repository, Resources: c.Resources, Remove: c.Action == "remove",
+			Teams: c.Teams, Roles: c.Roles, Users: c.Users,
+		}
+		if v, ok := c.PolicyArgs["pull_request"]; ok {
+			pr, isBool := v.(bool)
+			if !isBool {
+				return nil, huma.Error422UnprocessableEntity("policy_args.pull_request must be true or false")
+			}
+			change.PullRequest = &pr
+		}
+		changes = append(changes, change)
+	}
+	update, err := h.Fleet.UpdateAccessControl(ctx, p.installation, changes)
+	if err != nil {
+		return nil, accessControlError(err)
+	}
+
+	return &accessControlUpdateOutput{Body: AccessControlUpdate{PullRequestURL: update.PullRequest.HTMLURL, Branch: update.Branch, AccessYML: update.Document}}, nil
+}
+
+func accessControlError(err error) error {
+	var cfgErr *runnerconfig.Error
+	switch {
+	case errors.Is(err, fleet.ErrNoOrganization):
+		return huma.Error422UnprocessableEntity("access control needs an organization with a .cirun repository")
+	case errors.As(err, &cfgErr):
+		return huma.Error422UnprocessableEntity(err.Error())
+	case github.StatusOf(err) == http.StatusNotFound:
+		return huma.Error404NotFound("the organization has no .cirun repository, or the app is not installed on it")
+	case github.StatusOf(err) == http.StatusForbidden:
+		return huma.Error502BadGateway("GitHub refused to write to the .cirun repository: the app needs Contents and Pull requests write permission on it", err)
+	case github.StatusOf(err) != 0:
+		return huma.Error502BadGateway("GitHub refused the request", err)
+	default:
+		return fmt.Errorf("access control: %w", err)
+	}
 }
 
 func (h *handlers) apiListClouds(ctx context.Context, _ *struct{}) (*cloudListOutput, error) {

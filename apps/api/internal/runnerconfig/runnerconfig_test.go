@@ -495,3 +495,47 @@ access_control:
 		}
 	}
 }
+
+func TestAccessDocumentApply(t *testing.T) {
+	var doc AccessDocument
+	yes := true
+	if err := doc.Apply(AccessChange{Repository: "acme/api", Resources: []string{"gpu", "cpu"}, Teams: []string{"ml"}, PullRequest: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Apply(AccessChange{Repository: "api", Resources: []string{"gpu"}, Users: []string{"alice"}, Teams: []string{"ML"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Policies) != 1 || doc.Policies[0].ID != "api-policy" || len(doc.Policies[0].Teams) != 1 || doc.Policies[0].Users[0] != "alice" || !doc.Policies[0].PullRequest {
+		t.Fatalf("policies = %+v", doc.Policies)
+	}
+	if len(doc.AccessControl) != 2 || doc.AccessControl[0].Resource != "gpu" || len(doc.AccessControl[0].Policies) != 1 {
+		t.Fatalf("rules = %+v", doc.AccessControl)
+	}
+	if _, err := doc.Compile(); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := doc.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := ParseAccess(encoded)
+	if err != nil {
+		t.Fatalf("%v:\n%s", err, encoded)
+	}
+	if policies, restricted := again.Restricted("gpu", "api"); !restricted || len(policies) != 1 {
+		t.Fatalf("round trip lost the rule: %s", encoded)
+	}
+
+	if err := doc.Apply(AccessChange{Repository: "api", Resources: []string{"gpu"}, Remove: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.AccessControl) != 1 || doc.AccessControl[0].Resource != "cpu" {
+		t.Fatalf("after revoke: %+v", doc.AccessControl)
+	}
+	if err := doc.Apply(AccessChange{Repository: "bad/name/here", Resources: []string{"gpu"}}); err == nil {
+		t.Fatal("bad repository accepted")
+	}
+	if err := doc.Apply(AccessChange{Repository: "api"}); err == nil {
+		t.Fatal("empty resources accepted")
+	}
+}

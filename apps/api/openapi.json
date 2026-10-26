@@ -75,6 +75,102 @@
         ],
         "type": "object"
       },
+      "AccessControlFile": {
+        "additionalProperties": false,
+        "properties": {
+          "access_yml": {
+            "$ref": "#/components/schemas/AccessDocument",
+            "description": "The file's content"
+          },
+          "found": {
+            "description": "Whether the .cirun repository has an .access.yml",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "found",
+          "access_yml"
+        ],
+        "type": "object"
+      },
+      "AccessControlUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "access_yml": {
+            "$ref": "#/components/schemas/AccessDocument",
+            "description": "The file as proposed"
+          },
+          "branch": {
+            "description": "Branch the change was pushed to",
+            "type": "string"
+          },
+          "pull_request_url": {
+            "description": "Pull request to review and merge",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pull_request_url",
+          "branch",
+          "access_yml"
+        ],
+        "type": "object"
+      },
+      "AccessDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "access_control": {
+            "items": {
+              "$ref": "#/components/schemas/AccessRule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyDocument"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "policies",
+          "access_control"
+        ],
+        "type": "object"
+      },
+      "AccessRule": {
+        "additionalProperties": false,
+        "properties": {
+          "policies": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "policies"
+        ],
+        "type": "object"
+      },
       "ActivateRepository": {
         "additionalProperties": false,
         "properties": {
@@ -1175,6 +1271,52 @@
         ],
         "type": "object"
       },
+      "PolicyDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pull_request": {
+            "type": "boolean"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "teams": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "users": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "repo"
+        ],
+        "type": "object"
+      },
       "Pool": {
         "additionalProperties": false,
         "properties": {
@@ -1333,6 +1475,86 @@
         },
         "required": [
           "items"
+        ],
+        "type": "object"
+      },
+      "RepositoryResourceAccess": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "default": "add",
+            "description": "add grants, remove revokes",
+            "enum": [
+              "add",
+              "remove"
+            ],
+            "type": "string"
+          },
+          "policy_args": {
+            "additionalProperties": {},
+            "description": "Policy options, such as {\"pull_request\": true}",
+            "maxProperties": 5,
+            "type": "object"
+          },
+          "repository": {
+            "description": "Repository name, with or without the organization",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "resources": {
+            "description": "Runner names from .cirun.global.yml",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "roles": {
+            "description": "Repository roles allowed",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "teams": {
+            "description": "Team slugs allowed",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "users": {
+            "description": "GitHub logins allowed",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "users_from_json": {
+            "description": "Not supported; refused",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "resources"
         ],
         "type": "object"
       },
@@ -1616,6 +1838,32 @@
         ],
         "type": "object"
       },
+      "UpdateAccessControl": {
+        "additionalProperties": false,
+        "properties": {
+          "org": {
+            "description": "Organization; must match the token's",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "repository_resource_access": {
+            "description": "Changes to apply",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryResourceAccess"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "repository_resource_access"
+        ],
+        "type": "object"
+      },
       "ValidateConfig": {
         "additionalProperties": false,
         "properties": {
@@ -1710,6 +1958,86 @@
           }
         ],
         "summary": "Fetch a runner's boot script (provision_via: pull_from_api)",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    },
+    "/api/v1/access-control": {
+      "get": {
+        "operationId": "cirunGetAccessControl",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlFile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Read the organization's .access.yml (Cirun-compatible)",
+        "tags": [
+          "Developer API"
+        ]
+      },
+      "put": {
+        "operationId": "cirunUpdateAccessControl",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccessControl"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlUpdate"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Open a pull request changing .access.yml (Cirun-compatible)",
         "tags": [
           "Developer API"
         ]

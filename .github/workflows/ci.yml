@@ -96,47 +96,34 @@ jobs:
       - run: go run ./cmd/migrate up
 
   aws:
-    name: AWS template and provider (emulated)
+    name: AWS provider (emulated)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
       - uses: actions/setup-go@v7
         with:
           go-version-file: apps/api/go.mod
           cache-dependency-path: apps/api/go.sum
       - uses: astral-sh/setup-uv@v6
-      - run: pnpm install --frozen-lockfile
-      # cfn-lint, then deploy the template into moto and simulate every IAM
-      # check the agent's calls trigger, allowed and denied.
-      - run: pnpm --filter @airship/deploy-aws test:policy
-      # The EC2 provider's real SDK calls against moto.
+      # The EC2 provider's real SDK calls against moto: launches land in the
+      # default VPC with the runners' security group, are tagged per
+      # installation, and terminate.
       - name: Provider against moto
         working-directory: apps/api
         run: |
           uvx --from 'moto[server]==5.2.4' moto_server -p 5055 > /tmp/moto.log 2>&1 &
           timeout 60 sh -c 'until curl -s localhost:5055 > /dev/null; do sleep 1; done'
-          AIRSHIP_AWS_ENDPOINT=http://localhost:5055 go test -count=1 -run TestAgainstEmulator ./internal/agent/aws
+          AIRSHIP_AWS_ENDPOINT=http://localhost:5055 go test -count=1 -run TestAgainstEmulator ./internal/cloud/aws
 
   images:
-    name: Container images
+    name: Container image
     runs-on: ubuntu-latest
     needs: [check, generated, migrations]
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        include:
-          - { target: api, image: airship-api }
-          - { target: agent, image: airship-agent }
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - if: github.event_name == 'push'
         uses: docker/login-action@v3
@@ -144,22 +131,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Pull requests only prove the images build; main publishes them.
-      # The agent is multi-arch because the AWS template runs it on Graviton.
-      - id: build
-        uses: docker/build-push-action@v6
+      # Pull requests only prove the image builds; main publishes it.
+      - uses: docker/build-push-action@v6
         with:
           context: apps/api
           file: apps/api/Dockerfile
-          target: ${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
+          target: api
           build-args: VERSION=${{ github.sha }}
           push: ${{ github.event_name == 'push' }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
-      # Customers pin the agent by digest; publish it where it is easy to find.
-      - if: github.event_name == 'push'
-        run: echo "${{ matrix.image }} digest \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+            ghcr.io/${{ github.repository_owner }}/airship-api:latest
+            ghcr.io/${{ github.repository_owner }}/airship-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -51,6 +51,18 @@ type Server struct {
 	runs          map[string]github.RunAttempt
 	teams         map[string]bool
 	repoRoles     map[string][2]string
+	branches      map[string]string
+	pulls         []PullRequest
+}
+
+// PullRequest is one opened through the fake.
+type PullRequest struct {
+	Number int
+	Repo   string
+	Title  string
+	Body   string
+	Head   string
+	Base   string
 }
 
 type repoEntry struct {
@@ -97,6 +109,7 @@ func New(t *testing.T) *Server {
 		runs:          map[string]github.RunAttempt{},
 		teams:         map[string]bool{},
 		repoRoles:     map[string][2]string{},
+		branches:      map[string]string{},
 	}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(s.Close)
@@ -157,6 +170,23 @@ func (s *Server) SetFile(repo, ref, path string, content []byte) {
 
 func fileKey(repo, ref, path string) string {
 	return strings.ToLower(repo) + "@" + ref + ":" + path
+}
+
+// PullRequests lists pull requests opened through the fake.
+func (s *Server) PullRequests() []PullRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]PullRequest(nil), s.pulls...)
+}
+
+// FileAt returns a file's content at ref, as written through the fake.
+func (s *Server) FileAt(repo, ref, path string) ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	content, ok := s.files[fileKey(repo, ref, path)]
+
+	return content, ok
 }
 
 // SetRunAttempt sets what GET .../actions/runs/{id}/attempts/{n} returns.
@@ -318,6 +348,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 			return
 		}
+		if s.serveWrite(w, r, parts) {
+			return
+		}
 		if !s.serveContent(w, r, parts) {
 			s.serveRepo(w, r, parts[1]+"/"+parts[2], parts[4:])
 		}
@@ -362,6 +395,117 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request, parts []string
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 	}
+}
+
+// serveWrite answers the git ref, file write and pull request calls the
+// access-control API makes. It reports whether it handled the request.
+func (s *Server) serveWrite(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	if parts[0] != "repos" || len(parts) < 4 {
+		return false
+	}
+	repo := strings.ToLower(parts[1] + "/" + parts[2])
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, known := s.repos[repo]
+	switch {
+	case r.Method == http.MethodGet && len(parts) == 7 && parts[3] == "git" && parts[4] == "ref" && parts[5] == "heads":
+		branch := parts[6]
+		sha, ok := s.branches[repo+"@"+branch]
+		if !ok && known && branch == entry.repo.DefaultBranch {
+			sha = "sha-" + branch
+		}
+		if sha == "" {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+			return true
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ref": "refs/heads/" + branch, "object": map[string]string{"sha": sha, "type": "commit"}})
+	case r.Method == http.MethodPost && len(parts) == 5 && parts[3] == "git" && parts[4] == "refs":
+		var body struct {
+			Ref string `json:"ref"`
+			SHA string `json:"sha"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !strings.HasPrefix(body.Ref, "refs/heads/") || body.SHA == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "invalid"})
+
+			return true
+		}
+		branch := strings.TrimPrefix(body.Ref, "refs/heads/")
+		if _, exists := s.branches[repo+"@"+branch]; exists {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "Reference already exists"})
+
+			return true
+		}
+		s.branches[repo+"@"+branch] = body.SHA
+		// The new branch starts with the default branch's files.
+		if known {
+			for key, content := range s.files {
+				if prefix := repo + "@" + entry.repo.DefaultBranch + ":"; strings.HasPrefix(key, prefix) {
+					s.files[repo+"@"+branch+":"+strings.TrimPrefix(key, prefix)] = content
+				}
+			}
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"ref": body.Ref, "object": map[string]string{"sha": body.SHA}})
+	case r.Method == http.MethodPut && len(parts) >= 5 && parts[3] == "contents":
+		var body struct {
+			Message string `json:"message"`
+			Content string `json:"content"`
+			Branch  string `json:"branch"`
+			SHA     string `json:"sha"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Message == "" || body.Branch == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "invalid"})
+
+			return true
+		}
+		if _, exists := s.branches[repo+"@"+body.Branch]; !exists {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Branch not found"})
+
+			return true
+		}
+		path := strings.Join(parts[4:], "/")
+		if existing, ok := s.files[fileKey(repo, body.Branch, path)]; ok {
+			sum := sha256.Sum256(existing)
+			if body.SHA != hex.EncodeToString(sum[:20]) {
+				writeJSON(w, http.StatusConflict, map[string]string{"message": "sha does not match"})
+
+				return true
+			}
+		}
+		content, err := base64.StdEncoding.DecodeString(body.Content)
+		if err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "content is not base64"})
+
+			return true
+		}
+		s.files[fileKey(repo, body.Branch, path)] = content
+		s.branches[repo+"@"+body.Branch] = "sha-" + body.Branch + "-" + strconv.Itoa(len(content))
+		writeJSON(w, http.StatusOK, map[string]any{"content": map[string]string{"path": path}})
+	case r.Method == http.MethodPost && len(parts) == 4 && parts[3] == "pulls":
+		var body struct {
+			Title string `json:"title"`
+			Body  string `json:"body"`
+			Head  string `json:"head"`
+			Base  string `json:"base"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Title == "" || body.Head == "" || body.Base == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "invalid"})
+
+			return true
+		}
+		if _, exists := s.branches[repo+"@"+body.Head]; !exists {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "head branch not found"})
+
+			return true
+		}
+		pr := PullRequest{Number: len(s.pulls) + 1, Repo: repo, Title: body.Title, Body: body.Body, Head: body.Head, Base: body.Base}
+		s.pulls = append(s.pulls, pr)
+		writeJSON(w, http.StatusCreated, map[string]any{"number": pr.Number, "html_url": "https://github.com/" + repo + "/pull/" + strconv.Itoa(pr.Number)})
+	default:
+		return false
+	}
+
+	return true
 }
 
 // serveContent answers the repository, file, run, team and role reads

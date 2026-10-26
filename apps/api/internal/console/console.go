@@ -14,6 +14,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
+	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -60,6 +61,8 @@ type Fleet interface {
 	ConnectCloud(ctx context.Context, installationID int64, cloud string, secret []byte, defaultRegion string, by *uuid.UUID) (db.CloudCredential, error)
 	DisconnectCloud(ctx context.Context, installationID int64, cloud string) error
 	ProvisionScript(ctx context.Context, sealed []byte) (string, error)
+	ReadAccessControl(ctx context.Context, installation db.Installation) (fleet.AccessControl, error)
+	UpdateAccessControl(ctx context.Context, installation db.Installation, changes []runnerconfig.AccessChange) (fleet.AccessControlUpdate, error)
 }
 
 // Config wires the dashboard API.

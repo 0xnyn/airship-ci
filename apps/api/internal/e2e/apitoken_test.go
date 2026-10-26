@@ -151,3 +151,55 @@ func TestCirunCompatibleAPI(t *testing.T) {
 		t.Fatalf("clouds after connecting = %v", items)
 	}
 }
+
+// `cirun access-control add-repo-to-resources` edits .access.yml through a
+// pull request against the organization's .cirun repository.
+func TestAccessControlAPI(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.gh.AddRepository(1, github.Repository{ID: 7, FullName: "acme/.cirun", Private: true, DefaultBranch: "main"})
+	e.gh.SetFile("acme/.cirun", "main", ".cirun.global.yml", []byte("runners:\n  - {name: gpu, cloud: aws, instance_type: g5.xlarge, labels: [cirun-gpu]}\n"))
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	token := e.call(http.MethodPost, "/v1/orgs/acme/api-tokens", map[string]any{"name": "cirun-py"}, http.StatusCreated)["token"].(string)
+
+	got := e.script(token, http.MethodGet, "/api/v1/access-control", nil, http.StatusOK)
+	if got["found"] != false {
+		t.Fatalf("access control before any file = %v", got)
+	}
+
+	granted := e.script(token, http.MethodPut, "/api/v1/access-control", map[string]any{
+		"org": "acme",
+		"repository_resource_access": []map[string]any{{
+			"repository": "acme/api", "resources": []string{"gpu"}, "action": "add",
+			"teams": []string{"ml"}, "users": []string{"alice"}, "policy_args": map[string]any{"pull_request": true},
+		}},
+	}, http.StatusOK)
+	url, _ := granted["pull_request_url"].(string)
+	if !strings.HasPrefix(url, "https://github.com/acme/.cirun/pull/") {
+		t.Fatalf("grant = %v", granted)
+	}
+	pulls := e.gh.PullRequests()
+	if len(pulls) != 1 || pulls[0].Base != "main" || !strings.HasPrefix(pulls[0].Head, "airship/access-control-") {
+		t.Fatalf("pull requests = %+v", pulls)
+	}
+	content, ok := e.gh.FileAt("acme/.cirun", pulls[0].Head, ".access.yml")
+	if !ok || !strings.Contains(string(content), "repo: api") || !strings.Contains(string(content), "- ml") || !strings.Contains(string(content), "pull_request: true") || !strings.Contains(string(content), "resource: gpu") {
+		t.Fatalf("proposed .access.yml:\n%s", content)
+	}
+	// The default branch is untouched until the pull request is merged.
+	if _, exists := e.gh.FileAt("acme/.cirun", "main", ".access.yml"); exists {
+		t.Fatal("the default branch was written directly")
+	}
+
+	// Merged: a revoke starts from the merged file.
+	e.gh.SetFile("acme/.cirun", "main", ".access.yml", content)
+	revoked := e.script(token, http.MethodPut, "/api/v1/access-control", map[string]any{
+		"repository_resource_access": []map[string]any{{"repository": "api", "resources": []string{"gpu"}, "action": "remove"}},
+	}, http.StatusOK)
+	doc := revoked["access_yml"].(map[string]any)
+	if rules, _ := doc["access_control"].([]any); len(rules) != 0 {
+		t.Fatalf("after revoke: %v", doc)
+	}
+	e.script(token, http.MethodPut, "/api/v1/access-control", map[string]any{"org": "globex", "repository_resource_access": []map[string]any{{"repository": "api", "resources": []string{"gpu"}}}}, http.StatusForbidden)
+	e.script(token, http.MethodPut, "/api/v1/access-control", map[string]any{"repository_resource_access": []map[string]any{{"repository": "api", "resources": []string{"gpu"}, "users_from_json": "https://x"}}}, http.StatusUnprocessableEntity)
+}

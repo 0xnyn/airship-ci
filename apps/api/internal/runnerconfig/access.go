@@ -1,9 +1,13 @@
 package runnerconfig
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Access is a parsed .access.yml: which repositories, and which people in
@@ -34,24 +38,28 @@ func (p Policy) Open() bool {
 	return len(p.Teams) == 0 && len(p.Roles) == 0 && len(p.Users) == 0
 }
 
-type rawAccess struct {
-	Version       int             `yaml:"version"`
-	Policies      []rawPolicy     `yaml:"policies"`
-	AccessControl []rawAccessRule `yaml:"access_control"`
+// AccessDocument is .access.yml as written: the shape the developer API
+// reads and edits. It is Cirun's format exactly.
+type AccessDocument struct {
+	Version       int              `json:"version"        yaml:"version"`
+	Policies      []PolicyDocument `json:"policies"       yaml:"policies"`
+	AccessControl []AccessRule     `json:"access_control" yaml:"access_control"`
 }
 
-type rawPolicy struct {
-	ID          string   `yaml:"id"`
-	Repo        string   `yaml:"repo"`
-	Teams       []string `yaml:"teams"`
-	Roles       []string `yaml:"roles"`
-	Users       []string `yaml:"users"`
-	PullRequest bool     `yaml:"pull_request"`
+// PolicyDocument is one policies[] entry.
+type PolicyDocument struct {
+	ID          string   `json:"id"                     yaml:"id"`
+	Repo        string   `json:"repo"                   yaml:"repo"`
+	Teams       []string `json:"teams,omitempty"        yaml:"teams,omitempty"`
+	Roles       []string `json:"roles,omitempty"        yaml:"roles,omitempty"`
+	Users       []string `json:"users,omitempty"        yaml:"users,omitempty"`
+	PullRequest bool     `json:"pull_request,omitempty" yaml:"pull_request,omitempty"`
 }
 
-type rawAccessRule struct {
-	Resource string   `yaml:"resource"`
-	Policies []string `yaml:"policies"`
+// AccessRule is one access_control[] entry.
+type AccessRule struct {
+	Resource string   `json:"resource" yaml:"resource"`
+	Policies []string `json:"policies" yaml:"policies"`
 }
 
 var (
@@ -65,22 +73,53 @@ const maxPolicies = 500
 
 // ParseAccess reads and validates an .access.yml file.
 func ParseAccess(data []byte) (Access, error) {
+	doc, err := DecodeAccess(data)
+	if err != nil {
+		return Access{}, err
+	}
+
+	return doc.Compile()
+}
+
+// DecodeAccess reads .access.yml without validating its rules.
+func DecodeAccess(data []byte) (AccessDocument, error) {
 	if len(data) > MaxFileBytes {
-		return Access{}, &Error{File: AccessFile, Detail: fmt.Sprintf("file is %d bytes; the limit is %d", len(data), MaxFileBytes)}
+		return AccessDocument{}, &Error{File: AccessFile, Detail: fmt.Sprintf("file is %d bytes; the limit is %d", len(data), MaxFileBytes)}
 	}
-	var raw rawAccess
-	if err := decodeStrict(data, &raw); err != nil {
-		return Access{}, &Error{File: AccessFile, Detail: err.Error()}
+	var doc AccessDocument
+	if err := decodeStrict(data, &doc); err != nil {
+		return AccessDocument{}, &Error{File: AccessFile, Detail: err.Error()}
 	}
-	if raw.Version != 1 {
+
+	return doc, nil
+}
+
+// Encode renders the document as YAML.
+func (d AccessDocument) Encode() ([]byte, error) {
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(d); err != nil {
+		return nil, fmt.Errorf("encode %s: %w", AccessFile, err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("encode %s: %w", AccessFile, err)
+	}
+
+	return out.Bytes(), nil
+}
+
+// Compile validates the document and builds the lookup structure.
+func (d AccessDocument) Compile() (Access, error) {
+	if d.Version != 1 {
 		return Access{}, &Error{File: AccessFile, Path: "version", Detail: "version must be 1"}
 	}
-	if len(raw.Policies) > maxPolicies || len(raw.AccessControl) > maxPolicies {
+	if len(d.Policies) > maxPolicies || len(d.AccessControl) > maxPolicies {
 		return Access{}, &Error{File: AccessFile, Detail: fmt.Sprintf("at most %d policies and %d rules", maxPolicies, maxPolicies)}
 	}
 
 	out := Access{policies: map[string]Policy{}, rules: map[string][]string{}}
-	for i, p := range raw.Policies {
+	for i, p := range d.Policies {
 		path := fmt.Sprintf("policies[%d]", i)
 		policy, err := p.validate()
 		if err != "" {
@@ -91,7 +130,7 @@ func ParseAccess(data []byte) (Access, error) {
 		}
 		out.policies[policy.ID] = policy
 	}
-	for i, rule := range raw.AccessControl {
+	for i, rule := range d.AccessControl {
 		path := fmt.Sprintf("access_control[%d]", i)
 		resource := strings.ToLower(strings.TrimSpace(rule.Resource))
 		if !namePattern.MatchString(resource) {
@@ -111,7 +150,7 @@ func ParseAccess(data []byte) (Access, error) {
 	return out, nil
 }
 
-func (p rawPolicy) validate() (Policy, string) {
+func (p PolicyDocument) validate() (Policy, string) {
 	out := Policy{ID: strings.TrimSpace(p.ID), Repo: strings.TrimSpace(p.Repo), PullRequest: p.PullRequest}
 	if !policyIDPattern.MatchString(out.ID) {
 		return Policy{}, "id is required"
@@ -159,4 +198,93 @@ func (a Access) Restricted(runner, repo string) (policies []Policy, restricted b
 	}
 
 	return policies, true
+}
+
+// AccessChange is one repository_resource_access entry of Cirun's
+// access-control API: grant or revoke a repository's access to resources.
+type AccessChange struct {
+	Repository  string
+	Resources   []string
+	Remove      bool
+	Teams       []string
+	Roles       []string
+	Users       []string
+	PullRequest *bool
+}
+
+// Apply edits the document as Cirun's API does. Granting finds or creates
+// the repository's policy, adds the people listed, and attaches the policy
+// to each resource; revoking detaches it, dropping rules left empty.
+func (d *AccessDocument) Apply(change AccessChange) error {
+	repo := strings.TrimSpace(change.Repository)
+	if owner, name, ok := strings.Cut(repo, "/"); ok && owner != "" {
+		repo = name
+	}
+	if !repoNamePattern.MatchString(repo) {
+		return &Error{File: AccessFile, Detail: fmt.Sprintf("%q is not a repository name", change.Repository)}
+	}
+	if len(change.Resources) == 0 {
+		return &Error{File: AccessFile, Detail: "list at least one resource"}
+	}
+	if d.Version == 0 {
+		d.Version = 1
+	}
+
+	policyIndex := slices.IndexFunc(d.Policies, func(p PolicyDocument) bool { return strings.EqualFold(p.Repo, repo) })
+	if change.Remove {
+		if policyIndex < 0 {
+			return nil
+		}
+		id := d.Policies[policyIndex].ID
+		kept := d.AccessControl[:0]
+		for _, rule := range d.AccessControl {
+			if slices.ContainsFunc(change.Resources, func(r string) bool { return strings.EqualFold(r, rule.Resource) }) {
+				rule.Policies = slices.DeleteFunc(slices.Clone(rule.Policies), func(p string) bool { return p == id })
+			}
+			if len(rule.Policies) > 0 {
+				kept = append(kept, rule)
+			}
+		}
+		d.AccessControl = kept
+
+		return nil
+	}
+
+	if policyIndex < 0 {
+		d.Policies = append(d.Policies, PolicyDocument{ID: repo + "-policy", Repo: repo})
+		policyIndex = len(d.Policies) - 1
+	}
+	policy := &d.Policies[policyIndex]
+	policy.Teams = union(policy.Teams, change.Teams)
+	policy.Roles = union(policy.Roles, change.Roles)
+	policy.Users = union(policy.Users, change.Users)
+	if change.PullRequest != nil {
+		policy.PullRequest = *change.PullRequest
+	}
+	for _, resource := range change.Resources {
+		resource = strings.TrimSpace(resource)
+		ruleIndex := slices.IndexFunc(d.AccessControl, func(r AccessRule) bool { return strings.EqualFold(r.Resource, resource) })
+		if ruleIndex < 0 {
+			d.AccessControl = append(d.AccessControl, AccessRule{Resource: resource, Policies: []string{policy.ID}})
+
+			continue
+		}
+		if !slices.Contains(d.AccessControl[ruleIndex].Policies, policy.ID) {
+			d.AccessControl[ruleIndex].Policies = append(d.AccessControl[ruleIndex].Policies, policy.ID)
+		}
+	}
+
+	return nil
+}
+
+func union(have, add []string) []string {
+	out := slices.Clone(have)
+	for _, v := range add {
+		v = strings.TrimSpace(v)
+		if v != "" && !slices.ContainsFunc(out, func(h string) bool { return strings.EqualFold(h, v) }) {
+			out = append(out, v)
+		}
+	}
+
+	return out
 }

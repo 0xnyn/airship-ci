@@ -19,6 +19,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access-control": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the organization's .access.yml (Cirun-compatible) */
+        get: operations["cirunGetAccessControl"];
+        /** Open a pull request changing .access.yml (Cirun-compatible) */
+        put: operations["cirunUpdateAccessControl"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cloud-connect": {
         parameters: {
             query?: never;
@@ -503,6 +521,30 @@ export interface components {
             /** @description The token. Store it now: it cannot be shown again. */
             token: string;
         };
+        AccessControlFile: {
+            /** @description The file's content */
+            access_yml: components["schemas"]["AccessDocument"];
+            /** @description Whether the .cirun repository has an .access.yml */
+            found: boolean;
+        };
+        AccessControlUpdate: {
+            /** @description The file as proposed */
+            access_yml: components["schemas"]["AccessDocument"];
+            /** @description Branch the change was pushed to */
+            branch: string;
+            /** @description Pull request to review and merge */
+            pull_request_url: string;
+        };
+        AccessDocument: {
+            access_control: components["schemas"]["AccessRule"][] | null;
+            policies: components["schemas"]["PolicyDocument"][] | null;
+            /** Format: int64 */
+            version: number;
+        };
+        AccessRule: {
+            policies: string[] | null;
+            resource: string;
+        };
         ActivateRepository: {
             /**
              * @description Serve jobs while the repository is public. Public repositories run code from fork pull requests on your machines.
@@ -948,6 +990,14 @@ export interface components {
              */
             succeeded: number;
         };
+        PolicyDocument: {
+            id: string;
+            pull_request?: boolean;
+            repo: string;
+            roles?: string[] | null;
+            teams?: string[] | null;
+            users?: string[] | null;
+        };
         Pool: {
             /**
              * Format: int64
@@ -1020,6 +1070,30 @@ export interface components {
         };
         RepositoryList: {
             items: components["schemas"]["Repository"][] | null;
+        };
+        RepositoryResourceAccess: {
+            /**
+             * @description add grants, remove revokes
+             * @default add
+             * @enum {string}
+             */
+            action: "add" | "remove";
+            /** @description Policy options, such as {"pull_request": true} */
+            policy_args?: {
+                [key: string]: unknown;
+            };
+            /** @description Repository name, with or without the organization */
+            repository: string;
+            /** @description Runner names from .cirun.global.yml */
+            resources: string[] | null;
+            /** @description Repository roles allowed */
+            roles?: string[] | null;
+            /** @description Team slugs allowed */
+            teams?: string[] | null;
+            /** @description GitHub logins allowed */
+            users?: string[] | null;
+            /** @description Not supported; refused */
+            users_from_json?: string;
         };
         RepositoryUsage: {
             /**
@@ -1149,6 +1223,12 @@ export interface components {
              */
             maxRunners: number;
         };
+        UpdateAccessControl: {
+            /** @description Organization; must match the token's */
+            org?: string;
+            /** @description Changes to apply */
+            repository_resource_access: components["schemas"]["RepositoryResourceAccess"][] | null;
+        };
         ValidateConfig: {
             /** @description The file's content */
             content: string;
@@ -1187,6 +1267,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    cirunGetAccessControl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessControlFile"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    cirunUpdateAccessControl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAccessControl"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessControlUpdate"];
                 };
             };
             /** @description Error */

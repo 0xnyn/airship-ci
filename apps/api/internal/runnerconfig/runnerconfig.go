@@ -220,11 +220,6 @@ func Parse(name string, data []byte) (File, error) {
 		if err != nil {
 			return File{}, &Error{File: name, Path: path + err.path, Detail: err.detail}
 		}
-		if runner.Idle != nil && name == GlobalFile {
-			// An idle runner would be registered on the organization, where
-			// any repository could take it, activated or not.
-			return File{}, &Error{File: name, Path: path + ".idle", Detail: "idle runners are defined in each repository's " + RepoFile}
-		}
 		key := strings.ToLower(runner.Name)
 		if seen[key] {
 			return File{}, &Error{File: name, Path: path + ".name", Detail: fmt.Sprintf("runner %q is defined twice", runner.Name)}

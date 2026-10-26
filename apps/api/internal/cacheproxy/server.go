@@ -335,7 +335,7 @@ func (s *Server) serveDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	object := string(raw)
-	if !strings.HasPrefix(object, s.prefix+"/") {
+	if s.prefix != "" && !strings.HasPrefix(object, s.prefix+"/") {
 		http.Error(w, "not found", http.StatusNotFound)
 
 		return

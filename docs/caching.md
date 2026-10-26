@@ -47,9 +47,9 @@ runners:
    which the runner passes to every step.
 3. The proxy trades its token for credentials from
    `GET /v1/runner/cache-grant`: an STS federation token (from your access
-   key) allowed to read and write only this repository's prefix in the
-   bucket, valid for an hour and refreshed before it expires. Your access
-   key never reaches the machine.
+   key) allowed to read and write only the cache bucket, valid for an hour
+   and refreshed before it expires. Your access key never reaches the
+   machine.
 4. `actions/cache` talks to `results-receiver.actions.githubusercontent.com`
    through the proxy. The proxy terminates TLS for that host, answers the
    `CacheService` calls itself (reserve, upload, finalize, lookup) and
@@ -61,10 +61,10 @@ runners:
    Downloads are served with the HEAD plus ranged GETs the client makes,
    straight from S3.
 
-Entries are stored at `<owner>/<repo>/<version>/<key>`. `restore-keys`
-match by prefix within the same version, newest first, as on GitHub. The
-proxy also serves the legacy `_apis/artifactcache` API on port 6420 for
-older actions.
+Entries are stored at `<version>/<key>`, one namespace per bucket as on
+Cirun. `restore-keys` match by prefix within the same version, newest
+first, as on GitHub. The proxy also serves the legacy `_apis/artifactcache`
+API on port 6420 for older actions.
 
 If any step fails (the binary is not embedded in this control plane build,
 the bucket cannot be created, the proxy does not start) the job still
@@ -120,16 +120,21 @@ are the ceiling of what a runner can do.
 - **Throughput.** Set gp3 `Throughput: 1000` and `Iops` to match on the
   root volume; the default 125 MiB/s caps restores well below what the
   network does. Instance class is the next lever.
-- **Scope.** Unlike GitHub's cache there is no per-branch isolation inside
-  a repository: a pull request's job can write an entry a main-branch job
-  restores. Keep public repositories with fork pull requests off cache
-  runners, or make their keys unguessable.
+- **Scope.** As on Cirun, every repository in the organization shares the
+  bucket, and there is no per-branch isolation: a pull request's job can
+  write an entry a main-branch job restores, and one repository can
+  restore another's keys. Keep public repositories with fork pull requests
+  off cache runners, or make their keys unguessable.
 - **Containers.** Steps in a `container:` job inherit `https_proxy` but not
   the host's trust store; `NODE_EXTRA_CA_CERTS` points at a host path. Run
   cache steps on the host.
-- **Not run against a real runner yet.** The protocol handling is tested
-  against the clients' documented behaviour and fakes. The first real job
-  is the first end-to-end run; the Events page and
+- **Verified with the real client, not yet on a real runner.** The proxy
+  has been driven by actions/cache@v4's own library through `https_proxy`
+  with its CA, including a 140 MB block upload, exact and restore-key
+  restores and a miss; the bucket and credential calls run against moto.
+  What remains unproven is the runner machine itself: that the runner
+  passes `.env`'s `https_proxy` to steps as GitHub documents, and the CA
+  install on the image. The Events page and
   `/var/log/airship-cacheproxy.log` on the machine show what happened.
 - **BYO bucket.** For runners outside this setup, Cirun's
   `cirunlabs/cache/s3` action works against any S3-compatible bucket with

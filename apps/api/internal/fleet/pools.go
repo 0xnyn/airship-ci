@@ -88,26 +88,31 @@ func (i IdleSpec) Desired(now time.Time, usageUntil *time.Time) int {
 	return wanted
 }
 
-// reservePoolRunner points an idle runner from a matching warm pool at the
-// job. Only repository runners have pools, and only a job whose labels the
+// reservePoolRunner points an idle runner from a matching pool at the
+// job: the repository's own pools for repository definitions, the
+// organization's for organization definitions. Only a job whose labels the
 // pool's runners carry exactly (no per-run suffix) can use one.
 func (s *Service) reservePoolRunner(ctx context.Context, q *db.Queries, job db.Job, plan Plan) (bool, error) {
-	var names []string
+	var repoPools, orgPools []db.IdlePool
 	for _, a := range plan {
-		if a.Source == SourceRepository {
-			names = append(names, a.Name)
+		var err error
+		switch {
+		case a.Source == SourceRepository && repoPools == nil:
+			repoPools, err = q.ListRepositoryIdlePools(ctx, &job.RepositoryID)
+		case a.Source == SourceOrganization && orgPools == nil:
+			orgPools, err = q.ListOrganizationIdlePools(ctx, job.InstallationID)
+		}
+		if err != nil {
+			return false, fmt.Errorf("list pools: %w", err)
 		}
 	}
-	if len(names) == 0 {
-		return false, nil
-	}
-	pools, err := q.ListRepositoryIdlePools(ctx, job.RepositoryID)
-	if err != nil {
-		return false, fmt.Errorf("list pools: %w", err)
-	}
-	for _, name := range names {
+	for _, a := range plan {
+		pools := repoPools
+		if a.Source == SourceOrganization {
+			pools = orgPools
+		}
 		for _, pool := range pools {
-			if pool.Name != name || !poolServes(pool, job.Labels) {
+			if pool.Name != a.Name || !poolServes(pool, job.Labels) {
 				continue
 			}
 			live, err := q.JobHasLiveRunner(ctx, &job.ID)
@@ -151,10 +156,13 @@ func poolServes(pool db.IdlePool, jobLabels []string) bool {
 // extendUsagePools keeps usage-based pools warm after a runner from the
 // same repository definition is allocated a job.
 func (s *Service) extendUsagePools(ctx context.Context, q *db.Queries, busy db.Runner) (bool, error) {
-	if busy.Source != SourceRepository {
-		return false, nil
+	var n int64
+	var err error
+	if busy.Source == SourceOrganization {
+		n, err = q.ExtendOrganizationUsagePools(ctx, db.ExtendOrganizationUsagePoolsParams{InstallationID: busy.InstallationID, Name: busy.Definition})
+	} else {
+		n, err = q.ExtendUsagePools(ctx, db.ExtendUsagePoolsParams{RepositoryID: &busy.RepositoryID, Name: busy.Definition})
 	}
-	n, err := q.ExtendUsagePools(ctx, db.ExtendUsagePoolsParams{RepositoryID: busy.RepositoryID, Name: busy.Definition})
 	if err != nil {
 		return false, fmt.Errorf("extend usage pools: %w", err)
 	}
@@ -162,13 +170,19 @@ func (s *Service) extendUsagePools(ctx context.Context, q *db.Queries, busy db.R
 	return n > 0, nil
 }
 
-// fillRepositoryPools tops up one repository's pools now rather than on
+// fillRepositoryPools tops up the pools a job in a repository can draw
+// from (the repository's own and the organization's) now rather than on
 // the next reconcile pass. Failures are logged; the reconciler retries.
-func (s *Service) fillRepositoryPools(ctx context.Context, repositoryID int64) {
-	pools, err := s.q.ListRepositoryIdlePools(ctx, repositoryID)
+func (s *Service) fillRepositoryPools(ctx context.Context, installationID, repositoryID int64) {
+	pools, err := s.q.ListRepositoryIdlePools(ctx, &repositoryID)
+	if err == nil {
+		var orgPools []db.IdlePool
+		orgPools, err = s.q.ListOrganizationIdlePools(ctx, installationID)
+		pools = append(pools, orgPools...)
+	}
 	if err == nil && len(pools) > 0 {
 		var creds []db.CloudCredential
-		creds, err = s.q.ListCloudCredentials(ctx, pools[0].InstallationID)
+		creds, err = s.q.ListCloudCredentials(ctx, installationID)
 		for _, pool := range pools {
 			if err != nil {
 				break
@@ -321,9 +335,27 @@ func (s *Service) growPool(ctx context.Context, q *db.Queries, pool db.IdlePool,
 	if len(plan) == 0 {
 		return false, nil // no cloud connected yet; the next pass looks again
 	}
-	repository, err := q.GetRepository(ctx, db.GetRepositoryParams{InstallationID: pool.InstallationID, ID: pool.RepositoryID})
-	if err != nil {
-		return false, fmt.Errorf("get repository: %w", err)
+	// Repository pools register on their repository; organization pools on
+	// the organization, in the pool's runner group.
+	var repositoryID int64
+	var registeredOn string
+	source, scope := SourceRepository, ScopeRepository
+	if pool.RepositoryID != nil {
+		repository, err := q.GetRepository(ctx, db.GetRepositoryParams{InstallationID: pool.InstallationID, ID: *pool.RepositoryID})
+		if err != nil {
+			return false, fmt.Errorf("get repository: %w", err)
+		}
+		repositoryID, registeredOn = repository.ID, repository.FullName
+	} else {
+		if pool.RunnerGroupID == nil {
+			return false, nil // the group is created on the next organization config refresh
+		}
+		installation, err := q.GetInstallation(ctx, pool.InstallationID)
+		if err != nil {
+			return false, fmt.Errorf("get installation: %w", err)
+		}
+		registeredOn = installation.AccountLogin
+		source, scope = SourceOrganization, ScopeOrganization
 	}
 	// Failures move the pool on to its next fallback, as they do for jobs.
 	attempt := plan.at(failures)
@@ -335,7 +367,8 @@ func (s *Service) growPool(ctx context.Context, q *db.Queries, pool db.IdlePool,
 		_, err := q.CreateRunner(ctx, db.CreateRunnerParams{
 			InstallationID:     pool.InstallationID,
 			Definition:         attempt.Name,
-			Source:             SourceRepository,
+			Source:             source,
+			Scope:              scope,
 			Cloud:              attempt.Cloud,
 			CredentialID:       uuidPtr(attempt.CredentialID),
 			Region:             attempt.Region,
@@ -343,8 +376,8 @@ func (s *Service) growPool(ctx context.Context, q *db.Queries, pool db.IdlePool,
 			Labels:             attempt.Labels,
 			Attempt:            int32(failures), //nolint:gosec // below poolFailureLimit
 			PoolID:             &pool.ID,
-			RepositoryID:       repository.ID,
-			RepositoryFullName: repository.FullName,
+			RepositoryID:       repositoryID,
+			RepositoryFullName: registeredOn,
 			Name:               newRunnerName(),
 		})
 		if err != nil {
@@ -410,7 +443,7 @@ func (s *Service) RefreshRepositoryConfig(ctx context.Context, repo db.Repositor
 				if r.Idle == nil {
 					continue
 				}
-				plan, err := json.Marshal(wantsFor(runnerconfig.PoolAttempts(r)))
+				plan, err := json.Marshal(wantsFor(runnerconfig.PoolAttempts(runnerconfig.SourceRepository, r)))
 				if err != nil {
 					return fmt.Errorf("encode pool plan: %w", err)
 				}
@@ -419,14 +452,14 @@ func (s *Service) RefreshRepositoryConfig(ctx context.Context, repo db.Repositor
 					return fmt.Errorf("encode idle: %w", err)
 				}
 				if _, err := q.UpsertIdlePool(ctx, db.UpsertIdlePoolParams{
-					InstallationID: repo.InstallationID, RepositoryID: repo.ID, Name: r.Name,
+					InstallationID: repo.InstallationID, RepositoryID: &repo.ID, Name: r.Name,
 					Plan: plan, Idle: idle, SourceSha: file.SHA,
 				}); err != nil {
 					return fmt.Errorf("save pool: %w", err)
 				}
 				keep = append(keep, r.Name)
 			}
-			if _, err := q.DeleteIdlePoolsExcept(ctx, db.DeleteIdlePoolsExceptParams{RepositoryID: repo.ID, Keep: keep}); err != nil {
+			if _, err := q.DeleteIdlePoolsExcept(ctx, db.DeleteIdlePoolsExceptParams{RepositoryID: &repo.ID, Keep: keep}); err != nil {
 				return fmt.Errorf("delete pools: %w", err)
 			}
 		}
@@ -453,6 +486,11 @@ func (s *Service) HandlePush(ctx context.Context, event github.PushEvent) error 
 	}
 	if repo, err := github.ParseRepo(event.Repository.FullName); err == nil && strings.EqualFold(repo.Name, runnerconfig.GlobalRepo) {
 		s.ForgetConfig(event.Installation.ID, event.Repository.FullName)
+		if event.Ref == "refs/heads/"+event.Repository.DefaultBranch {
+			if err := s.q.MarkOrganizationConfigStale(ctx, event.Installation.ID); err != nil {
+				return fmt.Errorf("mark organization config stale: %w", err)
+			}
+		}
 
 		return nil
 	}

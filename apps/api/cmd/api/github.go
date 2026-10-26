@@ -60,3 +60,23 @@ func (unconfiguredGitHub) ListRepositories(context.Context, int64) ([]github.Rep
 func (unconfiguredGitHub) GetRepositoryByID(context.Context, int64, int64) (github.Repository, error) {
 	return github.Repository{}, errNoGitHubApp
 }
+
+func (unconfiguredGitHub) GenerateOrgJITConfig(context.Context, int64, string, string, int64, []string) (github.JITConfig, error) {
+	return github.JITConfig{}, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) GetOrgRunner(context.Context, int64, string, int64) (github.Runner, error) {
+	return github.Runner{}, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) FindOrgRunnerByName(context.Context, int64, string, string) (github.Runner, bool, error) {
+	return github.Runner{}, false, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) DeleteOrgRunner(context.Context, int64, string, int64) error {
+	return errNoGitHubApp
+}
+
+func (unconfiguredGitHub) EnsureRunnerGroup(context.Context, int64, string, string, []int64) (int64, error) {
+	return 0, errNoGitHubApp
+}

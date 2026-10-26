@@ -156,7 +156,7 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 }
 
 const getInstallation = `-- name: GetInstallation :one
-select id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at from installations where id = $1
+select id, account_id, account_login, account_type, max_runners, org_config_sha, org_config_error, org_config_checked_at, org_config_stale, suspended_at, deleted_at, created_at, updated_at from installations where id = $1
 `
 
 func (q *Queries) GetInstallation(ctx context.Context, id int64) (Installation, error) {
@@ -168,6 +168,10 @@ func (q *Queries) GetInstallation(ctx context.Context, id int64) (Installation, 
 		&i.AccountLogin,
 		&i.AccountType,
 		&i.MaxRunners,
+		&i.OrgConfigSha,
+		&i.OrgConfigError,
+		&i.OrgConfigCheckedAt,
+		&i.OrgConfigStale,
 		&i.SuspendedAt,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -199,7 +203,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, tokenHash []byte) (User, e
 }
 
 const getUserInstallationByLogin = `-- name: GetUserInstallationByLogin :one
-select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
+select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.org_config_sha, installations.org_config_error, installations.org_config_checked_at, installations.org_config_stale, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
 from memberships
 join installations on installations.id = memberships.installation_id
 where memberships.user_id = $1 and installations.deleted_at is null
@@ -225,6 +229,10 @@ func (q *Queries) GetUserInstallationByLogin(ctx context.Context, arg GetUserIns
 		&i.Installation.AccountLogin,
 		&i.Installation.AccountType,
 		&i.Installation.MaxRunners,
+		&i.Installation.OrgConfigSha,
+		&i.Installation.OrgConfigError,
+		&i.Installation.OrgConfigCheckedAt,
+		&i.Installation.OrgConfigStale,
 		&i.Installation.SuspendedAt,
 		&i.Installation.DeletedAt,
 		&i.Installation.CreatedAt,
@@ -279,7 +287,7 @@ func (q *Queries) ListInstallationMembers(ctx context.Context, installationID in
 }
 
 const listLiveInstallations = `-- name: ListLiveInstallations :many
-select id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at from installations where deleted_at is null order by id
+select id, account_id, account_login, account_type, max_runners, org_config_sha, org_config_error, org_config_checked_at, org_config_stale, suspended_at, deleted_at, created_at, updated_at from installations where deleted_at is null order by id
 `
 
 func (q *Queries) ListLiveInstallations(ctx context.Context) ([]Installation, error) {
@@ -297,6 +305,62 @@ func (q *Queries) ListLiveInstallations(ctx context.Context) ([]Installation, er
 			&i.AccountLogin,
 			&i.AccountType,
 			&i.MaxRunners,
+			&i.OrgConfigSha,
+			&i.OrgConfigError,
+			&i.OrgConfigCheckedAt,
+			&i.OrgConfigStale,
+			&i.SuspendedAt,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStaleOrganizationConfigs = `-- name: ListStaleOrganizationConfigs :many
+select id, account_id, account_login, account_type, max_runners, org_config_sha, org_config_error, org_config_checked_at, org_config_stale, suspended_at, deleted_at, created_at, updated_at from installations
+where deleted_at is null and account_type = 'Organization'
+    and (org_config_checked_at is null
+        or (org_config_stale and org_config_checked_at < $1::timestamptz)
+        or org_config_checked_at < $2::timestamptz)
+order by org_config_checked_at nulls first
+limit $3
+`
+
+type ListStaleOrganizationConfigsParams struct {
+	RetryBefore   time.Time
+	CheckedBefore time.Time
+	MaxResults    int32
+}
+
+// Organizations whose .cirun.global.yml should be read again for idle
+// runners: pushed to, or not read for a while.
+func (q *Queries) ListStaleOrganizationConfigs(ctx context.Context, arg ListStaleOrganizationConfigsParams) ([]Installation, error) {
+	rows, err := q.db.Query(ctx, listStaleOrganizationConfigs, arg.RetryBefore, arg.CheckedBefore, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Installation{}
+	for rows.Next() {
+		var i Installation
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.AccountLogin,
+			&i.AccountType,
+			&i.MaxRunners,
+			&i.OrgConfigSha,
+			&i.OrgConfigError,
+			&i.OrgConfigCheckedAt,
+			&i.OrgConfigStale,
 			&i.SuspendedAt,
 			&i.DeletedAt,
 			&i.CreatedAt,
@@ -313,7 +377,7 @@ func (q *Queries) ListLiveInstallations(ctx context.Context) ([]Installation, er
 }
 
 const listUserInstallations = `-- name: ListUserInstallations :many
-select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
+select installations.id, installations.account_id, installations.account_login, installations.account_type, installations.max_runners, installations.org_config_sha, installations.org_config_error, installations.org_config_checked_at, installations.org_config_stale, installations.suspended_at, installations.deleted_at, installations.created_at, installations.updated_at, memberships.role
 from memberships
 join installations on installations.id = memberships.installation_id
 where memberships.user_id = $1 and installations.deleted_at is null
@@ -340,6 +404,10 @@ func (q *Queries) ListUserInstallations(ctx context.Context, userID uuid.UUID) (
 			&i.Installation.AccountLogin,
 			&i.Installation.AccountType,
 			&i.Installation.MaxRunners,
+			&i.Installation.OrgConfigSha,
+			&i.Installation.OrgConfigError,
+			&i.Installation.OrgConfigCheckedAt,
+			&i.Installation.OrgConfigStale,
 			&i.Installation.SuspendedAt,
 			&i.Installation.DeletedAt,
 			&i.Installation.CreatedAt,
@@ -365,8 +433,17 @@ func (q *Queries) MarkInstallationDeleted(ctx context.Context, id int64) error {
 	return err
 }
 
+const markOrganizationConfigStale = `-- name: MarkOrganizationConfigStale :exec
+update installations set org_config_stale = true, org_config_checked_at = null where id = $1
+`
+
+func (q *Queries) MarkOrganizationConfigStale(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markOrganizationConfigStale, id)
+	return err
+}
+
 const setInstallationMaxRunners = `-- name: SetInstallationMaxRunners :one
-update installations set max_runners = $2, updated_at = now() where id = $1 returning id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at
+update installations set max_runners = $2, updated_at = now() where id = $1 returning id, account_id, account_login, account_type, max_runners, org_config_sha, org_config_error, org_config_checked_at, org_config_stale, suspended_at, deleted_at, created_at, updated_at
 `
 
 type SetInstallationMaxRunnersParams struct {
@@ -383,6 +460,10 @@ func (q *Queries) SetInstallationMaxRunners(ctx context.Context, arg SetInstalla
 		&i.AccountLogin,
 		&i.AccountType,
 		&i.MaxRunners,
+		&i.OrgConfigSha,
+		&i.OrgConfigError,
+		&i.OrgConfigCheckedAt,
+		&i.OrgConfigStale,
 		&i.SuspendedAt,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -421,6 +502,33 @@ func (q *Queries) SetMembershipRole(ctx context.Context, arg SetMembershipRolePa
 	return err
 }
 
+const setOrganizationConfig = `-- name: SetOrganizationConfig :exec
+update installations
+set org_config_sha = $1, org_config_error = $2,
+    org_config_checked_at = now(), org_config_stale = false
+where id = $3
+`
+
+type SetOrganizationConfigParams struct {
+	Sha   *string
+	Error *string
+	ID    int64
+}
+
+func (q *Queries) SetOrganizationConfig(ctx context.Context, arg SetOrganizationConfigParams) error {
+	_, err := q.db.Exec(ctx, setOrganizationConfig, arg.Sha, arg.Error, arg.ID)
+	return err
+}
+
+const touchOrganizationConfig = `-- name: TouchOrganizationConfig :exec
+update installations set org_config_checked_at = now() where id = $1
+`
+
+func (q *Queries) TouchOrganizationConfig(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, touchOrganizationConfig, id)
+	return err
+}
+
 const upsertInstallation = `-- name: UpsertInstallation :one
 insert into installations (id, account_id, account_login, account_type, suspended_at)
 values ($1, $2, $3, $4, $5)
@@ -431,7 +539,7 @@ set account_id = excluded.account_id,
     suspended_at = excluded.suspended_at,
     deleted_at = null,
     updated_at = now()
-returning id, account_id, account_login, account_type, max_runners, suspended_at, deleted_at, created_at, updated_at
+returning id, account_id, account_login, account_type, max_runners, org_config_sha, org_config_error, org_config_checked_at, org_config_stale, suspended_at, deleted_at, created_at, updated_at
 `
 
 type UpsertInstallationParams struct {
@@ -457,6 +565,10 @@ func (q *Queries) UpsertInstallation(ctx context.Context, arg UpsertInstallation
 		&i.AccountLogin,
 		&i.AccountType,
 		&i.MaxRunners,
+		&i.OrgConfigSha,
+		&i.OrgConfigError,
+		&i.OrgConfigCheckedAt,
+		&i.OrgConfigStale,
 		&i.SuspendedAt,
 		&i.DeletedAt,
 		&i.CreatedAt,

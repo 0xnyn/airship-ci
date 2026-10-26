@@ -312,11 +312,21 @@ func (m *MemoryStore) Touch(key string, at time.Time) {
 // character, so a restore key's prefix stays a prefix once escaped.
 
 func objectKey(prefix, version, key string) string {
-	return prefix + "/" + url.PathEscape(version) + "/" + url.PathEscape(key)
+	return objectDir(prefix, version) + url.PathEscape(key)
+}
+
+// objectDir is the "directory" of a version's entries; the prefix may be
+// empty, in which case the bucket holds one namespace.
+func objectDir(prefix, version string) string {
+	if prefix == "" {
+		return url.PathEscape(version) + "/"
+	}
+
+	return prefix + "/" + url.PathEscape(version) + "/"
 }
 
 func keyFromObject(prefix, version, object string) string {
-	escaped := strings.TrimPrefix(object, prefix+"/"+url.PathEscape(version)+"/")
+	escaped := strings.TrimPrefix(object, objectDir(prefix, version))
 	key, err := url.PathUnescape(escaped)
 	if err != nil {
 		return escaped

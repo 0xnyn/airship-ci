@@ -76,11 +76,21 @@ func TestRunnerConfigEndToEnd(t *testing.T) {
 	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"cirun-build--3"}, Status: "queued", CreatedAt: time.Now()}
 	e.webhook("queued", job)
 	eventually(t, "on-demand runner launched", func() bool { return len(e.aws.Instances()) == 2 })
+	var labels [][]string
+	suffixed := 0
 	for _, instance := range e.aws.Instances() {
 		registration, _ := e.gh.RunnerByJIT(instance.Launch.Boot.JITConfig)
-		if instance.Launch.RunnerID != warm.Launch.RunnerID && !slices.Contains(registration.Labels, "cirun-build--3") {
-			t.Fatalf("on-demand runner labels = %v", registration.Labels)
+		labels = append(labels, registration.Labels)
+		if slices.Contains(registration.Labels, "cirun-build--3") {
+			suffixed++
 		}
+	}
+	if suffixed != 1 {
+		var rows string
+		_ = e.pool.QueryRow(context.Background(), "select coalesce(string_agg(name || ':' || state || ':' || coalesce(pool_id::text, '-') || ':' || coalesce(trigger_job_id::text, '-'), ', '), '') from runners").Scan(&rows)
+		var skip string
+		_ = e.pool.QueryRow(context.Background(), "select coalesce(skip_reason || ' ' || skip_detail, 'planned') from jobs where id = 90").Scan(&skip)
+		t.Fatalf("runner labels = %v, want exactly one suffixed on-demand runner; runners: %s; job: %s", labels, rows, skip)
 	}
 
 	// A push that empties the pool trims the idle runner.
@@ -165,7 +175,7 @@ func TestCacheGrantEndpoint(t *testing.T) {
 		t.Fatal("no cache boot")
 	}
 	grant := e.script(boot.Token, http.MethodGet, cacheproxy.GrantPath, nil, http.StatusOK)
-	if grant["prefix"] != "acme/api" || grant["region"] != "us-east-1" || grant["accessKeyId"] == "" || !strings.HasPrefix(grant["bucket"].(string), "airship-cache-") {
+	if grant["prefix"] != "" || grant["region"] != "us-east-1" || grant["accessKeyId"] == "" || !strings.HasPrefix(grant["bucket"].(string), "airship-cache-") {
 		t.Fatalf("grant = %v", grant)
 	}
 	e.script("asr_nope", http.MethodGet, cacheproxy.GrantPath, nil, http.StatusUnauthorized)

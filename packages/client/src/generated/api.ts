@@ -1072,7 +1072,7 @@ export interface components {
             mode: "fixed" | "schedule" | "usage";
             /** @description Runner definition name */
             name: string;
-            /** @description Repository whose .cirun.yml defines it */
+            /** @description Repository whose .cirun.yml defines it, or the organization */
             repository: string;
             /**
              * Format: int32

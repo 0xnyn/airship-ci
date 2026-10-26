@@ -175,7 +175,7 @@ func (h *handlers) deactivateRepository(ctx context.Context, in *repositoryInput
 // Pool is an idle runner pool from an idle: section.
 type Pool struct {
 	ID         uuid.UUID  `doc:"Pool ID"                                         format:"uuid" json:"id"`
-	Repository string     `doc:"Repository whose .cirun.yml defines it"          json:"repository"`
+	Repository string     `doc:"Repository whose .cirun.yml defines it, or the organization" json:"repository"`
 	Name       string     `doc:"Runner definition name"                          json:"name"`
 	Mode       string     `doc:"How the pool's size is decided"                  enum:"fixed,schedule,usage" json:"mode"`
 	Desired    int        `doc:"Idle runners the pool wants now"                 json:"desired"`
@@ -236,8 +236,12 @@ func (h *handlers) listPools(ctx context.Context, in *orgInput) (*poolListOutput
 		case len(spec.Schedule) > 0:
 			mode = "schedule"
 		}
+		repository := "organization (.cirun.global.yml)"
+		if p.RepositoryID != nil {
+			repository = names[*p.RepositoryID]
+		}
 		items = append(items, Pool{
-			ID: p.ID, Repository: names[p.RepositoryID], Name: p.Name, Mode: mode,
+			ID: p.ID, Repository: repository, Name: p.Name, Mode: mode,
 			Desired: spec.Desired(now, p.UsageUntil), Idle: byPool[p.ID].Idle, Taken: byPool[p.ID].Taken,
 			WarmUntil: p.UsageUntil, UpdatedAt: p.UpdatedAt,
 		})

@@ -42,23 +42,32 @@ func run() error {
 		tmp          = flag.String("tmp", os.TempDir(), "where uploads are staged")
 		intercept    = flag.String("intercept", strings.Join(cacheproxy.DefaultInterceptHosts, ","), "hosts whose CacheService calls are served locally")
 		s3Endpoint   = flag.String("s3-endpoint", os.Getenv("AIRSHIP_S3_ENDPOINT"), "S3 endpoint override (emulators)")
+		devMemory    = flag.Bool("dev-memory", false, "keep entries in memory instead of S3; no control plane needed (testing only)")
 	)
 	flag.Parse()
-	if *controlPlane == "" || *token == "" {
-		return errors.New("-control-plane and -token are required")
-	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	grants := &cacheproxy.GrantClient{URL: strings.TrimRight(*controlPlane, "/"), Token: *token}
-	grant, err := grants.Fetch(ctx)
-	if err != nil {
-		return err
+	var store cacheproxy.Store
+	var prefix string
+	if *devMemory {
+		store = cacheproxy.NewMemoryStore()
+	} else {
+		if *controlPlane == "" || *token == "" {
+			return errors.New("-control-plane and -token are required")
+		}
+		grants := &cacheproxy.GrantClient{URL: strings.TrimRight(*controlPlane, "/"), Token: *token}
+		grant, err := grants.Fetch(ctx)
+		if err != nil {
+			return err
+		}
+		store = cacheproxy.NewS3Store(cacheproxy.NewS3Client(grants, grant.Region, *s3Endpoint), grant.Bucket)
+		prefix = grant.Prefix
+		logger.Info("cache grant", slog.String("bucket", grant.Bucket), slog.String("region", grant.Region), slog.String("prefix", grant.Prefix))
 	}
-	store := cacheproxy.NewS3Store(cacheproxy.NewS3Client(grants, grant.Region, *s3Endpoint), grant.Bucket)
-	cache := cacheproxy.NewServer(store, grant.Prefix, "http://"+*cacheAddr, *tmp, logger)
+	cache := cacheproxy.NewServer(store, prefix, "http://"+*cacheAddr, *tmp, logger)
 
 	ca, err := cacheproxy.NewCA()
 	if err != nil {
@@ -83,8 +92,7 @@ func run() error {
 		}
 		go func() { errs <- srv.Serve(listener) }()
 	}
-	logger.Info("cacheproxy ready", slog.String("cache", *cacheAddr), slog.String("proxy", *proxyAddr),
-		slog.String("bucket", grant.Bucket), slog.String("region", grant.Region), slog.String("prefix", grant.Prefix))
+	logger.Info("cacheproxy ready", slog.String("cache", *cacheAddr), slog.String("proxy", *proxyAddr))
 
 	select {
 	case err := <-errs:

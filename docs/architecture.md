@@ -99,11 +99,14 @@ transition twice or undo each other.
   with backoff. The reconciler also asks GitHub about jobs queued for 10
   minutes without news, two per installation per pass.
 - **Idle runners** are `idle_pools`, rebuilt from the default branch's
-  file on push (and hourly). Pool runners register with the definition's
-  plain labels and have no trigger job; a queued job whose labels a pool's
-  runners carry reserves one instead of creating a runner, and the pool
-  refills at once. Usage-based pools stay warm for `duration` after one of
-  their definition's runners starts a job.
+  file on push (and hourly): a repository's `.cirun.yml` gives repository
+  pools, the organization's `.cirun.global.yml` organization pools whose
+  runners register on the organization in a runner group of their own.
+  Pool runners register with the definition's plain labels and have no
+  trigger job; a queued job whose labels a pool's runners carry reserves
+  one instead of creating a runner, and the pool refills at once.
+  Usage-based pools stay warm for `duration` after one of their
+  definition's runners starts a job.
 
 ## What a job reads
 
@@ -111,13 +114,12 @@ transition twice or undo each other.
 2. The repository must be activated (public ones with public access
    allowed): a config file never launches anything in a repository nobody
    activated.
-3. The run attempt is fetched to learn who started it and whether the code
-   is from a fork. `.cirun.yml` is read at the job's commit, or on the
-   default branch for a fork.
-4. One-line labels that no definition covers become runners of their own,
-   except for forks. Organization runners from `.cirun/.cirun.global.yml`
-   are tried after the repository's and filtered by `.access.yml`; a broken
-   `.access.yml` closes every organization runner.
+3. The run attempt is fetched to learn who started it, for `.access.yml`.
+   `.cirun.yml` is read at the job's commit.
+4. One-line labels that no definition covers become runners of their own.
+   Organization runners from `.cirun/.cirun.global.yml` are tried after
+   the repository's and filtered by `.access.yml`; a broken `.access.yml`
+   closes every organization runner.
 5. Each attempt needs the installation's connected cloud; without one the
    job is skipped with `no_cloud` and retried when a cloud is connected.
 
@@ -136,58 +138,61 @@ transition twice or undo each other.
 - **Developer API.** `asa_` bearer tokens, stored hashed, scoped to one
   installation. The `/api/v1` routes accept no session cookie.
 - **Runner API.** `asr_` cache tokens, one per cache-enabled runner, dead
-  once the runner finishes; they buy credentials for that repository's
-  prefix in that installation's bucket and nothing else.
+  once the runner finishes; they buy credentials for that installation's
+  cache bucket and nothing else.
 - **Boot script.** Everything interpolated is validated against a strict
   pattern first; job variables travel as base64 and are decoded on the
   machine.
-- **Config files.** A file only acts in an activated repository. Fork pull
-  requests read the default branch's file and cannot use one-line labels,
-  so outside code cannot pick machines or set job variables. Anyone who can
-  push to an activated repository can pick machines for that branch's
-  jobs, as with any workflow; `max_runners` bounds what that can cost.
+- **Config files.** A file only acts in an activated repository, and a
+  public repository only once activated with public access allowed, which
+  is where fork pull requests are gated. Anyone who can push to an
+  activated repository can pick machines for that branch's jobs, as with
+  any workflow; `max_runners` bounds what that can cost.
 - **Images.** Any AMI the account can launch is allowed, as on Cirun. The
   default is Canonical's current Ubuntu 22.04.
 
 ## Differences from Cirun
 
-Kept: the file format and names, fallback and suffix rules, idle runners,
-organization runners with `.access.yml`, one-line labels, `provision_via`,
-the developer API, Windows fields, S3-backed caching.
+Kept: the file format and names, fallback and suffix rules, idle runners
+per repository and per organization, organization runners with
+`.access.yml`, one-line labels (for forks too), files read at the job's
+commit, `provision_via`, the developer API, Windows fields, S3-backed
+caching with one namespace per account bucket.
 
 Different, on purpose:
 
 - **Clouds.** AWS only. `gcp`, `azure`, `do`, `openstack`, `oracle`,
   `vast_ai` and `on_prem` are refused with "not supported yet" rather than
   ignored. Each is a provider implementation; none can be trusted unrun.
-- **Spot fallback.** A spot shortage fails the attempt and moves to the
-  next entry of the lists, as the docs describe. There is no silent
-  on-demand fallback inside an attempt.
-- **Idle runners in `.cirun.global.yml`** are refused. An organization
-  pool would have to register on the organization, where any repository
-  could take it, activated or not. Define them per repository.
-- **One-line labels and forks.** Fork pull requests cannot use them.
-- **Cache prefix.** Each repository's cache lives under its own prefix in
-  the bucket, and runner credentials are scoped to it. On Cirun one bucket
-  is shared across the customer's repositories.
-- **Credential model.** Only access keys today, as Cirun documents. The
-  provider interface would take an assumed role.
+- **Product name.** Runners are named `airship-...`, instances are tagged
+  `airship:*`, the cache bucket is `airship-cache-*`, and the dashboard
+  says Airship. Everything a workflow or `.cirun.yml` touches is Cirun's.
+- **Organization idle runners** register in a runner group per definition
+  that is visible only to the activated repositories the definition's
+  `.access.yml` policies allow (Cirun's docs do not say how they are
+  scoped). Per-person policy rules cannot apply to a runner booted before
+  any job exists.
 - **`SubnetId`, `SecurityGroupIds`, `IamInstanceProfile`** in
-  `extra_config` are Airship additions (Cirun passes unknown AWS keys
-  through to the API; these are the ones that matter).
+  `extra_config` are additions (Cirun passes unknown AWS keys through to
+  the API; these are the ones that matter).
 
-## Known limitations
+## What has run, and what has not
 
-- **Untested against a live runner.** The EC2 provider runs against moto in
-  CI, and every protocol in the cache proxy runs against fakes. Nothing
-  here has launched a real instance or run a real `actions/cache` step yet.
+- The EC2 provider and the cache bucket and credential calls run against
+  moto in CI (`TestAgainstEmulator`), which checks request shapes, tags,
+  the default VPC and security group, lifecycle rules and termination.
+  moto does not model IAM, quotas, spot capacity or the boot script.
+- The cache proxy has been driven by the real `@actions/cache` client
+  (actions/cache@v4's library) through `https_proxy` with the proxy's CA:
+  a 140 MB save (block uploads), exact and restore-key restores and a
+  miss all behaved. buildx's `url_v2` client uses the same twirp JSON and
+  Azure block calls but has not been run.
+- Nothing has launched a real EC2 instance or run a real GitHub job: the
+  boot scripts (Linux and Windows) are written to the documented runner
+  behaviour and parsed, not executed. The first real deployment is the
+  first end-to-end run.
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in
   the image.
-- **Windows.** The boot script is written to the documented
-  `run_as`/`runner_user`/`runner_path` behaviour and not run.
-- **Cache interception.** Relies on the runner honouring `https_proxy` from
-  `.env` (documented by GitHub) and on the results host staying
-  `results-receiver.actions.githubusercontent.com`.
-- **One credential per cloud per installation.** Cirun has the same.
+- **One credential per cloud per installation**, as Cirun.

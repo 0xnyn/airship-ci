@@ -73,6 +73,7 @@ func (s *Service) ReconcileOnce(ctx context.Context) error {
 		{"deregister runners", s.deregister},
 		{"refresh stale jobs", s.refreshStaleJobs},
 		{"refresh configs", s.refreshConfigs},
+		{"refresh organization configs", s.refreshOrganizationConfigs},
 		{"balance pools", s.balancePools},
 		{"expire sessions", s.expireSessions},
 		{"expire events", s.expireEvents},
@@ -143,12 +144,12 @@ func (s *Service) reapIdleRunner(ctx context.Context, runner db.Runner) error {
 	if runner.GithubRunnerID == nil {
 		return finish()
 	}
-	repo, err := github.ParseRepo(runner.RepositoryFullName)
+	reg, err := s.registrationFor(ctx, runner, false)
 	if err != nil {
 		return finish()
 	}
 
-	remote, err := s.github.GetRunner(ctx, runner.InstallationID, repo, *runner.GithubRunnerID)
+	remote, err := reg.get(ctx, *runner.GithubRunnerID)
 	switch {
 	case github.IsNotFound(err):
 		return finish()
@@ -163,7 +164,7 @@ func (s *Service) reapIdleRunner(ctx context.Context, runner db.Runner) error {
 		return nil
 	}
 
-	if err := s.github.DeleteRunner(ctx, runner.InstallationID, repo, *runner.GithubRunnerID); err != nil {
+	if err := reg.remove(ctx, *runner.GithubRunnerID); err != nil {
 		if github.StatusOf(err) == http.StatusUnprocessableEntity {
 			return nil // GitHub assigned it a job in the meantime
 		}
@@ -221,9 +222,9 @@ func (s *Service) deregister(ctx context.Context) error {
 		return fmt.Errorf("list runners to deregister: %w", err)
 	}
 	for _, runner := range runners {
-		repo, err := github.ParseRepo(runner.RepositoryFullName)
+		reg, err := s.registrationFor(ctx, runner, false)
 		if err == nil {
-			err = s.github.DeleteRunner(ctx, runner.InstallationID, repo, *runner.GithubRunnerID)
+			err = reg.remove(ctx, *runner.GithubRunnerID)
 		}
 		if err != nil && !isPermanent(err) {
 			s.log.WarnContext(ctx, "deregister runner", slog.String("runner", runner.ID.String()), slog.Any("error", err))

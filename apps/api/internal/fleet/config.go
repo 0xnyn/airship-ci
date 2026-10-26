@@ -76,10 +76,12 @@ func (s *Service) planFromConfig(ctx context.Context, installation db.Installati
 	if err != nil {
 		return nil, verdict{}, fmt.Errorf("get run: %w", err)
 	}
-	// Code from a fork must not choose the machines it runs on, so its jobs
-	// use the config on the default branch.
+	// The file at the job's own commit, as Cirun reads it, so a branch (or a
+	// pull request, from a fork too) can try a new machine before merging.
+	// Public repositories must be activated with public access allowed for
+	// any of this to run; that is the gate on outside code.
 	ref := job.HeadSHA
-	if run.FromFork() || ref == "" {
+	if ref == "" {
 		ref = activated.DefaultBranch
 	}
 
@@ -103,18 +105,11 @@ func (s *Service) planFromConfig(ctx context.Context, installation db.Installati
 		candidates = append(candidates, runnerconfig.Candidate{Source: runnerconfig.SourceOrganization, Runner: r})
 	}
 
-	// A one-line label names its machine in runs-on, which a fork's pull
-	// request can edit, so forks only get runners from config files.
-	if !run.FromFork() {
-		candidates = runnerconfig.WithOneLine(job.Labels, candidates)
-	}
+	candidates = runnerconfig.WithOneLine(job.Labels, candidates)
 
 	attempts := runnerconfig.Plan(job.Labels, candidates)
 	if len(attempts) == 0 {
 		detail := fmt.Sprintf("no runner in %s or %s serves %s", runnerconfig.RepoFile, runnerconfig.GlobalFile, strings.Join(job.Labels, ", "))
-		if run.FromFork() {
-			detail += " (pull requests from forks cannot use one-line labels)"
-		}
 		if org.problem != "" {
 			detail += "; " + org.problem
 		}

@@ -539,3 +539,10 @@ func TestAccessDocumentApply(t *testing.T) {
 		t.Fatal("empty resources accepted")
 	}
 }
+
+func TestGlobalFileAllowsIdle(t *testing.T) {
+	f, err := Parse(GlobalFile, []byte("runners:\n  - {name: shared, cloud: aws, instance_type: c7i.large, labels: [cirun-shared], idle: {replicas: 2}}\n"))
+	if err != nil || f.Runners[0].Idle == nil || f.Runners[0].Idle.Always != 2 {
+		t.Fatalf("organization idle runners rejected: %v", err)
+	}
+}

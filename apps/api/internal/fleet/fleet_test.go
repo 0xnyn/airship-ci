@@ -784,7 +784,7 @@ func TestCacheGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if grant.Prefix != repoName || grant.Region != region || grant.Bucket != h.aws.Buckets()[0] || grant.AccessKeyID == "" {
+	if grant.Prefix != "" || grant.Region != region || grant.Bucket != h.aws.Buckets()[0] || grant.AccessKeyID == "" {
 		t.Fatalf("grant = %+v", grant)
 	}
 	if _, err := h.svc.CacheGrant(h.ctx, "asr_forged"); !errors.Is(err, fleet.ErrNoCacheGrant) {

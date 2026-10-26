@@ -33,6 +33,12 @@ create table installations (
     -- Cap on live runners across every repository, so no config file can
     -- run up an unbounded cloud bill.
     max_runners integer not null default 50 check (max_runners between 1 and 10000),
+    -- The organization's .cirun/.cirun.global.yml as last read, for its
+    -- idle runners; stale after a push to that repository.
+    org_config_sha text,
+    org_config_error text,
+    org_config_checked_at timestamptz,
+    org_config_stale boolean not null default true,
     suspended_at timestamptz,
     -- Set when the app is uninstalled. The row stays so instances still
     -- running in the customer's cloud can be torn down.
@@ -122,14 +128,18 @@ create table repositories (
 create index repositories_installation_idx on repositories (installation_id, lower(full_name));
 create index repositories_stale_idx on repositories (config_checked_at) where config_stale;
 
--- A warm pool: runners kept booted and registered ahead of demand, from an
--- idle: section of a repository's .cirun.yml on its default branch. Pool
--- runners register on that repository only.
+-- An idle pool: runners kept booted and registered ahead of demand, from
+-- an idle: section of a repository's .cirun.yml on its default branch, or
+-- of the organization's .cirun.global.yml (repository_id null). Repository
+-- pool runners register on that repository; organization pool runners
+-- register on the organization in a runner group limited to the
+-- repositories allowed to use them.
 create table idle_pools (
     id uuid primary key default uuidv7(),
     installation_id bigint not null references installations (id) on delete cascade,
-    repository_id bigint not null references repositories (id) on delete cascade,
+    repository_id bigint references repositories (id) on delete cascade,
     name text not null,
+    runner_group_id bigint,
     -- The machines to launch, in fallback order (fleet.want).
     plan jsonb not null,
     -- The idle: section (fleet.IdleSpec): fixed, scheduled or usage-based.
@@ -138,9 +148,10 @@ create table idle_pools (
     -- same definition is allocated a job.
     usage_until timestamptz,
     source_sha text not null,
-    updated_at timestamptz not null default now(),
-    unique (installation_id, repository_id, name)
+    updated_at timestamptz not null default now()
 );
+
+create unique index idle_pools_name_idx on idle_pools (installation_id, coalesce(repository_id, 0), name);
 
 -- One row per runner Airship has created. A runner is created for a queued
 -- job, but GitHub may hand it any queued job in the same repository with
@@ -161,6 +172,10 @@ create table runners (
     -- Where the definition came from: the repository's .cirun.yml or the
     -- organization's .cirun.global.yml.
     source text not null check (source in ('repository', 'organization')),
+    -- Where the runner is registered: on repository_id, or on the
+    -- organization (idle pool runners from .cirun.global.yml, which any
+    -- repository in their runner group may take; repository_id is then 0).
+    scope text not null default 'repository' check (scope in ('repository', 'organization')),
     cloud text not null check (cloud in ('aws')),
     -- Null once the credential is deleted; the row stays for history.
     credential_id uuid references cloud_credentials (id) on delete set null,

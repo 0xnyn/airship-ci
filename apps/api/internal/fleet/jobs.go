@@ -158,7 +158,7 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 	}
 	if refill {
 		// A pool runner was taken, or a usage-based pool just woke up.
-		s.fillRepositoryPools(ctx, repo.ID)
+		s.fillRepositoryPools(ctx, installation.ID, repo.ID)
 	}
 	if why.reason != "" && (existing.SkipReason == nil || *existing.SkipReason != why.reason) {
 		s.record(ctx, installation.ID, "job.skipped", levelWarning,

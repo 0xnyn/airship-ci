@@ -62,8 +62,9 @@ type FailedDelivery struct {
 type IdlePool struct {
 	ID             uuid.UUID
 	InstallationID int64
-	RepositoryID   int64
+	RepositoryID   *int64
 	Name           string
+	RunnerGroupID  *int64
 	Plan           []byte
 	Idle           []byte
 	UsageUntil     *time.Time
@@ -72,15 +73,19 @@ type IdlePool struct {
 }
 
 type Installation struct {
-	ID           int64
-	AccountID    int64
-	AccountLogin string
-	AccountType  string
-	MaxRunners   int32
-	SuspendedAt  *time.Time
-	DeletedAt    *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                 int64
+	AccountID          int64
+	AccountLogin       string
+	AccountType        string
+	MaxRunners         int32
+	OrgConfigSha       *string
+	OrgConfigError     *string
+	OrgConfigCheckedAt *time.Time
+	OrgConfigStale     bool
+	SuspendedAt        *time.Time
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type Job struct {
@@ -137,6 +142,7 @@ type Runner struct {
 	InstallationID       int64
 	Definition           string
 	Source               string
+	Scope                string
 	Cloud                string
 	CredentialID         *uuid.UUID
 	Region               string

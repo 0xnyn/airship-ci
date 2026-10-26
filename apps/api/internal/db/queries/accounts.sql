@@ -111,3 +111,26 @@ from memberships
 join users on users.id = memberships.user_id
 where memberships.installation_id = $1
 order by memberships.role, lower(users.login);
+
+-- name: ListStaleOrganizationConfigs :many
+-- Organizations whose .cirun.global.yml should be read again for idle
+-- runners: pushed to, or not read for a while.
+select * from installations
+where deleted_at is null and account_type = 'Organization'
+    and (org_config_checked_at is null
+        or (org_config_stale and org_config_checked_at < sqlc.arg(retry_before)::timestamptz)
+        or org_config_checked_at < sqlc.arg(checked_before)::timestamptz)
+order by org_config_checked_at nulls first
+limit sqlc.arg(max_results);
+
+-- name: MarkOrganizationConfigStale :exec
+update installations set org_config_stale = true, org_config_checked_at = null where id = $1;
+
+-- name: TouchOrganizationConfig :exec
+update installations set org_config_checked_at = now() where id = $1;
+
+-- name: SetOrganizationConfig :exec
+update installations
+set org_config_sha = sqlc.narg(sha), org_config_error = sqlc.narg(error),
+    org_config_checked_at = now(), org_config_stale = false
+where id = sqlc.arg(id);

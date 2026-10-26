@@ -113,7 +113,7 @@ func (s *Service) claim(ctx context.Context, installationID int64, capacity int3
 func (s *Service) launch(ctx context.Context, runner db.Runner) {
 	log := s.log.With(slog.String("runner", runner.ID.String()), slog.String("repository", runner.RepositoryFullName))
 
-	repo, err := github.ParseRepo(runner.RepositoryFullName)
+	reg, err := s.registrationFor(ctx, runner, true)
 	if err != nil {
 		s.failLaunch(ctx, runner, err.Error(), false)
 
@@ -132,7 +132,7 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 		return
 	}
 
-	jit, err := s.generateJIT(ctx, runner, repo)
+	jit, err := s.generateJIT(ctx, reg)
 	if err != nil {
 		if isPermanent(err) {
 			log.WarnContext(ctx, "github refused to register runner", slog.Any("error", err))
@@ -268,26 +268,25 @@ func (s *Service) failLaunch(ctx context.Context, runner db.Runner, message stri
 // generateJIT registers the runner. A 409 means a registration with this
 // name already exists, which happens when an earlier attempt succeeded at
 // GitHub but its response was lost; remove that one and register again.
-func (s *Service) generateJIT(ctx context.Context, runner db.Runner, repo github.Repo) (github.JITConfig, error) {
-	labels := runner.Labels
-	jit, err := s.github.GenerateJITConfig(ctx, runner.InstallationID, repo, runner.Name, labels)
+func (s *Service) generateJIT(ctx context.Context, reg registration) (github.JITConfig, error) {
+	jit, err := reg.generate(ctx)
 	if github.StatusOf(err) != http.StatusConflict {
 		return jit, err
 	}
-	existing, found, err := s.github.FindRunnerByName(ctx, runner.InstallationID, repo, runner.Name)
+	existing, found, err := reg.find(ctx)
 	if err != nil {
 		return github.JITConfig{}, err
 	}
 	if found {
 		if existing.Busy {
-			return github.JITConfig{}, fmt.Errorf("runner %s is already registered and busy", runner.Name)
+			return github.JITConfig{}, fmt.Errorf("runner %s is already registered and busy", reg.runner.Name)
 		}
-		if err := s.github.DeleteRunner(ctx, runner.InstallationID, repo, existing.ID); err != nil {
+		if err := reg.remove(ctx, existing.ID); err != nil {
 			return github.JITConfig{}, err
 		}
 	}
 
-	return s.github.GenerateJITConfig(ctx, runner.InstallationID, repo, runner.Name, labels)
+	return reg.generate(ctx)
 }
 
 func deref[T any](p *T) T {

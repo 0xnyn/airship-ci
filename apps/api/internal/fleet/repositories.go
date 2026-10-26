@@ -57,8 +57,10 @@ func (s *Service) ActivateRepository(ctx context.Context, installationID, repoID
 	if err := s.RefreshRepositoryConfig(ctx, row); err != nil {
 		s.log.WarnContext(ctx, "read config after activation", slog.String("repository", row.FullName), slog.Any("error", err))
 	} else {
-		s.fillRepositoryPools(ctx, row.ID)
+		s.fillRepositoryPools(ctx, installationID, row.ID)
 	}
+	// Organization runner groups list the activated repositories.
+	s.resyncOrganization(ctx, installationID)
 
 	return s.q.GetRepository(ctx, db.GetRepositoryParams{InstallationID: installationID, ID: row.ID}) //nolint:wrapcheck // a plain read
 }
@@ -81,8 +83,22 @@ func (s *Service) DeactivateRepository(ctx context.Context, installationID, repo
 		return ErrRepositoryNotFound
 	}
 	s.record(ctx, installationID, "repository.deactivated", levelInfo, "Deactivated "+repo.FullName, eventFields{repository: repo.FullName})
+	s.resyncOrganization(ctx, installationID)
 
 	return nil
+}
+
+// resyncOrganization refreshes the organization's pools and runner groups
+// after its set of activated repositories changed. Failures are logged;
+// the reconciler retries.
+func (s *Service) resyncOrganization(ctx context.Context, installationID int64) {
+	installation, err := s.q.GetInstallation(ctx, installationID)
+	if err == nil && installation.AccountType == "Organization" {
+		err = s.RefreshOrganizationConfig(ctx, installation)
+	}
+	if err != nil {
+		s.log.WarnContext(ctx, "refresh organization config", slog.Int64("installation", installationID), slog.Any("error", err))
+	}
 }
 
 // OrganizationConfig is the organization's .cirun repository as jobs see

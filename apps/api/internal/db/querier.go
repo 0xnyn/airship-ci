@@ -58,6 +58,7 @@ type Querier interface {
 	// GitHub keeps deliveries for three days; nothing older can be resent.
 	DeleteOldDeliveries(ctx context.Context, before time.Time) error
 	DeleteOldEvents(ctx context.Context, before time.Time) (int64, error)
+	DeleteOrganizationIdlePoolsExcept(ctx context.Context, arg DeleteOrganizationIdlePoolsExceptParams) (int64, error)
 	// Drops memberships GitHub no longer reports for the user.
 	DeleteOtherMemberships(ctx context.Context, arg DeleteOtherMembershipsParams) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
@@ -68,6 +69,7 @@ type Querier interface {
 	// the runner if the instance turns up, or marks it gone after the grace
 	// period.
 	ExpireRunnerLeases(ctx context.Context) ([]Runner, error)
+	ExtendOrganizationUsagePools(ctx context.Context, arg ExtendOrganizationUsagePoolsParams) (int64, error)
 	// A runner from this definition was allocated a job: usage-based pools for
 	// it stay warm for their duration from now.
 	ExtendUsagePools(ctx context.Context, arg ExtendUsagePoolsParams) (int64, error)
@@ -79,6 +81,7 @@ type Querier interface {
 	FinishRunner(ctx context.Context, arg FinishRunnerParams) (Runner, error)
 	GetCloudCredential(ctx context.Context, arg GetCloudCredentialParams) (CloudCredential, error)
 	GetCloudCredentialByID(ctx context.Context, id uuid.UUID) (CloudCredential, error)
+	GetIdlePool(ctx context.Context, id uuid.UUID) (IdlePool, error)
 	GetInstallation(ctx context.Context, id int64) (Installation, error)
 	GetInstallationRunner(ctx context.Context, arg GetInstallationRunnerParams) (Runner, error)
 	GetJob(ctx context.Context, id int64) (Job, error)
@@ -115,13 +118,17 @@ type Querier interface {
 	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
 	ListLiveInstallations(ctx context.Context) ([]Installation, error)
 	ListLostBusyRunners(ctx context.Context, arg ListLostBusyRunnersParams) ([]Runner, error)
+	ListOrganizationIdlePools(ctx context.Context, installationID int64) ([]IdlePool, error)
 	ListRepositories(ctx context.Context, installationID int64) ([]Repository, error)
-	ListRepositoryIdlePools(ctx context.Context, repositoryID int64) ([]IdlePool, error)
+	ListRepositoryIdlePools(ctx context.Context, repositoryID *int64) ([]IdlePool, error)
 	ListRunners(ctx context.Context, arg ListRunnersParams) ([]Runner, error)
 	ListRunnersToDeregister(ctx context.Context, arg ListRunnersToDeregisterParams) ([]Runner, error)
 	// Finished runners whose instance may still be running: never asked to
 	// terminate, or asked a while ago and still listed.
 	ListRunnersToTerminate(ctx context.Context, arg ListRunnersToTerminateParams) ([]Runner, error)
+	// Organizations whose .cirun.global.yml should be read again for idle
+	// runners: pushed to, or not read for a while.
+	ListStaleOrganizationConfigs(ctx context.Context, arg ListStaleOrganizationConfigsParams) ([]Installation, error)
 	// Queued jobs Airship should run that it has heard nothing about for a
 	// while; the reconciler asks GitHub about them in case a webhook was lost.
 	// Each installation gets at most per_installation jobs per pass, so one
@@ -153,6 +160,7 @@ type Querier interface {
 	// runner that was waiting for a job is finished as lost; a busy runner
 	// waits for GitHub's completed event.
 	MarkInstancesGone(ctx context.Context, arg MarkInstancesGoneParams) ([]Runner, error)
+	MarkOrganizationConfigStale(ctx context.Context, id int64) error
 	// Clearing config_checked_at puts the repository first in line for the
 	// next refresh pass.
 	MarkRepositoryConfigStale(ctx context.Context, id int64) (int64, error)
@@ -189,10 +197,12 @@ type Querier interface {
 	ReviveRunners(ctx context.Context, arg ReviveRunnersParams) ([]ReviveRunnersRow, error)
 	SetCloudCredentialDefaultRegion(ctx context.Context, arg SetCloudCredentialDefaultRegionParams) (CloudCredential, error)
 	SetCloudCredentialStatus(ctx context.Context, arg SetCloudCredentialStatusParams) error
+	SetIdlePoolRunnerGroup(ctx context.Context, arg SetIdlePoolRunnerGroupParams) error
 	SetInstallationMaxRunners(ctx context.Context, arg SetInstallationMaxRunnersParams) (Installation, error)
 	SetInstallationSuspended(ctx context.Context, arg SetInstallationSuspendedParams) error
 	SetJobRunner(ctx context.Context, arg SetJobRunnerParams) error
 	SetMembershipRole(ctx context.Context, arg SetMembershipRoleParams) error
+	SetOrganizationConfig(ctx context.Context, arg SetOrganizationConfigParams) error
 	SetRepositoryConfig(ctx context.Context, arg SetRepositoryConfigParams) error
 	SetRunnerCache(ctx context.Context, arg SetRunnerCacheParams) error
 	SetRunnerGitHubID(ctx context.Context, arg SetRunnerGitHubIDParams) error
@@ -201,6 +211,7 @@ type Querier interface {
 	// At most once a minute, so a busy script does not write on every call.
 	TouchAPIToken(ctx context.Context, id uuid.UUID) error
 	TouchJob(ctx context.Context, id int64) error
+	TouchOrganizationConfig(ctx context.Context, id int64) error
 	TouchRepositoryConfig(ctx context.Context, id int64) error
 	// Keeps name, visibility and default branch current from webhooks.
 	UpdateRepositoryMetadata(ctx context.Context, arg UpdateRepositoryMetadataParams) error

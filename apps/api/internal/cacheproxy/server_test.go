@@ -323,3 +323,33 @@ func TestParseRange(t *testing.T) {
 		}
 	}
 }
+
+// With no prefix (one namespace per bucket, as Cirun), objects sit under
+// the version directly and every token is served.
+func TestEmptyPrefix(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	var srv *Server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { srv.Handler().ServeHTTP(w, r) }))
+	t.Cleanup(ts.Close)
+	srv = NewServer(store, "", ts.URL, t.TempDir(), slog.New(slog.DiscardHandler))
+
+	var created createEntryResponse
+	twirp(t, ts.URL, "CreateCacheEntry", createEntryRequest{Key: "k", Version: "v"}, &created)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPut, created.SignedUploadURL, strings.NewReader("data"))
+	do(t, req)
+	twirp(t, ts.URL, "FinalizeCacheEntryUpload", map[string]any{"key": "k", "version": "v", "size_bytes": 4}, nil)
+	if keys := store.Keys(); len(keys) != 1 || keys[0] != "v/k" {
+		t.Fatalf("keys = %v", keys)
+	}
+	var found downloadURLResponse
+	twirp(t, ts.URL, "GetCacheEntryDownloadURL", downloadURLRequest{Key: "x", RestoreKeys: []string{"k"}, Version: "v"}, &found)
+	if !found.OK || found.MatchedKey != "k" {
+		t.Fatalf("lookup = %+v", found)
+	}
+	req, _ = http.NewRequestWithContext(context.Background(), http.MethodGet, found.SignedDownloadURL, nil)
+	resp := do(t, req)
+	if body, _ := io.ReadAll(resp.Body); resp.StatusCode != http.StatusOK || string(body) != "data" {
+		t.Fatalf("download = %d %q", resp.StatusCode, body)
+	}
+}

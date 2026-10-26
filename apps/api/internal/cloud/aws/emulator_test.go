@@ -12,8 +12,10 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // TestAgainstEmulator runs the provider's real SDK calls against an EC2
@@ -120,4 +122,41 @@ func TestAgainstEmulator(t *testing.T) {
 		}
 	}
 	var _ cloud.Provider = p
+
+	// The cache: a private bucket with a lifecycle rule, and federation
+	// credentials scoped to it.
+	bucket := "airship-cache-us-east-1-" + strconv.FormatInt(installation, 36)
+	for range 2 { // idempotent
+		if err := p.EnsureCacheBucket(ctx, secret, "us-east-1", bucket, 7); err != nil {
+			t.Fatalf("ensure bucket: %v", err)
+		}
+	}
+	s3Client, ok := p.newClients(Secret{AccessKeyID: "test", SecretAccessKey: "test"}, "us-east-1").S3.(*s3.Client)
+	if !ok {
+		t.Fatal("expected a real S3 client")
+	}
+	lifecycle, err := s3Client.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{Bucket: &bucket})
+	if err != nil || len(lifecycle.Rules) != 1 || awssdk.ToInt32(lifecycle.Rules[0].Expiration.Days) != 7 {
+		t.Fatalf("lifecycle = %+v, %v", lifecycle, err)
+	}
+	block, err := s3Client.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{Bucket: &bucket})
+	if err != nil || !awssdk.ToBool(block.PublicAccessBlockConfiguration.BlockPublicAcls) {
+		t.Fatalf("public access block = %+v, %v", block, err)
+	}
+	grant, err := p.CacheGrant(ctx, secret, "us-east-1", bucket, "", "airship-abc", time.Hour)
+	if err != nil {
+		t.Fatalf("cache grant: %v", err)
+	}
+	if grant.AccessKeyID == "" || grant.SessionToken == "" || grant.Bucket != bucket || time.Until(grant.ExpiresAt) < 50*time.Minute {
+		t.Fatalf("grant = %+v", grant)
+	}
+	// The grant's credentials can write to the bucket (moto does not
+	// evaluate the session policy, so the scope itself is not checked here).
+	granted := s3.NewFromConfig(awssdk.Config{
+		Region:      "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(grant.AccessKeyID, grant.SecretAccessKey, grant.SessionToken),
+	}, func(o *s3.Options) { o.BaseEndpoint = &endpoint; o.UsePathStyle = true })
+	if _, err := granted.PutObject(ctx, &s3.PutObjectInput{Bucket: &bucket, Key: awssdk.String("v1/key"), Body: strings.NewReader("x")}); err != nil {
+		t.Fatalf("put with granted credentials: %v", err)
+	}
 }

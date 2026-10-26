@@ -14,7 +14,7 @@ import (
 
 const countIdlePoolRunners = `-- name: CountIdlePoolRunners :one
 select count(*)::integer from runners
-where pool_id = $1 and trigger_job_id is null and state in ('pending', 'assigned', 'running')
+where pool_id = $1 and trigger_job_id is null and state in ('pending', 'launching', 'running')
 `
 
 // Runners in the pool still waiting for a job, launched or not.
@@ -27,7 +27,7 @@ func (q *Queries) CountIdlePoolRunners(ctx context.Context, poolID *uuid.UUID) (
 
 const countInstallationPoolRunners = `-- name: CountInstallationPoolRunners :many
 select pool_id,
-    count(*) filter (where trigger_job_id is null and state in ('pending', 'assigned', 'running'))::integer as idle,
+    count(*) filter (where trigger_job_id is null and state in ('pending', 'launching', 'running'))::integer as idle,
     count(*) filter (where state = 'busy' or (trigger_job_id is not null and state <> 'finished'))::integer as taken
 from runners
 where installation_id = $1 and pool_id is not null and state <> 'finished'
@@ -85,7 +85,7 @@ where repository_id = $1 and not (name = any($2::text[]))
 `
 
 type DeleteIdlePoolsExceptParams struct {
-	RepositoryID int64
+	RepositoryID *int64
 	Keep         []string
 }
 
@@ -99,10 +99,28 @@ func (q *Queries) DeleteIdlePoolsExcept(ctx context.Context, arg DeleteIdlePools
 	return result.RowsAffected(), nil
 }
 
+const deleteOrganizationIdlePoolsExcept = `-- name: DeleteOrganizationIdlePoolsExcept :execrows
+delete from idle_pools
+where installation_id = $1 and repository_id is null and not (name = any($2::text[]))
+`
+
+type DeleteOrganizationIdlePoolsExceptParams struct {
+	InstallationID int64
+	Keep           []string
+}
+
+func (q *Queries) DeleteOrganizationIdlePoolsExcept(ctx context.Context, arg DeleteOrganizationIdlePoolsExceptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOrganizationIdlePoolsExcept, arg.InstallationID, arg.Keep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const detachPoolRunner = `-- name: DetachPoolRunner :one
 update runners set pool_id = null
 where id = $1 and pool_id is not null and trigger_job_id is null and state = 'running'
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
+returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 // Takes an idle runner out of its pool before it is trimmed.
@@ -114,6 +132,7 @@ func (q *Queries) DetachPoolRunner(ctx context.Context, id uuid.UUID) (Runner, e
 		&i.InstallationID,
 		&i.Definition,
 		&i.Source,
+		&i.Scope,
 		&i.Cloud,
 		&i.CredentialID,
 		&i.Region,
@@ -149,6 +168,27 @@ func (q *Queries) DetachPoolRunner(ctx context.Context, id uuid.UUID) (Runner, e
 	return i, err
 }
 
+const extendOrganizationUsagePools = `-- name: ExtendOrganizationUsagePools :execrows
+update idle_pools
+set usage_until = now() + make_interval(mins => (idle->>'usageMinutes')::int)
+where installation_id = $1 and repository_id is null
+    and name = $2
+    and (idle->>'usageMinutes') is not null
+`
+
+type ExtendOrganizationUsagePoolsParams struct {
+	InstallationID int64
+	Name           string
+}
+
+func (q *Queries) ExtendOrganizationUsagePools(ctx context.Context, arg ExtendOrganizationUsagePoolsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, extendOrganizationUsagePools, arg.InstallationID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const extendUsagePools = `-- name: ExtendUsagePools :execrows
 update idle_pools
 set usage_until = now() + make_interval(mins => (idle->>'usageMinutes')::int)
@@ -158,7 +198,7 @@ where repository_id = $1
 `
 
 type ExtendUsagePoolsParams struct {
-	RepositoryID int64
+	RepositoryID *int64
 	Name         string
 }
 
@@ -172,8 +212,30 @@ func (q *Queries) ExtendUsagePools(ctx context.Context, arg ExtendUsagePoolsPara
 	return result.RowsAffected(), nil
 }
 
+const getIdlePool = `-- name: GetIdlePool :one
+select id, installation_id, repository_id, name, runner_group_id, plan, idle, usage_until, source_sha, updated_at from idle_pools where id = $1
+`
+
+func (q *Queries) GetIdlePool(ctx context.Context, id uuid.UUID) (IdlePool, error) {
+	row := q.db.QueryRow(ctx, getIdlePool, id)
+	var i IdlePool
+	err := row.Scan(
+		&i.ID,
+		&i.InstallationID,
+		&i.RepositoryID,
+		&i.Name,
+		&i.RunnerGroupID,
+		&i.Plan,
+		&i.Idle,
+		&i.UsageUntil,
+		&i.SourceSha,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listIdlePools = `-- name: ListIdlePools :many
-select id, installation_id, repository_id, name, plan, idle, usage_until, source_sha, updated_at from idle_pools order by installation_id, id
+select id, installation_id, repository_id, name, runner_group_id, plan, idle, usage_until, source_sha, updated_at from idle_pools order by installation_id, id
 `
 
 func (q *Queries) ListIdlePools(ctx context.Context) ([]IdlePool, error) {
@@ -190,6 +252,7 @@ func (q *Queries) ListIdlePools(ctx context.Context) ([]IdlePool, error) {
 			&i.InstallationID,
 			&i.RepositoryID,
 			&i.Name,
+			&i.RunnerGroupID,
 			&i.Plan,
 			&i.Idle,
 			&i.UsageUntil,
@@ -207,7 +270,7 @@ func (q *Queries) ListIdlePools(ctx context.Context) ([]IdlePool, error) {
 }
 
 const listInstallationIdlePools = `-- name: ListInstallationIdlePools :many
-select id, installation_id, repository_id, name, plan, idle, usage_until, source_sha, updated_at from idle_pools where installation_id = $1 order by repository_id, name
+select id, installation_id, repository_id, name, runner_group_id, plan, idle, usage_until, source_sha, updated_at from idle_pools where installation_id = $1 order by repository_id, name
 `
 
 func (q *Queries) ListInstallationIdlePools(ctx context.Context, installationID int64) ([]IdlePool, error) {
@@ -224,6 +287,42 @@ func (q *Queries) ListInstallationIdlePools(ctx context.Context, installationID 
 			&i.InstallationID,
 			&i.RepositoryID,
 			&i.Name,
+			&i.RunnerGroupID,
+			&i.Plan,
+			&i.Idle,
+			&i.UsageUntil,
+			&i.SourceSha,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrganizationIdlePools = `-- name: ListOrganizationIdlePools :many
+select id, installation_id, repository_id, name, runner_group_id, plan, idle, usage_until, source_sha, updated_at from idle_pools where installation_id = $1 and repository_id is null order by name
+`
+
+func (q *Queries) ListOrganizationIdlePools(ctx context.Context, installationID int64) ([]IdlePool, error) {
+	rows, err := q.db.Query(ctx, listOrganizationIdlePools, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IdlePool{}
+	for rows.Next() {
+		var i IdlePool
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstallationID,
+			&i.RepositoryID,
+			&i.Name,
+			&i.RunnerGroupID,
 			&i.Plan,
 			&i.Idle,
 			&i.UsageUntil,
@@ -241,10 +340,10 @@ func (q *Queries) ListInstallationIdlePools(ctx context.Context, installationID 
 }
 
 const listRepositoryIdlePools = `-- name: ListRepositoryIdlePools :many
-select id, installation_id, repository_id, name, plan, idle, usage_until, source_sha, updated_at from idle_pools where repository_id = $1 order by name
+select id, installation_id, repository_id, name, runner_group_id, plan, idle, usage_until, source_sha, updated_at from idle_pools where repository_id = $1 order by name
 `
 
-func (q *Queries) ListRepositoryIdlePools(ctx context.Context, repositoryID int64) ([]IdlePool, error) {
+func (q *Queries) ListRepositoryIdlePools(ctx context.Context, repositoryID *int64) ([]IdlePool, error) {
 	rows, err := q.db.Query(ctx, listRepositoryIdlePools, repositoryID)
 	if err != nil {
 		return nil, err
@@ -258,6 +357,7 @@ func (q *Queries) ListRepositoryIdlePools(ctx context.Context, repositoryID int6
 			&i.InstallationID,
 			&i.RepositoryID,
 			&i.Name,
+			&i.RunnerGroupID,
 			&i.Plan,
 			&i.Idle,
 			&i.UsageUntil,
@@ -275,7 +375,7 @@ func (q *Queries) ListRepositoryIdlePools(ctx context.Context, repositoryID int6
 }
 
 const listSurplusPoolRunners = `-- name: ListSurplusPoolRunners :many
-select id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
+select id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
 where pool_id = $1 and trigger_job_id is null and state in ('pending', 'running')
 order by state = 'pending' desc, created_at desc
 limit $2
@@ -303,6 +403,7 @@ func (q *Queries) ListSurplusPoolRunners(ctx context.Context, arg ListSurplusPoo
 			&i.InstallationID,
 			&i.Definition,
 			&i.Source,
+			&i.Scope,
 			&i.Cloud,
 			&i.CredentialID,
 			&i.Region,
@@ -346,7 +447,7 @@ func (q *Queries) ListSurplusPoolRunners(ctx context.Context, arg ListSurplusPoo
 }
 
 const lockIdlePool = `-- name: LockIdlePool :one
-select id, installation_id, repository_id, name, plan, idle, usage_until, source_sha, updated_at from idle_pools where id = $1 for update
+select id, installation_id, repository_id, name, runner_group_id, plan, idle, usage_until, source_sha, updated_at from idle_pools where id = $1 for update
 `
 
 // Serializes filling and trimming one pool, so two passes cannot both see
@@ -359,6 +460,7 @@ func (q *Queries) LockIdlePool(ctx context.Context, id uuid.UUID) (IdlePool, err
 		&i.InstallationID,
 		&i.RepositoryID,
 		&i.Name,
+		&i.RunnerGroupID,
 		&i.Plan,
 		&i.Idle,
 		&i.UsageUntil,
@@ -375,12 +477,12 @@ where id = (
     select candidates.id from runners as candidates
     where candidates.pool_id = $2
         and candidates.trigger_job_id is null
-        and candidates.state in ('pending', 'assigned', 'running')
+        and candidates.state in ('pending', 'launching', 'running')
     order by candidates.state = 'running' desc, candidates.created_at
     limit 1
     for update skip locked
 )
-returning id, installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
+returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
 `
 
 type ReserveIdleRunnerParams struct {
@@ -398,6 +500,7 @@ func (q *Queries) ReserveIdleRunner(ctx context.Context, arg ReserveIdleRunnerPa
 		&i.InstallationID,
 		&i.Definition,
 		&i.Source,
+		&i.Scope,
 		&i.Cloud,
 		&i.CredentialID,
 		&i.Region,
@@ -436,7 +539,7 @@ func (q *Queries) ReserveIdleRunner(ctx context.Context, arg ReserveIdleRunnerPa
 const returnPoolRunners = `-- name: ReturnPoolRunners :execrows
 update runners set trigger_job_id = null
 where trigger_job_id = $1 and pool_id is not null
-    and state in ('pending', 'assigned', 'running')
+    and state in ('pending', 'launching', 'running')
     and id <> $2
 `
 
@@ -455,17 +558,31 @@ func (q *Queries) ReturnPoolRunners(ctx context.Context, arg ReturnPoolRunnersPa
 	return result.RowsAffected(), nil
 }
 
+const setIdlePoolRunnerGroup = `-- name: SetIdlePoolRunnerGroup :exec
+update idle_pools set runner_group_id = $2 where id = $1
+`
+
+type SetIdlePoolRunnerGroupParams struct {
+	ID            uuid.UUID
+	RunnerGroupID *int64
+}
+
+func (q *Queries) SetIdlePoolRunnerGroup(ctx context.Context, arg SetIdlePoolRunnerGroupParams) error {
+	_, err := q.db.Exec(ctx, setIdlePoolRunnerGroup, arg.ID, arg.RunnerGroupID)
+	return err
+}
+
 const upsertIdlePool = `-- name: UpsertIdlePool :one
 insert into idle_pools (installation_id, repository_id, name, plan, idle, source_sha)
 values ($1, $2, $3, $4, $5, $6)
-on conflict (installation_id, repository_id, name) do update
+on conflict (installation_id, coalesce(repository_id, 0), name) do update
 set plan = excluded.plan, idle = excluded.idle, source_sha = excluded.source_sha, updated_at = now()
-returning id, installation_id, repository_id, name, plan, idle, usage_until, source_sha, updated_at
+returning id, installation_id, repository_id, name, runner_group_id, plan, idle, usage_until, source_sha, updated_at
 `
 
 type UpsertIdlePoolParams struct {
 	InstallationID int64
-	RepositoryID   int64
+	RepositoryID   *int64
 	Name           string
 	Plan           []byte
 	Idle           []byte
@@ -487,6 +604,7 @@ func (q *Queries) UpsertIdlePool(ctx context.Context, arg UpsertIdlePoolParams) 
 		&i.InstallationID,
 		&i.RepositoryID,
 		&i.Name,
+		&i.RunnerGroupID,
 		&i.Plan,
 		&i.Idle,
 		&i.UsageUntil,

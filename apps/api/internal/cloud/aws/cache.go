@@ -102,20 +102,25 @@ func (p *Provider) CacheGrant(ctx context.Context, raw []byte, region, bucket, p
 	if client == nil {
 		return cloud.Grant{}, errors.New("this provider has no STS client")
 	}
+	objects := "arn:aws:s3:::" + bucket + "/*"
+	listing := map[string]any{
+		"Effect":   "Allow",
+		"Action":   []string{"s3:ListBucket"},
+		"Resource": "arn:aws:s3:::" + bucket,
+	}
+	if prefix != "" {
+		objects = "arn:aws:s3:::" + bucket + "/" + prefix + "/*"
+		listing["Condition"] = map[string]any{"StringLike": map[string]any{"s3:prefix": []string{prefix + "/*"}}}
+	}
 	policy, err := json.Marshal(map[string]any{
 		"Version": "2012-10-17",
 		"Statement": []map[string]any{
 			{
 				"Effect":   "Allow",
 				"Action":   []string{"s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"},
-				"Resource": "arn:aws:s3:::" + bucket + "/" + prefix + "/*",
+				"Resource": objects,
 			},
-			{
-				"Effect":    "Allow",
-				"Action":    []string{"s3:ListBucket"},
-				"Resource":  "arn:aws:s3:::" + bucket,
-				"Condition": map[string]any{"StringLike": map[string]any{"s3:prefix": []string{prefix + "/*"}}},
-			},
+			listing,
 		},
 	})
 	if err != nil {

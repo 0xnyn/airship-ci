@@ -1390,7 +1390,7 @@
             "type": "string"
           },
           "repository": {
-            "description": "Repository whose .cirun.yml defines it",
+            "description": "Repository whose .cirun.yml defines it, or the organization",
             "type": "string"
           },
           "taken": {

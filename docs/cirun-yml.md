@@ -119,18 +119,15 @@ The label is `cirun-aws-` and the instance type with `.` written as `-`,
 then optionally `ubuntu2204` (the default) or `ubuntu2404` and `spot`, in
 either order. They launch in the connected cloud's default region with a
 75 GiB root volume. A definition in a config file whose labels include the
-same label always wins. Pull requests from forks cannot use one-line
-labels, because a fork can edit `runs-on`.
+same label always wins.
 
 ## Which file a job reads
 
-A job reads `.cirun.yml` at its own commit, so a branch can try a new
-machine type before it is merged. Two exceptions:
-
-- Pull requests from forks read the file on the default branch.
-- Idle runners are read from the default branch only, since they exist
-  before any job does. Pushes to the default branch update them within a
-  reconcile pass.
+A job reads `.cirun.yml` at its own commit, so a branch (or a pull
+request) can try a new machine type before it is merged. Idle runners are
+the exception: they are read from the default branch only, since they
+exist before any job does. Pushes to the default branch update them within
+a reconcile pass.
 
 A job is planned once, when GitHub first reports it queued. Editing the
 file afterwards does not change how a waiting job is served.
@@ -169,10 +166,17 @@ idle:
 A pool whose runners keep failing to launch pauses for ten minutes after
 three failures. Pools count toward the organization's `max_runners`.
 
+Idle runners in `.cirun.global.yml` are organization-wide: they register
+on the organization, in a runner group named `airship-<runner name>` that
+is visible to every activated private repository, or only to the
+repositories the runner's `.access.yml` policies name. Any such repository
+can take one; the GitHub App needs the organization's **Self-hosted
+runners** write permission for this.
+
 ## Organization runners
 
 Create a repository named `.cirun` in the organization, give the app
-access to it, and add `.cirun.global.yml` (same format, without `idle`).
+access to it, and add `.cirun.global.yml` (same format, `idle` included).
 Any activated repository can then use its labels. Repository definitions
 are tried before organization ones.
 

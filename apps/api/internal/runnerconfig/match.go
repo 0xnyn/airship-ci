@@ -170,13 +170,13 @@ func coversAll(have, want []string) bool {
 	return true
 }
 
-// PoolAttempts are the attempts for a runner's warm pool: each variant,
+// PoolAttempts are the attempts for a runner's idle pool: each variant,
 // registered without any job's suffix, so any job asking for the
 // runner's plain labels can take it.
-func PoolAttempts(r Runner) []Attempt {
+func PoolAttempts(source Source, r Runner) []Attempt {
 	out := make([]Attempt, 0, len(r.Variants))
 	for _, v := range r.Variants {
-		out = append(out, Attempt{Source: SourceRepository, Runner: r, Variant: v, Labels: registeredLabels(r.Cloud, v.Arch, r.GPU || HasGPU(v.InstanceType), r.Labels, nil)})
+		out = append(out, Attempt{Source: source, Runner: r, Variant: v, Labels: registeredLabels(r.Cloud, v.Arch, r.GPU || HasGPU(v.InstanceType), r.Labels, nil)})
 	}
 
 	return out

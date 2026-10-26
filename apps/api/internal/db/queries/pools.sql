@@ -1,7 +1,7 @@
 -- name: UpsertIdlePool :one
 insert into idle_pools (installation_id, repository_id, name, plan, idle, source_sha)
 values ($1, $2, $3, $4, $5, $6)
-on conflict (installation_id, repository_id, name) do update
+on conflict (installation_id, coalesce(repository_id, 0), name) do update
 set plan = excluded.plan, idle = excluded.idle, source_sha = excluded.source_sha, updated_at = now()
 returning *;
 
@@ -10,6 +10,23 @@ returning *;
 -- the idle reaper takes them.
 delete from idle_pools
 where repository_id = sqlc.arg(repository_id) and not (name = any(sqlc.arg(keep)::text[]));
+
+-- name: DeleteOrganizationIdlePoolsExcept :execrows
+delete from idle_pools
+where installation_id = sqlc.arg(installation_id) and repository_id is null and not (name = any(sqlc.arg(keep)::text[]));
+
+-- name: ListOrganizationIdlePools :many
+select * from idle_pools where installation_id = $1 and repository_id is null order by name;
+
+-- name: SetIdlePoolRunnerGroup :exec
+update idle_pools set runner_group_id = $2 where id = $1;
+
+-- name: ExtendOrganizationUsagePools :execrows
+update idle_pools
+set usage_until = now() + make_interval(mins => (idle->>'usageMinutes')::int)
+where installation_id = sqlc.arg(installation_id) and repository_id is null
+    and name = sqlc.arg(name)
+    and (idle->>'usageMinutes') is not null;
 
 -- name: ListIdlePools :many
 select * from idle_pools order by installation_id, id;
@@ -37,7 +54,7 @@ where repository_id = sqlc.arg(repository_id)
 -- name: CountIdlePoolRunners :one
 -- Runners in the pool still waiting for a job, launched or not.
 select count(*)::integer from runners
-where pool_id = $1 and trigger_job_id is null and state in ('pending', 'assigned', 'running');
+where pool_id = $1 and trigger_job_id is null and state in ('pending', 'launching', 'running');
 
 -- name: CountRecentPoolFailures :one
 select count(*) from runners
@@ -62,7 +79,7 @@ where id = (
     select candidates.id from runners as candidates
     where candidates.pool_id = sqlc.arg(pool_id)
         and candidates.trigger_job_id is null
-        and candidates.state in ('pending', 'assigned', 'running')
+        and candidates.state in ('pending', 'launching', 'running')
     order by candidates.state = 'running' desc, candidates.created_at
     limit 1
     for update skip locked
@@ -74,7 +91,7 @@ returning *;
 -- go back to waiting in their pool.
 update runners set trigger_job_id = null
 where trigger_job_id = sqlc.arg(job_id) and pool_id is not null
-    and state in ('pending', 'assigned', 'running')
+    and state in ('pending', 'launching', 'running')
     and id <> sqlc.arg(except_id);
 
 -- name: DetachPoolRunner :one
@@ -86,8 +103,11 @@ returning *;
 -- name: CountInstallationPoolRunners :many
 -- Per pool: runners waiting for a job and runners running one.
 select pool_id,
-    count(*) filter (where trigger_job_id is null and state in ('pending', 'assigned', 'running'))::integer as idle,
+    count(*) filter (where trigger_job_id is null and state in ('pending', 'launching', 'running'))::integer as idle,
     count(*) filter (where state = 'busy' or (trigger_job_id is not null and state <> 'finished'))::integer as taken
 from runners
 where installation_id = $1 and pool_id is not null and state <> 'finished'
 group by pool_id;
+
+-- name: GetIdlePool :one
+select * from idle_pools where id = $1;

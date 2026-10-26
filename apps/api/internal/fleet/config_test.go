@@ -66,20 +66,20 @@ func TestConfigInvalid(t *testing.T) {
 	wantSkip(t, h, job, "config_invalid", ".cirun.yml")
 }
 
-// A pull request from a fork must not choose the machines its code runs
-// on, or pass itself secrets in env_vars: it gets the default branch's
-// config, never its own.
-func TestConfigForkUsesDefaultBranch(t *testing.T) {
+// A pull request, from a fork too, reads the file at its own commit, as
+// Cirun does. Public repositories only run once activated with public
+// access allowed, which is where outside code is gated.
+func TestConfigForkReadsItsOwnCommit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.setRun("pull_request", 555, "mallory")
-	h.setConfig(headSHA, strings.ReplaceAll(baseConfig, "[c7i.large, m7i.large]", "p5.48xlarge"))
+	h.setConfig(headSHA, strings.ReplaceAll(baseConfig, "[c7i.large, m7i.large]", "c7a.large"))
 	h.setConfig("main", baseConfig)
 
 	h.queue()
 	launched := h.launch()
-	if len(launched) != 1 || launched[0].Launch.Machine.InstanceType != "c7i.large" {
-		t.Fatalf("fork launch = %+v, want the default branch's c7i.large", launched)
+	if len(launched) != 1 || launched[0].Launch.Machine.InstanceType != "c7a.large" {
+		t.Fatalf("fork launch = %+v, want the pull request's c7a.large", launched)
 	}
 }
 
@@ -391,13 +391,133 @@ func TestOneLineRunner(t *testing.T) {
 	}
 }
 
-func TestOneLineRunnerRefusedForForks(t *testing.T) {
+func TestOneLineRunnerForForks(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.setRun("pull_request", 555, "mallory")
+	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, nil)
 
-	job := h.queue("cirun-aws-p5-48xlarge")
-	wantSkip(t, h, job, "unsatisfiable_labels", "forks cannot use one-line labels")
+	h.queue("cirun-aws-t3-large")
+	if launched := h.launch(); len(launched) != 1 || launched[0].Launch.Machine.InstanceType != "t3.large" {
+		t.Fatalf("one-line launch for a fork = %+v", launched)
+	}
+}
+
+const orgPoolConfig = `
+runners:
+  - name: shared
+    cloud: aws
+    instance_type: c7i.large
+    machine_image: ami-0123456789abcdef0
+    labels: [cirun-shared]
+    idle:
+      replicas: 1
+  - name: gpu
+    cloud: aws
+    instance_type: g5.xlarge
+    machine_image: ami-0123456789abcdef0
+    labels: [cirun-gpu]
+    idle:
+      replicas: 1
+`
+
+const orgPoolAccess = `
+version: 1
+policies:
+  - id: ml
+    repo: widgets
+    teams: [ml]
+access_control:
+  - resource: gpu
+    policies: [ml]
+`
+
+// Idle runners in .cirun.global.yml register on the organization, each in
+// a runner group limited to the activated repositories its policies allow,
+// and a job in such a repository takes one.
+func TestOrganizationIdleRunners(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.gh.AddRepository(installationID, github.Repository{ID: 77, FullName: "acme/.cirun", Private: true, DefaultBranch: "main"})
+	h.gh.AddRepository(installationID, github.Repository{ID: 10, FullName: "acme/other", Private: true, DefaultBranch: "main"})
+	if _, err := h.q.ActivateRepository(h.ctx, db.ActivateRepositoryParams{ID: 10, InstallationID: installationID, FullName: "acme/other", Private: true, DefaultBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, []byte(orgPoolConfig))
+	h.gh.SetFile("acme/.cirun", "main", runnerconfig.AccessFile, []byte(orgPoolAccess))
+	h.gh.SetTeamMember("acme", "ml", "alice", true)
+	h.setConfig(headSHA, "")
+	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, nil)
+
+	installation, err := h.q.GetInstallation(h.ctx, installationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.RefreshOrganizationConfig(h.ctx, installation); err != nil {
+		t.Fatal(err)
+	}
+	pools, err := h.q.ListOrganizationIdlePools(h.ctx, installationID)
+	if err != nil || len(pools) != 2 {
+		t.Fatalf("organization pools = %d, %v", len(pools), err)
+	}
+	groups := map[string][]int64{}
+	for _, g := range h.gh.RunnerGroups() {
+		groups[g.Name] = g.Repos
+	}
+	if got := groups["airship-shared"]; len(got) != 2 {
+		t.Fatalf("shared group repositories = %v, want both activated repositories", got)
+	}
+	if got := groups["airship-gpu"]; len(got) != 1 || got[0] != repoID {
+		t.Fatalf("gpu group repositories = %v, want only widgets (its policy)", got)
+	}
+
+	launched := h.launch()
+	if len(launched) != 2 {
+		t.Fatalf("launched = %d, want one runner per organization pool", len(launched))
+	}
+	for _, instance := range launched {
+		registered, ok := h.gh.RunnerByJIT(instance.Launch.Boot.JITConfig)
+		if !ok || registered.Repo != "org:acme" || registered.GroupID == 0 {
+			t.Fatalf("organization runner registered as %+v", registered)
+		}
+	}
+	for _, runner := range h.runners() {
+		if runner.State != "running" {
+			t.Fatalf("pool runner state = %s", runner.State)
+		}
+	}
+
+	// A job in an allowed repository takes the gpu pool runner, and the
+	// pool refills.
+	job := h.queue("cirun-gpu")
+	var reserved int
+	if err := h.pool.QueryRow(h.ctx, "select count(*) from runners where trigger_job_id = $1 and pool_id is not null", job.ID).Scan(&reserved); err != nil {
+		t.Fatal(err)
+	}
+	if reserved != 1 {
+		t.Fatalf("reserved pool runners = %d, want 1", reserved)
+	}
+	if n := len(h.runners()); n != 3 {
+		t.Fatalf("runners = %d, want the gpu pool refilled and no on-demand runner", n)
+	}
+
+	// Deactivating a repository drops it from the groups.
+	if err := h.svc.DeactivateRepository(h.ctx, installationID, 10); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range h.gh.RunnerGroups() {
+		if g.Name == "airship-shared" && len(g.Repos) != 1 {
+			t.Fatalf("shared group after deactivation = %v", g.Repos)
+		}
+	}
+
+	// The pool runner is reaped like any other and removed from the
+	// organization.
+	h.exec("update runners set running_at = now() - interval '1 hour', trigger_job_id = null, pool_id = null")
+	h.reconcile()
+	if n := len(h.gh.Runners()); n != 0 {
+		t.Fatalf("organization runners left registered: %d", n)
+	}
 }
 
 // Every extra_config knob reaches the cloud launch.

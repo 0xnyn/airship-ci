@@ -41,6 +41,12 @@ const (
 	StateFinished  = "finished"
 )
 
+// Registration scopes, mirroring runners.scope.
+const (
+	ScopeRepository   = "repository"
+	ScopeOrganization = "organization"
+)
+
 // Finish reasons, mirroring the runners.finish_reason check constraint.
 const (
 	ReasonCompleted    = "completed"
@@ -67,6 +73,12 @@ type GitHub interface {
 	RepoRoles(ctx context.Context, installationID int64, repo github.Repo, user string) ([]string, error)
 	ListRepositories(ctx context.Context, installationID int64) ([]github.Repository, error)
 	GetRepositoryByID(ctx context.Context, installationID int64, id int64) (github.Repository, error)
+	// Organization runners, for idle pools from .cirun.global.yml.
+	GenerateOrgJITConfig(ctx context.Context, installationID int64, org, name string, groupID int64, labels []string) (github.JITConfig, error)
+	GetOrgRunner(ctx context.Context, installationID int64, org string, runnerID int64) (github.Runner, error)
+	FindOrgRunnerByName(ctx context.Context, installationID int64, org, name string) (github.Runner, bool, error)
+	DeleteOrgRunner(ctx context.Context, installationID int64, org string, runnerID int64) error
+	EnsureRunnerGroup(ctx context.Context, installationID int64, org, name string, repoIDs []int64) (int64, error)
 }
 
 // AppGitHub adapts a *github.App to GitHub.
@@ -132,6 +144,31 @@ func (a AppGitHub) ListRepositories(ctx context.Context, inst int64) ([]github.R
 //nolint:wrapcheck // see GenerateJITConfig
 func (a AppGitHub) GetRepositoryByID(ctx context.Context, inst int64, id int64) (github.Repository, error) {
 	return a.App.Installation(inst).GetRepositoryByID(ctx, id)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) GenerateOrgJITConfig(ctx context.Context, inst int64, org, name string, groupID int64, labels []string) (github.JITConfig, error) {
+	return a.App.Installation(inst).GenerateOrgJITConfig(ctx, org, name, groupID, labels)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) GetOrgRunner(ctx context.Context, inst int64, org string, id int64) (github.Runner, error) {
+	return a.App.Installation(inst).GetOrgRunner(ctx, org, id)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) FindOrgRunnerByName(ctx context.Context, inst int64, org, name string) (github.Runner, bool, error) {
+	return a.App.Installation(inst).FindOrgRunnerByName(ctx, org, name)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) DeleteOrgRunner(ctx context.Context, inst int64, org string, id int64) error {
+	return a.App.Installation(inst).DeleteOrgRunner(ctx, org, id)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) EnsureRunnerGroup(ctx context.Context, inst int64, org, name string, repoIDs []int64) (int64, error) {
+	return a.App.Installation(inst).EnsureRunnerGroup(ctx, org, name, repoIDs)
 }
 
 // Config tunes the scheduler. The zero value is not usable; start from
@@ -295,6 +332,7 @@ func (s *Service) createRunner(ctx context.Context, q *db.Queries, job db.Job, p
 		InstallationID:     job.InstallationID,
 		Definition:         attempt.Name,
 		Source:             attempt.Source,
+		Scope:              ScopeRepository,
 		Cloud:              attempt.Cloud,
 		CredentialID:       uuidPtr(attempt.CredentialID),
 		Region:             attempt.Region,
@@ -358,7 +396,7 @@ func (s *Service) retryJob(ctx context.Context, failed db.Runner, retryable bool
 		s.wakeLauncher()
 	}
 	if fromPool {
-		s.fillRepositoryPools(ctx, job.RepositoryID)
+		s.fillRepositoryPools(ctx, job.InstallationID, job.RepositoryID)
 	}
 	if !added && !fromPool {
 		s.record(ctx, job.InstallationID, "job.failed", levelError,

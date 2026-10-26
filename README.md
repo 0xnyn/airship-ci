@@ -35,7 +35,8 @@ What is here, with Cirun's names and behaviour:
   (`run_as: interactive`, `runner_user`, `runner_path`); `gpu`.
 - One-line runners: `cirun-aws-c7g-xlarge-ubuntu2404-spot--${{ github.run_id }}`.
 - `--suffix` labels for unique runners per job.
-- Idle runners: `replicas`, `schedule` and `usage_based`.
+- Idle runners: `replicas`, `schedule` and `usage_based`, per repository
+  or organization-wide.
 - Organization runners in a `.cirun` repository (`.cirun.global.yml`) with
   `.access.yml` policies.
 - Developer API compatible with [cirun-py](https://github.com/AktechLabs/cirun-py):
@@ -110,7 +111,9 @@ Create an app at **GitHub → Settings → Developer settings → GitHub Apps**:
   should open pull requests on `.cirun`), Pull requests write (same),
   Metadata read.
 - **Organization permissions**: Members read (to tell admins from members,
-  and for team rules in `.access.yml`).
+  and for team rules in `.access.yml`), Self-hosted runners read & write
+  (for idle runners defined in `.cirun.global.yml`, which register on the
+  organization in runner groups).
 - **Subscribe to events**: Workflow job, Push (to refresh idle runners when
   `.cirun.yml` changes), Repository (renames and visibility changes).
 

@@ -1,11 +1,11 @@
 -- name: CreateRunner :one
 -- Returns no row when a live runner for the triggering job already exists.
 insert into runners (
-    installation_id, definition, source, cloud, credential_id, region, spec, labels, attempt,
+    installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt,
     pool_id, repository_id, repository_full_name, trigger_job_id, name
 )
 values (
-    sqlc.arg(installation_id), sqlc.arg(definition), sqlc.arg(source), sqlc.arg(cloud),
+    sqlc.arg(installation_id), sqlc.arg(definition), sqlc.arg(source), sqlc.arg(scope), sqlc.arg(cloud),
     sqlc.narg(credential_id), sqlc.arg(region), sqlc.arg(spec), sqlc.arg(labels)::text[],
     sqlc.arg(attempt), sqlc.narg(pool_id), sqlc.arg(repository_id), sqlc.arg(repository_full_name),
     sqlc.narg(trigger_job_id), sqlc.arg(name)

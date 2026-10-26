@@ -53,6 +53,7 @@ type Server struct {
 	repoRoles     map[string][2]string
 	branches      map[string]string
 	pulls         []PullRequest
+	groups        []*RunnerGroup
 }
 
 // PullRequest is one opened through the fake.
@@ -70,15 +71,25 @@ type repoEntry struct {
 	installation int64
 }
 
-// Runner is a registration created through generate-jitconfig.
+// Runner is a registration created through generate-jitconfig. Repo is
+// "owner/name", or "org:<login>" for an organization runner.
 type Runner struct {
-	ID     int64
-	Repo   string
-	Name   string
-	Labels []string
-	Busy   bool
+	ID      int64
+	Repo    string
+	Name    string
+	Labels  []string
+	Busy    bool
+	GroupID int64
 	// JITConfig is the opaque config handed out for this runner.
 	JITConfig string
+}
+
+// RunnerGroup is an organization runner group created through the fake.
+type RunnerGroup struct {
+	ID    int64
+	Org   string
+	Name  string
+	Repos []int64
 }
 
 type userGrant struct {
@@ -170,6 +181,81 @@ func (s *Server) SetFile(repo, ref, path string, content []byte) {
 
 func fileKey(repo, ref, path string) string {
 	return strings.ToLower(repo) + "@" + ref + ":" + path
+}
+
+// RunnerGroups lists organization runner groups.
+func (s *Server) RunnerGroups() []RunnerGroup {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]RunnerGroup, 0, len(s.groups))
+	for _, g := range s.groups {
+		out = append(out, *g)
+	}
+
+	return out
+}
+
+// serveOrgActions answers organization runner and runner group calls.
+// rest starts after /orgs/{org}/actions/.
+func (s *Server) serveOrgActions(w http.ResponseWriter, r *http.Request, org string, rest []string) {
+	switch rest[0] {
+	case "runner-groups":
+		s.serveRunnerGroups(w, r, org, rest[1:])
+	case "runners":
+		s.serveRepo(w, r, "org:"+strings.ToLower(org), rest)
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+	}
+}
+
+func (s *Server) serveRunnerGroups(w http.ResponseWriter, r *http.Request, org string, rest []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	org = strings.ToLower(org)
+	switch {
+	case r.Method == http.MethodGet && len(rest) == 0:
+		out := []map[string]any{}
+		for _, g := range s.groups {
+			if g.Org == org {
+				out = append(out, map[string]any{"id": g.ID, "name": g.Name, "visibility": "selected"})
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "runner_groups": out})
+	case r.Method == http.MethodPost && len(rest) == 0:
+		var body struct {
+			Name  string  `json:"name"`
+			Repos []int64 `json:"selected_repository_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "invalid"})
+
+			return
+		}
+		g := &RunnerGroup{ID: int64(100 + len(s.groups)), Org: org, Name: body.Name, Repos: body.Repos}
+		s.groups = append(s.groups, g)
+		writeJSON(w, http.StatusCreated, map[string]any{"id": g.ID, "name": g.Name, "visibility": "selected"})
+	case r.Method == http.MethodPut && len(rest) == 2 && rest[1] == "repositories":
+		id, _ := strconv.ParseInt(rest[0], 10, 64)
+		var body struct {
+			Repos []int64 `json:"selected_repository_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "invalid"})
+
+			return
+		}
+		for _, g := range s.groups {
+			if g.ID == id && g.Org == org {
+				g.Repos = body.Repos
+				w.WriteHeader(http.StatusNoContent)
+
+				return
+			}
+		}
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+	}
 }
 
 // PullRequests lists pull requests opened through the fake.
@@ -345,6 +431,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	case len(parts) >= 3 && (parts[0] == "repos" || parts[0] == "installation" || parts[0] == "orgs"):
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "token ghs_") {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Bad credentials"})
+
+			return
+		}
+		if parts[0] == "orgs" && len(parts) >= 4 && parts[2] == "actions" {
+			s.serveOrgActions(w, r, parts[1], parts[3:])
 
 			return
 		}
@@ -676,8 +767,9 @@ func (s *Server) serveRepo(w http.ResponseWriter, r *http.Request, repo string, 
 	switch route {
 	case "POST generate-jitconfig":
 		var body struct {
-			Name   string   `json:"name"`
-			Labels []string `json:"labels"`
+			Name    string   `json:"name"`
+			Labels  []string `json:"labels"`
+			GroupID int64    `json:"runner_group_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || len(body.Labels) == 0 {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "invalid"})
@@ -693,7 +785,7 @@ func (s *Server) serveRepo(w http.ResponseWriter, r *http.Request, repo string, 
 		}
 		s.nextRunnerID++
 		runner := &Runner{
-			ID: s.nextRunnerID, Repo: repo, Name: body.Name, Labels: body.Labels,
+			ID: s.nextRunnerID, Repo: repo, Name: body.Name, Labels: body.Labels, GroupID: body.GroupID,
 			JITConfig: base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "jit:%s:%d", body.Name, s.nextRunnerID)),
 		}
 		s.runners[runner.ID] = runner

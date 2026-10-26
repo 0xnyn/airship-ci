@@ -1,0 +1,285 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Airship data plane. Runs the Airship agent on ECS Fargate in your account.
+  The agent connects out to the Airship control plane and launches one EC2
+  instance per GitHub Actions job, in your VPC, with permissions limited to
+  instances tagged for this data plane.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Airship }
+        Parameters: [ControlPlaneUrl, DataPlaneId, AgentToken, AgentImage, ImageOwners]
+      - Label: { default: Network }
+        Parameters: [VpcId, SubnetIds, AssignPublicIp]
+      - Label: { default: Runners }
+        Parameters: [RunnerInstanceProfileName, RunnerRoleArn]
+
+Parameters:
+  ControlPlaneUrl:
+    Type: String
+    Description: Airship control plane URL, shown when you create the data plane.
+    AllowedPattern: "^https://.+"
+  DataPlaneId:
+    Type: String
+    Description: Data plane ID, shown when you create the data plane.
+    AllowedPattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+  AgentToken:
+    Type: String
+    NoEcho: true
+    Description: Data plane token (asd_...). Stored in Secrets Manager.
+    AllowedPattern: "^asd_[A-Za-z0-9]+$"
+  AgentImage:
+    Type: String
+    Default: ghcr.io/wizenheimer/airship-agent:latest
+    Description: >-
+      Agent container image. For production, pin it by digest
+      (ghcr.io/wizenheimer/airship-agent@sha256:...) so the image cannot
+      change under you.
+  ImageOwners:
+    Type: String
+    Default: ""
+    Description: >-
+      Comma-separated AWS account IDs whose AMIs runners may boot. Empty
+      allows Canonical (the default Ubuntu images) and this account.
+    AllowedPattern: "^([0-9]{12}(,[0-9]{12})*)?$"
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >-
+      Subnets for the agent and runners, ideally in several availability
+      zones. They need outbound internet access (public IPs or a NAT gateway).
+  AssignPublicIp:
+    Type: String
+    AllowedValues: [ENABLED, DISABLED]
+    Default: ENABLED
+    Description: DISABLED for private subnets behind a NAT gateway.
+  RunnerInstanceProfileName:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional instance profile for runners, for jobs that need AWS access.
+      Leave empty to give runners no AWS credentials at all.
+  RunnerRoleArn:
+    Type: String
+    Default: ""
+    Description: The role inside RunnerInstanceProfileName; required with it.
+
+Conditions:
+  HasRunnerRole: !Not [!Equals [!Ref RunnerRoleArn, ""]]
+  DefaultImageOwners: !Equals [!Ref ImageOwners, ""]
+
+Resources:
+  AgentTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub Airship data plane token for ${DataPlaneId}
+      SecretString: !Ref AgentToken
+
+  # Runners accept no inbound traffic; jobs reach GitHub and the internet out.
+  RunnerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Airship runners (egress only)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 0.0.0.0/0, Description: Outbound }
+
+  AgentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Airship agent (egress only)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-agent-token
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref AgentTokenSecret
+
+  # What the agent itself may do. Every write is limited to instances and
+  # volumes tagged airship:data-plane=<this data plane>, in this VPC.
+  AgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+      Policies:
+        - PolicyName: airship-agent
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: LaunchOnlyTaggedRunners
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/airship:data-plane: !Ref DataPlaneId
+              - Sid: RequestSpotCapacity
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:spot-instances-request/*
+              - Sid: LaunchOnlyIntoThisVpc
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/*
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${RunnerSecurityGroup.GroupId}
+                Condition:
+                  ArnEquals:
+                    ec2:Vpc: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}
+              # Runners boot only images from trusted accounts, so a profile
+              # cannot point at an arbitrary community AMI.
+              - Sid: LaunchFromTrustedImages
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}::image/*
+                Condition:
+                  StringEquals:
+                    ec2:Owner: !If
+                      - DefaultImageOwners
+                      - ["099720109477", !Ref AWS::AccountId]
+                      - !Split [",", !Ref ImageOwners]
+              - Sid: LaunchFromImageSnapshots
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}::snapshot/*
+              - Sid: TagOnlyAtLaunch
+                Effect: Allow
+                Action: ec2:CreateTags
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*
+                Condition:
+                  StringEquals:
+                    ec2:CreateAction: RunInstances
+              - Sid: TerminateOnlyOwnRunners
+                Effect: Allow
+                Action: ec2:TerminateInstances
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/airship:data-plane: !Ref DataPlaneId
+              - Sid: Describe
+                Effect: Allow
+                Action: [ec2:DescribeInstances, ec2:DescribeImages]
+                Resource: "*"
+              - Sid: ResolvePublicImages
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::parameter/aws/service/*
+              - Sid: FirstSpotLaunch
+                Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot
+                Condition:
+                  StringLike: { iam:AWSServiceName: spot.amazonaws.com }
+
+  # Only when runners get an instance profile: lets the agent hand that one
+  # role to EC2, and nothing else.
+  PassRunnerRole:
+    Type: AWS::IAM::RolePolicy
+    Condition: HasRunnerRole
+    Properties:
+      RoleName: !Ref AgentRole
+      PolicyName: pass-runner-role
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: iam:PassRole
+            Resource: !Ref RunnerRoleArn
+            Condition:
+              StringEquals: { iam:PassedToService: ec2.amazonaws.com }
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub airship-agent-${AWS::StackName}
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      RuntimePlatform: { CpuArchitecture: ARM64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt AgentRole.Arn
+      ContainerDefinitions:
+        - Name: agent
+          Image: !Ref AgentImage
+          Essential: true
+          ReadonlyRootFilesystem: true
+          Environment:
+            - { Name: AIRSHIP_URL, Value: !Ref ControlPlaneUrl }
+            - { Name: AIRSHIP_PROVIDER, Value: aws }
+            - { Name: AIRSHIP_AWS_SUBNETS, Value: !Join [",", !Ref SubnetIds] }
+            - { Name: AIRSHIP_AWS_SECURITY_GROUPS, Value: !GetAtt RunnerSecurityGroup.GroupId }
+            - { Name: AIRSHIP_AWS_INSTANCE_PROFILE, Value: !Ref RunnerInstanceProfileName }
+          Secrets:
+            - { Name: AIRSHIP_TOKEN, ValueFrom: !Ref AgentTokenSecret }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: agent
+
+  # One agent per data plane: the control plane assumes a single agent
+  # reports the whole inventory, so the service must never scale out.
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: !Ref AssignPublicIp
+          Subnets: !Ref SubnetIds
+          SecurityGroups: [!GetAtt AgentSecurityGroup.GroupId]
+
+Outputs:
+  RunnerSecurityGroupId:
+    Value: !GetAtt RunnerSecurityGroup.GroupId
+  AgentRoleArn:
+    Value: !GetAtt AgentRole.Arn
+  LogGroupName:
+    Value: !Ref LogGroup

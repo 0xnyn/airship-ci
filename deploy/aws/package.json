@@ -1,0 +1,11 @@
+{
+  "name": "@airship/deploy-aws",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:policy": "uvx --from cfn-lint==1.58.0 cfn-lint data-plane.yaml && uvx --with 'moto[server]==5.2.4' --with boto3==1.43.118 python -I test/render.py data-plane.yaml .rendered.json && node --test 'test/*.test.mjs'"
+  },
+  "devDependencies": {
+    "@cloud-copilot/iam-simulate": "0.1.173"
+  }
+}

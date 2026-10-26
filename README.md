@@ -90,11 +90,15 @@ http://localhost:8080/docs.
 
 Jobs only arrive once a GitHub App is configured (below). Launches need real
 AWS credentials under **Cloud**; the tests use a fake cloud, and the EC2
-provider can be exercised against [moto](https://github.com/getmoto/moto):
+provider can be exercised against [moto](https://github.com/getmoto/moto),
+or against a real account with one small instance that is terminated again:
 
 ```bash
 uvx --from 'moto[server]' moto_server -p 5055 &
 cd apps/api && AIRSHIP_AWS_ENDPOINT=http://localhost:5055 go test -run TestAgainstEmulator ./internal/cloud/aws
+
+cd apps/api && AIRSHIP_LIVE_AWS_ACCESS_KEY_ID=AKIA... AIRSHIP_LIVE_AWS_SECRET_ACCESS_KEY=... \
+  AIRSHIP_LIVE_AWS_REGION=eu-west-1 go test -v -run TestAgainstLiveAWS ./internal/cloud/aws
 ```
 
 ## Creating the GitHub App

@@ -1,0 +1,32 @@
+{
+  "name": "@airship/client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed client for the Go API, generated from apps/api/openapi.json.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.ts"
+  },
+  "scripts": {
+    "dev": "node --watch-path=../../apps/api/openapi.json --watch-preserve-output scripts/generate.ts",
+    "generate": "node scripts/generate.ts",
+    "test": "node --test 'src/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0",
+    "openapi-react-query": "0.5.4"
+  },
+  "devDependencies": {
+    "@airship/api": "workspace:*",
+    "@airship/typescript-config": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "@types/node": "catalog:",
+    "openapi-typescript": "7.13.0",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5"
+  }
+}

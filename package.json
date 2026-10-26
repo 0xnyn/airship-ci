@@ -1,0 +1,41 @@
+{
+  "name": "airship",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm check:generated",
+    "check:generated": "pnpm generate && git diff --exit-code -- apps/api/openapi.json apps/api/internal/db packages/client/src/generated",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @airship/api db:migrate",
+    "db:new": "pnpm --filter @airship/api db:new",
+    "db:rollback": "pnpm --filter @airship/api db:rollback",
+    "db:up": "docker compose up --detach --wait postgres",
+    "dev": "turbo run dev",
+    "format": "ultracite fix && turbo run format",
+    "generate": "turbo run generate",
+    "postinstall": "varlock codegen --path ./apps/web/",
+    "lint": "ultracite check && turbo run lint",
+    "prepare": "husky",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css,md}": "ultracite fix",
+    "apps/api/**/*.go": "gofmt -w"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "catalog:",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "turbo": "2.11.10",
+    "typescript": "catalog:",
+    "ultracite": "8.0.2",
+    "varlock": "catalog:"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=24"
+  }
+}

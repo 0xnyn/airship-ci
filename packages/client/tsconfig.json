@@ -1,0 +1,4 @@
+{
+  "extends": "@airship/typescript-config/library.json",
+  "include": ["src", "scripts"]
+}

@@ -1,0 +1,20 @@
+# Local development services. Start with `pnpm db:up`.
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: airship
+      POSTGRES_PASSWORD: airship
+      POSTGRES_DB: airship
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airship -d airship"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  postgres:

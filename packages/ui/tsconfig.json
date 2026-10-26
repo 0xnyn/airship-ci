@@ -1,0 +1,9 @@
+{
+  "extends": "@airship/typescript-config/react-library.json",
+  "compilerOptions": {
+    "paths": {
+      "@airship/ui/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}

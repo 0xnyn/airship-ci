@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -89,7 +90,8 @@ type Job struct {
 	Status       string     `doc:"Job status"                                         enum:"queued,in_progress,completed" json:"status"`
 	Conclusion   *string    `doc:"Result once completed"                              json:"conclusion"`
 	ProfileID    *uuid.UUID `doc:"Profile that served the job, if any"                format:"uuid" json:"profileId"`
-	SkipReason   *string    `doc:"Why Airship did not run a job that asked for it"    enum:"public_repository,unsatisfiable_labels,ambiguous_labels,installation_suspended" json:"skipReason"`
+	SkipReason   *string    `doc:"Why Airship did not run a job that asked for it"    enum:"public_repository,unsatisfiable_labels,ambiguous_labels,installation_suspended,repository_inactive,config_invalid,access_denied,no_data_plane" json:"skipReason"`
+	SkipDetail   *string    `doc:"The skip explained, for config file runners"        json:"skipDetail"`
 	RunnerName   *string    `doc:"Runner GitHub ran the job on"                       json:"runnerName"`
 	OnAirship    bool       `doc:"Whether the job ran on an Airship runner"           json:"onAirship"`
 	QueuedAt     time.Time  `doc:"When the job was queued"                            json:"queuedAt"`
@@ -101,7 +103,7 @@ func jobFromDB(j db.Job) Job {
 	return Job{
 		ID: j.ID, Repository: j.RepositoryFullName, WorkflowName: j.WorkflowName, Name: j.Name,
 		HeadBranch: j.HeadBranch, HTMLURL: j.HtmlUrl, Labels: j.Labels, Status: j.Status,
-		Conclusion: j.Conclusion, ProfileID: j.ProfileID, SkipReason: j.SkipReason, RunnerName: j.RunnerName,
+		Conclusion: j.Conclusion, ProfileID: j.ProfileID, SkipReason: j.SkipReason, SkipDetail: j.SkipDetail, RunnerName: j.RunnerName,
 		OnAirship: j.RunnerID != nil, QueuedAt: j.QueuedAt, StartedAt: j.StartedAt, CompletedAt: j.CompletedAt,
 	}
 }
@@ -169,7 +171,11 @@ type Runner struct {
 	FinishReason *string    `doc:"Why the runner finished"                      json:"finishReason"`
 	Error        *string    `doc:"Launch error reported by the data plane"      json:"error"`
 	Repository   string     `doc:"Repository the runner is registered to"       json:"repository"`
-	ProfileLabel string     `doc:"Profile label"                                json:"profileLabel"`
+	ProfileLabel string     `doc:"Profile label, or config runner name"         json:"profileLabel"`
+	Source       string     `doc:"What defined the runner"                      enum:"profile,repository,organization" json:"source"`
+	InstanceType string     `doc:"Machine type it launched as"                  json:"instanceType"`
+	Labels       []string   `doc:"Labels it registered with"                    json:"labels"`
+	Warm         bool       `doc:"Whether it was started ahead of demand by a warm pool" json:"warm"`
 	DataPlaneID  uuid.UUID  `doc:"Data plane that runs it"                      format:"uuid" json:"dataPlaneId"`
 	InstanceID   *string    `doc:"Provider instance ID"                         json:"instanceId"`
 	CreatedAt    time.Time  `doc:"When demand for it was created"               json:"createdAt"`
@@ -224,9 +230,14 @@ func (h *handlers) listRunners(ctx context.Context, in *listRunnersInput) (*runn
 
 			break
 		}
+		var spec struct {
+			InstanceType string `json:"instanceType"`
+		}
+		_ = json.Unmarshal(row.Spec, &spec) // written by the fleet; a bad row just shows no type
 		out.Items = append(out.Items, Runner{
 			ID: row.ID, Name: row.Name, State: row.State, FinishReason: row.FinishReason, Error: row.Error,
 			Repository: row.RepositoryFullName, ProfileLabel: row.ProfileLabel, DataPlaneID: row.DataPlaneID,
+			Source: row.Source, InstanceType: spec.InstanceType, Labels: row.Labels, Warm: row.PoolID != nil,
 			InstanceID: row.InstanceID, CreatedAt: row.CreatedAt, RunningAt: row.RunningAt, BusyAt: row.BusyAt,
 			FinishedAt: row.FinishedAt,
 		})

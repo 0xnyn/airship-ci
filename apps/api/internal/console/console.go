@@ -13,6 +13,8 @@ import (
 
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
+	"github.com/wizenheimer/airship/apps/api/internal/fleet"
+	"github.com/wizenheimer/airship/apps/api/internal/github"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -40,18 +42,34 @@ type Store interface {
 	JobStats(ctx context.Context, arg db.JobStatsParams) (db.JobStatsRow, error)
 	ListRunners(ctx context.Context, arg db.ListRunnersParams) ([]db.Runner, error)
 	CountActiveRunners(ctx context.Context, installationID int64) ([]db.CountActiveRunnersRow, error)
+
+	SetDataPlaneMaxRunners(ctx context.Context, arg db.SetDataPlaneMaxRunnersParams) (db.DataPlane, error)
+	ListRepositories(ctx context.Context, installationID int64) ([]db.Repository, error)
+	ListInstallationIdlePools(ctx context.Context, installationID int64) ([]db.IdlePool, error)
+	CountInstallationPoolRunners(ctx context.Context, installationID int64) ([]db.CountInstallationPoolRunnersRow, error)
+
+	CreateAPIToken(ctx context.Context, arg db.CreateAPITokenParams) (db.ApiToken, error)
+	ListAPITokens(ctx context.Context, installationID int64) ([]db.ApiToken, error)
+	CountAPITokens(ctx context.Context, installationID int64) (int64, error)
+	DeleteAPIToken(ctx context.Context, arg db.DeleteAPITokenParams) (int64, error)
+	AuthenticateAPIToken(ctx context.Context, tokenHash []byte) (db.AuthenticateAPITokenRow, error)
+	TouchAPIToken(ctx context.Context, id uuid.UUID) error
 }
 
-// Profiles deletes profiles; it lives in the fleet service because it has
-// to coordinate with runner scheduling.
-type Profiles interface {
+// Fleet is the scheduling work the dashboard triggers: it coordinates with
+// runners in flight or calls GitHub, so it lives in the fleet service.
+type Fleet interface {
 	DeleteProfile(ctx context.Context, installationID int64, id uuid.UUID) error
+	ListInstallationRepositories(ctx context.Context, installationID int64) ([]github.Repository, error)
+	ActivateRepository(ctx context.Context, installationID, repoID int64, allowPublic bool, by *uuid.UUID) (db.Repository, error)
+	DeactivateRepository(ctx context.Context, installationID, repoID int64) error
+	OrganizationConfig(ctx context.Context, installation db.Installation) (fleet.OrganizationConfig, error)
 }
 
 // Config wires the dashboard API.
 type Config struct {
 	Store          Store
-	Profiles       Profiles
+	Fleet          Fleet
 	Sessions       *auth.Sessions
 	AllowedOrigins []string
 	// PublicURL is the control plane URL agents connect to.
@@ -80,12 +98,21 @@ func Register(api huma.API, cfg Config) {
 	huma.Register(api, op("listDataPlanes", http.MethodGet, "/v1/orgs/{org}/data-planes", "List data planes", "Data planes", 0), h.listDataPlanes)
 	huma.Register(api, op("createDataPlane", http.MethodPost, "/v1/orgs/{org}/data-planes", "Create a data plane", "Data planes", http.StatusCreated), h.createDataPlane)
 	huma.Register(api, op("rotateDataPlaneToken", http.MethodPost, "/v1/orgs/{org}/data-planes/{id}/rotate-token", "Rotate a data plane's agent token", "Data planes", 0), h.rotateToken)
+	huma.Register(api, op("updateDataPlane", http.MethodPatch, "/v1/orgs/{org}/data-planes/{id}", "Update a data plane", "Data planes", 0), h.updateDataPlane)
 	huma.Register(api, op("deleteDataPlane", http.MethodDelete, "/v1/orgs/{org}/data-planes/{id}", "Delete a data plane", "Data planes", http.StatusNoContent), h.deleteDataPlane)
 
 	huma.Register(api, op("listProfiles", http.MethodGet, "/v1/orgs/{org}/profiles", "List runner profiles", "Profiles", 0), h.listProfiles)
 	huma.Register(api, op("createProfile", http.MethodPost, "/v1/orgs/{org}/profiles", "Create a runner profile", "Profiles", http.StatusCreated), h.createProfile)
 	huma.Register(api, op("updateProfile", http.MethodPatch, "/v1/orgs/{org}/profiles/{id}", "Update a runner profile", "Profiles", 0), h.updateProfile)
 	huma.Register(api, op("deleteProfile", http.MethodDelete, "/v1/orgs/{org}/profiles/{id}", "Delete a runner profile", "Profiles", http.StatusNoContent), h.deleteProfile)
+
+	huma.Register(api, op("listRepositories", http.MethodGet, "/v1/orgs/{org}/repositories", "List repositories and their runner config", "Runner config", 0), h.listRepositories)
+	huma.Register(api, op("activateRepository", http.MethodPut, "/v1/orgs/{org}/repositories/{repo}/activation", "Activate a repository's runner config", "Runner config", 0), h.activateRepository)
+	huma.Register(api, op("deactivateRepository", http.MethodDelete, "/v1/orgs/{org}/repositories/{repo}/activation", "Deactivate a repository's runner config", "Runner config", http.StatusNoContent), h.deactivateRepository)
+	huma.Register(api, op("getOrganizationConfig", http.MethodGet, "/v1/orgs/{org}/runner-config", "Get the organization's runner config", "Runner config", 0), h.organizationConfig)
+	huma.Register(api, op("validateRunnerConfig", http.MethodPost, "/v1/orgs/{org}/runner-config/validate", "Check a runner config file", "Runner config", 0), h.validateConfig)
+	registerAPITokens(api, h, op)
+	huma.Register(api, op("listPools", http.MethodGet, "/v1/orgs/{org}/pools", "List warm pools", "Runner config", 0), h.listPools)
 }
 
 type orgInput struct {

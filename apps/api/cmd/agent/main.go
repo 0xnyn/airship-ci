@@ -21,6 +21,8 @@
 //	Docker provider:
 //	AIRSHIP_DOCKER_SOCKET    Docker Engine socket (default /var/run/docker.sock)
 //	AIRSHIP_DOCKER_NETWORK   network for runner containers
+//	AIRSHIP_DOCKER_ALLOW_PRIVILEGED  honor privileged: true in runner configs (default false)
+//	AIRSHIP_REGION           region reported for docker hosts (optional)
 package main
 
 import (
@@ -60,8 +62,13 @@ type settings struct {
 	AWSSpotFallback    bool     `env:"AIRSHIP_AWS_SPOT_FALLBACK"    envDefault:"true"`
 	AWSHopLimit        int32    `env:"AIRSHIP_AWS_METADATA_HOP_LIMIT" envDefault:"1"`
 
-	DockerSocket  string `env:"AIRSHIP_DOCKER_SOCKET"`
-	DockerNetwork string `env:"AIRSHIP_DOCKER_NETWORK"`
+	DockerSocket          string `env:"AIRSHIP_DOCKER_SOCKET"`
+	DockerNetwork         string `env:"AIRSHIP_DOCKER_NETWORK"`
+	DockerAllowPrivileged bool   `env:"AIRSHIP_DOCKER_ALLOW_PRIVILEGED"`
+
+	// Region is reported for runner configs that pick data planes by
+	// region. The AWS provider reports the SDK's region instead.
+	Region string `env:"AIRSHIP_REGION"`
 }
 
 func main() {
@@ -84,7 +91,7 @@ func run(logger *slog.Logger) error {
 		return errors.New("AIRSHIP_URL must use https: the agent sends its token and receives runner credentials")
 	}
 
-	provider, err := newProvider(ctx, cfg)
+	provider, region, err := newProvider(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -92,17 +99,18 @@ func run(logger *slog.Logger) error {
 
 	client := agent.NewClient(cfg.URL, cfg.Token, nil)
 
-	return agent.New(client, provider, agent.Config{Capacity: cfg.Capacity, Version: version}, logger).Run(ctx) //nolint:wrapcheck // final error
+	return agent.New(client, provider, agent.Config{Capacity: cfg.Capacity, Version: version, Region: region}, logger).Run(ctx) //nolint:wrapcheck // final error
 }
 
-func newProvider(ctx context.Context, cfg settings) (agent.Provider, error) {
+// newProvider returns the provider and the region it launches in.
+func newProvider(ctx context.Context, cfg settings) (agent.Provider, string, error) {
 	switch cfg.Provider {
 	case "docker":
-		return docker.New(docker.Config{Socket: cfg.DockerSocket, Network: cfg.DockerNetwork}), nil
+		return docker.New(docker.Config{Socket: cfg.DockerSocket, Network: cfg.DockerNetwork, AllowPrivileged: cfg.DockerAllowPrivileged}), cfg.Region, nil
 	case "aws":
 		awsCfg, err := config.LoadDefaultConfig(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("load aws config: %w", err)
+			return nil, "", fmt.Errorf("load aws config: %w", err)
 		}
 		images := map[string]string{}
 		for arch, image := range agentaws.DefaultImages {
@@ -119,11 +127,11 @@ func newProvider(ctx context.Context, cfg settings) (agent.Provider, error) {
 			DefaultImages: images, SpotFallback: cfg.AWSSpotFallback, MetadataHopLimit: cfg.AWSHopLimit,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("configure aws provider: %w", err)
+			return nil, "", fmt.Errorf("configure aws provider: %w", err)
 		}
 
-		return provider, nil
+		return provider, awsCfg.Region, nil
 	default:
-		return nil, fmt.Errorf("unknown AIRSHIP_PROVIDER %q (want aws or docker)", cfg.Provider)
+		return nil, "", fmt.Errorf("unknown AIRSHIP_PROVIDER %q (want aws or docker)", cfg.Provider)
 	}
 }

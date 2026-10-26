@@ -341,3 +341,123 @@ test("custom: ImageOwners replaces the default owners", async () => {
   const s = stack("custom");
   await assertDeniedBy(s, runInstances(s, { owner: CANONICAL }), ["image/"]);
 });
+
+// The cache bucket: runners reach it through the bucket policy alone (same
+// account, so no identity policy is needed), and nobody else can.
+async function cacheAllowed(c, principal, action, resource, secure = true) {
+  const result = await runSimulation(
+    {
+      identityPolicies: [],
+      request: {
+        action,
+        contextVariables: { "aws:SecureTransport": String(secure) },
+        principal,
+        resource: { accountId: ACCOUNT, resource },
+      },
+      resourceControlPolicies: [],
+      resourcePolicy: c.policy,
+      serviceControlPolicies: [],
+    },
+    {}
+  );
+  assert.notEqual(
+    result.resultType,
+    "error",
+    `${action} ${resource}: ${JSON.stringify(result.errors)}`
+  );
+  return result.overallResult === "Allowed";
+}
+
+const assumed = (role) =>
+  `arn:aws:sts::${ACCOUNT}:assumed-role/${role.split("/").at(-1)}/i-0abc`;
+
+for (const [name, role] of [
+  ["cache", () => rendered.cache.cache.runnerRoleArn],
+  ["cacheCustomRole", () => rendered.runnerRoleArn],
+]) {
+  const c = rendered[name].cache;
+
+  test(`${name}: runners read and write the cache, others cannot`, async () => {
+    const runner = assumed(role());
+    const object = `${c.bucketArn}/repo/linux-go-abc.tzst`;
+    const actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"];
+    const allowed = await Promise.all(
+      actions.map((action) => cacheAllowed(c, runner, action, object))
+    );
+    assert.deepEqual(allowed, [true, true, true]);
+    assert.ok(await cacheAllowed(c, runner, "s3:ListBucket", c.bucketArn));
+    assert.ok(
+      !(await cacheAllowed(c, runner, "s3:GetObject", object, false)),
+      "plain HTTP"
+    );
+    assert.ok(
+      !(await cacheAllowed(c, runner, "s3:PutBucketPolicy", c.bucketArn)),
+      "bucket policy"
+    );
+    assert.ok(
+      !(await cacheAllowed(
+        c,
+        runner,
+        "s3:PutLifecycleConfiguration",
+        c.bucketArn
+      )),
+      "lifecycle"
+    );
+    assert.ok(
+      !(await cacheAllowed(c, PRINCIPAL, "s3:GetObject", object)),
+      "agent"
+    );
+    assert.ok(
+      !(await cacheAllowed(
+        c,
+        assumed(roleArn("other")),
+        "s3:GetObject",
+        object
+      )),
+      "other role"
+    );
+  });
+
+  test(`${name}: bucket is private, encrypted and expires entries`, () => {
+    const p = c.properties;
+    assert.deepEqual(p.PublicAccessBlockConfiguration, {
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    });
+    assert.equal(
+      p.OwnershipControls.Rules[0].ObjectOwnership,
+      "BucketOwnerEnforced"
+    );
+    assert.ok(
+      p.BucketEncryption.ServerSideEncryptionConfiguration[0]
+        .ServerSideEncryptionByDefault.SSEAlgorithm
+    );
+    const [rule] = p.LifecycleConfiguration.Rules;
+    assert.equal(rule.Status, "Enabled");
+    assert.equal(rule.ExpirationInDays, name === "cache" ? "3" : "7");
+    assert.equal(c.output, c.bucket);
+  });
+}
+
+test("cache: the agent launches runners with the cache role, and passes only it", async () => {
+  const s = stack("cache");
+  const c = rendered.cache.cache;
+  assert.equal(c.instanceProfile, c.instanceProfileName);
+  const name = c.runnerRoleArn.split("/").at(-1);
+  await assertAllowed(s, passRole(name, "ec2.amazonaws.com"));
+  await assertDeniedBy(s, passRole("admin", "ec2.amazonaws.com"), [
+    "role/admin",
+  ]);
+});
+
+test("cacheCustomRole: no extra role; the given profile is used", async () => {
+  const c = rendered.cacheCustomRole.cache;
+  assert.equal(c.runnerRoleArn, null);
+  assert.equal(c.instanceProfile, "runner-profile");
+  await assertAllowed(
+    stack("cacheCustomRole"),
+    passRole("runner", "ec2.amazonaws.com")
+  );
+});

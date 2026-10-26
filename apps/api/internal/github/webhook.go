@@ -33,11 +33,13 @@ func Sign(secret []byte, body []byte) string {
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
-// Repository as it appears in webhook payloads.
+// Repository as it appears in webhook payloads and the REST API.
 type Repository struct {
-	ID       int64  `json:"id"`
-	FullName string `json:"full_name"`
-	Private  bool   `json:"private"`
+	ID            int64  `json:"id"`
+	FullName      string `json:"full_name"`
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"default_branch"`
+	Archived      bool   `json:"archived"`
 }
 
 // InstallationRef is the installation a webhook was sent for.
@@ -57,4 +59,19 @@ type WorkflowJobEvent struct {
 type InstallationEvent struct {
 	Action       string       `json:"action"`
 	Installation Installation `json:"installation"`
+}
+
+// PushEvent is the push webhook payload, trimmed to what Airship uses.
+type PushEvent struct {
+	Ref          string           `json:"ref"`
+	Repository   Repository       `json:"repository"`
+	Installation *InstallationRef `json:"installation"`
+}
+
+// RepositoryEvent is the repository webhook payload: renamed, made public
+// or private, archived, deleted and the like.
+type RepositoryEvent struct {
+	Action       string           `json:"action"`
+	Repository   Repository       `json:"repository"`
+	Installation *InstallationRef `json:"installation"`
 }

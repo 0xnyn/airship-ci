@@ -10,11 +10,13 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +46,16 @@ type Server struct {
 	calls         map[string]int
 	users         map[string]userGrant
 	orgRoles      map[string]string
+	repos         map[string]repoEntry
+	files         map[string][]byte
+	runs          map[string]github.RunAttempt
+	teams         map[string]bool
+	repoRoles     map[string][2]string
+}
+
+type repoEntry struct {
+	repo         github.Repository
+	installation int64
 }
 
 // Runner is a registration created through generate-jitconfig.
@@ -80,6 +92,11 @@ func New(t *testing.T) *Server {
 		calls:         map[string]int{},
 		users:         map[string]userGrant{},
 		orgRoles:      map[string]string{},
+		repos:         map[string]repoEntry{},
+		files:         map[string][]byte{},
+		runs:          map[string]github.RunAttempt{},
+		teams:         map[string]bool{},
+		repoRoles:     map[string][2]string{},
 	}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(s.Close)
@@ -115,6 +132,52 @@ func (s *Server) SetJob(job github.WorkflowJob) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.jobs[job.ID] = job
+}
+
+// AddRepository makes a repository visible to an installation.
+func (s *Server) AddRepository(installationID int64, repo github.Repository) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.repos[strings.ToLower(repo.FullName)] = repoEntry{repo: repo, installation: installationID}
+}
+
+// SetFile sets a file's content at ref, a branch or commit SHA. Nil
+// content removes it.
+func (s *Server) SetFile(repo, ref, path string, content []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := fileKey(repo, ref, path)
+	if content == nil {
+		delete(s.files, key)
+
+		return
+	}
+	s.files[key] = content
+}
+
+func fileKey(repo, ref, path string) string {
+	return strings.ToLower(repo) + "@" + ref + ":" + path
+}
+
+// SetRunAttempt sets what GET .../actions/runs/{id}/attempts/{n} returns.
+func (s *Server) SetRunAttempt(repo string, run github.RunAttempt) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runs[fmt.Sprintf("%s/%d/%d", strings.ToLower(repo), run.ID, max(run.RunAttempt, 1))] = run
+}
+
+// SetTeamMember adds or removes an active team member.
+func (s *Server) SetTeamMember(org, team, login string, member bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.teams[strings.ToLower(org+"/"+team+"/"+login)] = member
+}
+
+// SetRepoRole sets a collaborator's role name and base permission.
+func (s *Server) SetRepoRole(repo, login, role, permission string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.repoRoles[strings.ToLower(repo+"/"+login)] = [2]string{role, permission}
 }
 
 // RetryAfterSeconds is what scripted 429 responses ask clients to wait.
@@ -249,13 +312,19 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"role": role, "state": "active"})
-	case len(parts) >= 5 && parts[0] == "repos" && parts[3] == "actions":
+	case len(parts) >= 3 && (parts[0] == "repos" || parts[0] == "installation" || parts[0] == "orgs"):
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "token ghs_") {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Bad credentials"})
 
 			return
 		}
-		s.serveRepo(w, r, parts[1]+"/"+parts[2], parts[4:])
+		if !s.serveContent(w, r, parts) {
+			s.serveRepo(w, r, parts[1]+"/"+parts[2], parts[4:])
+		}
+	case len(parts) == 2 && parts[0] == "installation" && parts[1] == "repositories":
+		s.installationRepositories(w, r)
+	case r.Method == http.MethodGet && len(parts) == 2 && parts[0] == "repositories":
+		s.repositoryByID(w, r, parts[1])
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 	}
@@ -293,6 +362,136 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request, parts []string
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 	}
+}
+
+// serveContent answers the repository, file, run, team and role reads
+// config files need. It reports whether it handled the request.
+func (s *Server) serveContent(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	if parts[0] == "repos" && len(parts) >= 5 && parts[3] == "actions" && (len(parts) != 8 || parts[4] != "runs") {
+		return false
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+		return true
+	}
+	route := ""
+	switch {
+	case parts[0] == "orgs" && len(parts) == 6 && parts[2] == "teams" && parts[4] == "memberships":
+		route = "GET team membership"
+	case parts[0] == "repos" && len(parts) == 3:
+		route = "GET repository"
+	case parts[0] == "repos" && len(parts) >= 5 && parts[3] == "contents":
+		route = "GET contents"
+	case parts[0] == "repos" && len(parts) == 6 && parts[3] == "collaborators" && parts[5] == "permission":
+		route = "GET permission"
+	case parts[0] == "repos" && len(parts) == 8 && parts[3] == "actions" && parts[4] == "runs" && parts[6] == "attempts":
+		route = "GET run attempt"
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+		return true
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls[route]++
+	if queue := s.failures[route]; len(queue) > 0 {
+		s.failures[route] = queue[1:]
+		writeJSON(w, queue[0], map[string]string{"message": "scripted failure"})
+
+		return true
+	}
+	notFound := func() { writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"}) }
+	repo := ""
+	if parts[0] == "repos" {
+		repo = parts[1] + "/" + parts[2]
+	}
+	entry, known := s.repos[strings.ToLower(repo)]
+
+	switch route {
+	case "GET team membership":
+		if !s.teams[strings.ToLower(parts[1]+"/"+parts[3]+"/"+parts[5])] {
+			notFound()
+
+			return true
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"state": "active", "role": "member"})
+	case "GET repository":
+		if !known {
+			notFound()
+
+			return true
+		}
+		writeJSON(w, http.StatusOK, entry.repo)
+	case "GET contents":
+		ref := r.URL.Query().Get("ref")
+		if ref == "" && known {
+			ref = entry.repo.DefaultBranch
+		}
+		content, ok := s.files[fileKey(repo, ref, strings.Join(parts[4:], "/"))]
+		if !ok {
+			notFound()
+
+			return true
+		}
+		sum := sha256.Sum256(content)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"type": "file", "size": len(content), "encoding": "base64",
+			"content": base64.StdEncoding.EncodeToString(content), "sha": hex.EncodeToString(sum[:20]),
+		})
+	case "GET permission":
+		role, ok := s.repoRoles[strings.ToLower(repo+"/"+parts[4])]
+		if !ok {
+			notFound()
+
+			return true
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"role_name": role[0], "permission": role[1]})
+	case "GET run attempt":
+		run, ok := s.runs[strings.ToLower(repo)+"/"+parts[5]+"/"+parts[7]]
+		if !ok {
+			notFound()
+
+			return true
+		}
+		writeJSON(w, http.StatusOK, run)
+	}
+
+	return true
+}
+
+func (s *Server) repositoryByID(w http.ResponseWriter, r *http.Request, rawID string) {
+	installation, _ := strconv.ParseInt(strings.TrimPrefix(r.Header.Get("Authorization"), "token ghs_"), 10, 64)
+	id, _ := strconv.ParseInt(rawID, 10, 64)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, entry := range s.repos {
+		if entry.repo.ID == id && entry.installation == installation {
+			writeJSON(w, http.StatusOK, entry.repo)
+
+			return
+		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+}
+
+func (s *Server) installationRepositories(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(strings.TrimPrefix(r.Header.Get("Authorization"), "token ghs_"), 10, 64)
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	s.mu.Lock()
+	out := []github.Repository{}
+	for _, entry := range s.repos {
+		if entry.installation == id {
+			out = append(out, entry.repo)
+		}
+	}
+	s.mu.Unlock()
+	slices.SortFunc(out, func(a, b github.Repository) int { return strings.Compare(a.FullName, b.FullName) })
+	if page > 1 {
+		out = []github.Repository{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "repositories": out})
 }
 
 func (s *Server) serveRepo(w http.ResponseWriter, r *http.Request, repo string, rest []string) {

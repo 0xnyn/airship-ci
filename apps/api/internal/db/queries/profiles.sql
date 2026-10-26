@@ -42,10 +42,5 @@ where installation_id = $1 and id = $2;
 select * from profiles
 where installation_id = $1 and label = any(sqlc.arg(labels)::text[]);
 
--- name: LockDataPlaneProfiles :many
--- Serialises claims for one data plane so max_runners holds when an agent
--- runs as more than one replica.
-select * from profiles
-where data_plane_id = $1
-order by id
-for update;
+-- name: ListDataPlaneProfileLimits :many
+select id, max_runners from profiles where data_plane_id = $1;

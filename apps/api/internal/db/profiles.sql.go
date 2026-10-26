@@ -158,36 +158,25 @@ func (q *Queries) GetProfile(ctx context.Context, arg GetProfileParams) (Profile
 	return i, err
 }
 
-const listProfiles = `-- name: ListProfiles :many
-select id, installation_id, data_plane_id, label, arch, instance_type, image, disk_gb, spot, max_runners, allow_public_repos, created_at, updated_at from profiles
-where installation_id = $1
-order by label
+const listDataPlaneProfileLimits = `-- name: ListDataPlaneProfileLimits :many
+select id, max_runners from profiles where data_plane_id = $1
 `
 
-func (q *Queries) ListProfiles(ctx context.Context, installationID int64) ([]Profile, error) {
-	rows, err := q.db.Query(ctx, listProfiles, installationID)
+type ListDataPlaneProfileLimitsRow struct {
+	ID         uuid.UUID
+	MaxRunners int32
+}
+
+func (q *Queries) ListDataPlaneProfileLimits(ctx context.Context, dataPlaneID uuid.UUID) ([]ListDataPlaneProfileLimitsRow, error) {
+	rows, err := q.db.Query(ctx, listDataPlaneProfileLimits, dataPlaneID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Profile{}
+	items := []ListDataPlaneProfileLimitsRow{}
 	for rows.Next() {
-		var i Profile
-		if err := rows.Scan(
-			&i.ID,
-			&i.InstallationID,
-			&i.DataPlaneID,
-			&i.Label,
-			&i.Arch,
-			&i.InstanceType,
-			&i.Image,
-			&i.DiskGb,
-			&i.Spot,
-			&i.MaxRunners,
-			&i.AllowPublicRepos,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
+		var i ListDataPlaneProfileLimitsRow
+		if err := rows.Scan(&i.ID, &i.MaxRunners); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -198,17 +187,14 @@ func (q *Queries) ListProfiles(ctx context.Context, installationID int64) ([]Pro
 	return items, nil
 }
 
-const lockDataPlaneProfiles = `-- name: LockDataPlaneProfiles :many
+const listProfiles = `-- name: ListProfiles :many
 select id, installation_id, data_plane_id, label, arch, instance_type, image, disk_gb, spot, max_runners, allow_public_repos, created_at, updated_at from profiles
-where data_plane_id = $1
-order by id
-for update
+where installation_id = $1
+order by label
 `
 
-// Serialises claims for one data plane so max_runners holds when an agent
-// runs as more than one replica.
-func (q *Queries) LockDataPlaneProfiles(ctx context.Context, dataPlaneID uuid.UUID) ([]Profile, error) {
-	rows, err := q.db.Query(ctx, lockDataPlaneProfiles, dataPlaneID)
+func (q *Queries) ListProfiles(ctx context.Context, installationID int64) ([]Profile, error) {
+	rows, err := q.db.Query(ctx, listProfiles, installationID)
 	if err != nil {
 		return nil, err
 	}

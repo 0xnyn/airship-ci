@@ -3,15 +3,16 @@
 -- and fields GitHub fills in later are never cleared by an older event.
 insert into jobs (
     id, installation_id, repository_id, repository_full_name, run_id,
-    run_attempt, workflow_name, name, head_branch, html_url, labels, status,
-    conclusion, profile_id, skip_reason, runner_name, queued_at, started_at, completed_at
+    run_attempt, workflow_name, name, head_branch, head_sha, html_url, labels, status,
+    conclusion, profile_id, plan, skip_reason, skip_detail, runner_name, queued_at, started_at, completed_at
 )
 values (
     sqlc.arg(id), sqlc.arg(installation_id), sqlc.arg(repository_id),
     sqlc.arg(repository_full_name), sqlc.arg(run_id), sqlc.arg(run_attempt),
-    sqlc.narg(workflow_name), sqlc.arg(name), sqlc.narg(head_branch),
+    sqlc.narg(workflow_name), sqlc.arg(name), sqlc.narg(head_branch), sqlc.narg(head_sha),
     sqlc.narg(html_url), sqlc.arg(labels)::text[], sqlc.arg(status),
-    sqlc.narg(conclusion), sqlc.narg(profile_id), sqlc.narg(skip_reason), sqlc.narg(runner_name),
+    sqlc.narg(conclusion), sqlc.narg(profile_id), sqlc.narg(plan), sqlc.narg(skip_reason),
+    sqlc.narg(skip_detail), sqlc.narg(runner_name),
     sqlc.arg(queued_at), sqlc.narg(started_at), sqlc.narg(completed_at)
 )
 on conflict (id) do update
@@ -27,8 +28,22 @@ set
     workflow_name = coalesce(excluded.workflow_name, jobs.workflow_name),
     head_branch = coalesce(excluded.head_branch, jobs.head_branch),
     html_url = coalesce(excluded.html_url, jobs.html_url),
-    profile_id = coalesce(jobs.profile_id, excluded.profile_id),
-    skip_reason = case when jobs.profile_id is null then excluded.skip_reason else jobs.skip_reason end,
+    head_sha = coalesce(jobs.head_sha, excluded.head_sha),
+    -- A job is planned once, when first seen queued; later events reuse it.
+    profile_id = case when jobs.plan is null then excluded.profile_id else jobs.profile_id end,
+    plan = coalesce(jobs.plan, excluded.plan),
+    -- A job skipped earlier and planned now (its repository was activated
+    -- since, say) loses the old reason.
+    skip_reason = case
+        when jobs.plan is not null then jobs.skip_reason
+        when excluded.plan is not null then null
+        else coalesce(excluded.skip_reason, jobs.skip_reason)
+    end,
+    skip_detail = case
+        when jobs.plan is not null then jobs.skip_detail
+        when excluded.plan is not null then null
+        else coalesce(excluded.skip_detail, jobs.skip_detail)
+    end,
     updated_at = now()
 returning *;
 
@@ -56,7 +71,7 @@ select sqlc.embed(jobs) from (
             ), jobs.updated_at
         ) as rank
     from jobs
-    where jobs.status = 'queued' and jobs.profile_id is not null
+    where jobs.status = 'queued' and jobs.plan is not null
         and jobs.updated_at < sqlc.arg(before)
 ) as stale
 join jobs on jobs.id = stale.id
@@ -97,3 +112,9 @@ select
     ), 0)::float8 as runner_seconds
 from jobs
 where installation_id = sqlc.arg(installation_id) and queued_at >= sqlc.arg(since);
+
+-- name: LockJob :exec
+-- Serializes giving one job a runner, so a retry and a webhook cannot both
+-- pass the "no live runner yet" check. (Webhooks already hold the row
+-- lock from UpsertJob; retries do not.)
+select id from jobs where id = $1 for update;

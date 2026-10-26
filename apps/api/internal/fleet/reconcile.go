@@ -70,6 +70,8 @@ func (s *Service) ReconcileOnce(ctx context.Context) error {
 		{"reap lost runners", s.reapLostBusy},
 		{"deregister runners", s.deregister},
 		{"refresh stale jobs", s.refreshStaleJobs},
+		{"refresh configs", s.refreshConfigs},
+		{"balance pools", s.balancePools},
 		{"expire sessions", s.expireSessions},
 	}
 	var errs []error
@@ -91,7 +93,7 @@ func (s *Service) expireLeases(ctx context.Context) error {
 	}
 	for _, runner := range expired {
 		s.log.WarnContext(ctx, "runner lease expired", slog.String("runner", runner.ID.String()))
-		if err := s.retryJob(ctx, runner); err != nil {
+		if err := s.retryJob(ctx, runner, true); err != nil {
 			return err
 		}
 	}

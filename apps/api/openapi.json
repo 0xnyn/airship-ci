@@ -1,6 +1,91 @@
 {
   "components": {
     "schemas": {
+      "APIToken": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "description": "When it was created",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Token ID",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "description": "When it was last used, to the minute",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "What the token is for",
+            "type": "string"
+          },
+          "tokenHint": {
+            "description": "First characters of the token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tokenHint",
+          "createdAt",
+          "lastUsedAt"
+        ],
+        "type": "object"
+      },
+      "APITokenList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/APIToken"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "APITokenSecret": {
+        "additionalProperties": false,
+        "properties": {
+          "apiToken": {
+            "$ref": "#/components/schemas/APIToken"
+          },
+          "token": {
+            "description": "The token. Store it now: it cannot be shown again.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiToken",
+          "token"
+        ],
+        "type": "object"
+      },
+      "ActivateRepository": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPublic": {
+            "default": false,
+            "description": "Serve jobs while the repository is public. Public repositories run code from fork pull requests on your machines.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "AuthConfig": {
         "additionalProperties": false,
         "properties": {
@@ -27,6 +112,138 @@
           "githubSignInUrl",
           "installUrl",
           "devSignIn"
+        ],
+        "type": "object"
+      },
+      "ConfigProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "description": "What is wrong",
+            "type": "string"
+          },
+          "path": {
+            "description": "Where in the file, such as runners[0].instance_type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "ConfigRunner": {
+        "additionalProperties": false,
+        "properties": {
+          "cloud": {
+            "description": "Where it launches",
+            "enum": [
+              "aws",
+              "on_prem"
+            ],
+            "type": "string"
+          },
+          "dataPlane": {
+            "description": "Data plane it is pinned to, if any",
+            "type": "string"
+          },
+          "idle": {
+            "description": "Warm pool summary, if it has one",
+            "type": "string"
+          },
+          "labels": {
+            "description": "runs-on labels it serves",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "machines": {
+            "description": "Machine shapes to try, in fallback order",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Runner name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "cloud",
+          "labels",
+          "machines"
+        ],
+        "type": "object"
+      },
+      "ConfigState": {
+        "additionalProperties": false,
+        "properties": {
+          "checkedAt": {
+            "description": "When it was last read",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "Why the file cannot be used",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha": {
+            "description": "Blob SHA of the file; null when there is none",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sha",
+          "error",
+          "checkedAt"
+        ],
+        "type": "object"
+      },
+      "ConfigValidation": {
+        "additionalProperties": false,
+        "properties": {
+          "problem": {
+            "$ref": "#/components/schemas/ConfigProblem",
+            "description": "The first problem found"
+          },
+          "runners": {
+            "description": "Runner definitions in the file",
+            "items": {
+              "$ref": "#/components/schemas/ConfigRunner"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "valid": {
+            "description": "Whether the file can be used",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "problem",
+          "runners"
         ],
         "type": "object"
       },
@@ -100,6 +317,21 @@
           "Partitioned",
           "Raw",
           "Unparsed"
+        ],
+        "type": "object"
+      },
+      "CreateAPIToken": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "What the token is for",
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -218,12 +450,24 @@
               "null"
             ]
           },
+          "maxRunners": {
+            "description": "Most active runners on this data plane at once",
+            "format": "int32",
+            "type": "integer"
+          },
           "name": {
             "description": "Name, unique in the organization",
             "type": "string"
           },
           "provider": {
             "description": "Where the agent launches runners",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "region": {
+            "description": "Region the agent reported, for runner configs",
             "type": [
               "string",
               "null"
@@ -250,6 +494,8 @@
           "tokenHint",
           "agentVersion",
           "provider",
+          "region",
+          "maxRunners",
           "lastSeenAt",
           "createdAt"
         ],
@@ -499,13 +745,24 @@
               "null"
             ]
           },
+          "skipDetail": {
+            "description": "The skip explained, for config file runners",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "skipReason": {
             "description": "Why Airship did not run a job that asked for it",
             "enum": [
               "public_repository",
               "unsatisfiable_labels",
               "ambiguous_labels",
-              "installation_suspended"
+              "installation_suspended",
+              "repository_inactive",
+              "config_invalid",
+              "access_denied",
+              "no_data_plane"
             ],
             "type": [
               "string",
@@ -549,6 +806,7 @@
           "conclusion",
           "profileId",
           "skipReason",
+          "skipDetail",
           "runnerName",
           "onAirship",
           "queuedAt",
@@ -668,6 +926,27 @@
             "format": "int64",
             "type": "integer"
           },
+          "diskIops": {
+            "description": "Provisioned IOPS; 0 means the volume type's default",
+            "format": "int64",
+            "type": "integer"
+          },
+          "diskThroughput": {
+            "description": "gp3 throughput in MiB/s; 0 means the default",
+            "format": "int64",
+            "type": "integer"
+          },
+          "diskType": {
+            "description": "Root volume type (gp3, gp2, io1, io2); empty means gp3",
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Environment variables for the runner's jobs",
+            "type": "object"
+          },
           "image": {
             "description": "Machine image; empty means the agent's default for the arch",
             "type": "string"
@@ -679,6 +958,10 @@
           "label": {
             "description": "runs-on label",
             "type": "string"
+          },
+          "privileged": {
+            "description": "Run the container privileged (Docker provider)",
+            "type": "boolean"
           },
           "spot": {
             "description": "Use spot or preemptible capacity",
@@ -776,6 +1059,51 @@
         ],
         "type": "object"
       },
+      "OrganizationRunnerConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "found": {
+            "description": "Whether the organization has a .airship.global.yml",
+            "type": "boolean"
+          },
+          "problem": {
+            "description": "Why the files cannot be used",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restricted": {
+            "description": "Whether .access.yml limits who can use the runners",
+            "type": "boolean"
+          },
+          "runners": {
+            "description": "Organization runner definitions",
+            "items": {
+              "$ref": "#/components/schemas/ConfigRunner"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sha": {
+            "description": "Blob SHA of .airship.global.yml",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "found",
+          "sha",
+          "restricted",
+          "problem",
+          "runners"
+        ],
+        "type": "object"
+      },
       "Overview": {
         "additionalProperties": false,
         "properties": {
@@ -839,6 +1167,91 @@
           "queueP90Seconds",
           "runnerMinutes",
           "runners"
+        ],
+        "type": "object"
+      },
+      "Pool": {
+        "additionalProperties": false,
+        "properties": {
+          "desired": {
+            "description": "Idle runners the pool wants now",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Pool ID",
+            "format": "uuid",
+            "type": "string"
+          },
+          "idle": {
+            "description": "Runners waiting for a job",
+            "format": "int32",
+            "type": "integer"
+          },
+          "mode": {
+            "description": "How the pool's size is decided",
+            "enum": [
+              "fixed",
+              "schedule",
+              "usage"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Runner definition name",
+            "type": "string"
+          },
+          "repository": {
+            "description": "Repository whose .airship.yml defines it",
+            "type": "string"
+          },
+          "taken": {
+            "description": "Pool runners that took a job and are not done",
+            "format": "int32",
+            "type": "integer"
+          },
+          "updatedAt": {
+            "description": "When the definition last changed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "warmUntil": {
+            "description": "Usage-based pools stay warm until this time",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "repository",
+          "name",
+          "mode",
+          "desired",
+          "idle",
+          "taken",
+          "warmUntil",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "PoolList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Pool"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
         ],
         "type": "object"
       },
@@ -941,6 +1354,82 @@
         ],
         "type": "object"
       },
+      "Repository": {
+        "additionalProperties": false,
+        "properties": {
+          "accessible": {
+            "description": "Whether the app can still access the repository",
+            "type": "boolean"
+          },
+          "activated": {
+            "description": "Whether its .airship.yml launches runners",
+            "type": "boolean"
+          },
+          "activatedAt": {
+            "description": "When it was activated",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allowPublic": {
+            "description": "Serve jobs while the repository is public",
+            "type": "boolean"
+          },
+          "config": {
+            "$ref": "#/components/schemas/ConfigState",
+            "description": "The default branch's .airship.yml as last read"
+          },
+          "defaultBranch": {
+            "description": "Branch idle runner config is read from",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "owner/name",
+            "type": "string"
+          },
+          "id": {
+            "description": "GitHub repository ID",
+            "format": "int64",
+            "type": "integer"
+          },
+          "private": {
+            "description": "Whether the repository is private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "fullName",
+          "private",
+          "defaultBranch",
+          "accessible",
+          "activated",
+          "allowPublic",
+          "activatedAt",
+          "config"
+        ],
+        "type": "object"
+      },
+      "RepositoryList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Repository"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "Runner": {
         "additionalProperties": false,
         "properties": {
@@ -996,12 +1485,26 @@
               "null"
             ]
           },
+          "instanceType": {
+            "description": "Machine type it launched as",
+            "type": "string"
+          },
+          "labels": {
+            "description": "Labels it registered with",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "name": {
             "description": "Name registered with GitHub",
             "type": "string"
           },
           "profileLabel": {
-            "description": "Profile label",
+            "description": "Profile label, or config runner name",
             "type": "string"
           },
           "repository": {
@@ -1016,6 +1519,15 @@
               "null"
             ]
           },
+          "source": {
+            "description": "What defined the runner",
+            "enum": [
+              "profile",
+              "repository",
+              "organization"
+            ],
+            "type": "string"
+          },
           "state": {
             "description": "Lifecycle state",
             "enum": [
@@ -1026,6 +1538,10 @@
               "finished"
             ],
             "type": "string"
+          },
+          "warm": {
+            "description": "Whether it was started ahead of demand by a warm pool",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1036,6 +1552,10 @@
           "error",
           "repository",
           "profileLabel",
+          "source",
+          "instanceType",
+          "labels",
+          "warm",
           "dataPlaneId",
           "instanceId",
           "createdAt",
@@ -1103,6 +1623,26 @@
         ],
         "type": "object"
       },
+      "SetRepository": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "description": "true activates, false deactivates",
+            "type": "boolean"
+          },
+          "repository": {
+            "description": "owner/name, or just the name",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "active"
+        ],
+        "type": "object"
+      },
       "SyncRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1163,6 +1703,12 @@
               "array",
               "null"
             ]
+          },
+          "region": {
+            "description": "Region the provider launches in",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9-]*$",
+            "type": "string"
           },
           "waitSeconds": {
             "description": "Seconds to hold the request open when there is no work",
@@ -1242,6 +1788,22 @@
         ],
         "type": "object"
       },
+      "UpdateDataPlane": {
+        "additionalProperties": false,
+        "properties": {
+          "maxRunners": {
+            "description": "Most active runners on this data plane at once, across profiles and config files",
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "maxRunners"
+        ],
+        "type": "object"
+      },
       "UpdateProfile": {
         "additionalProperties": false,
         "properties": {
@@ -1281,6 +1843,37 @@
           }
         },
         "type": "object"
+      },
+      "ValidateConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "description": "The file's content",
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "file": {
+            "description": "Which file this is",
+            "enum": [
+              ".airship.yml",
+              ".airship.global.yml",
+              ".access.yml"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "content"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "apiToken": {
+        "description": "Developer API token (asa_...), created by an organization owner in the dashboard.",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -1291,6 +1884,86 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/repo": {
+      "get": {
+        "operationId": "cirunListRepositories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "List repositories (Cirun-compatible)",
+        "tags": [
+          "Developer API"
+        ]
+      },
+      "post": {
+        "operationId": "cirunSetRepository",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRepository"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Activate or deactivate a repository (Cirun-compatible)",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "operationId": "getHealth",
@@ -1373,6 +2046,143 @@
         "summary": "Sync a data plane agent",
         "tags": [
           "Agent"
+        ]
+      }
+    },
+    "/v1/api/repositories": {
+      "get": {
+        "operationId": "apiListRepositories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "List repositories",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    },
+    "/v1/api/repositories/{name}/activation": {
+      "delete": {
+        "operationId": "apiDeactivateRepository",
+        "parameters": [
+          {
+            "description": "Repository name, without the owner",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "Repository name, without the owner",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Deactivate a repository",
+        "tags": [
+          "Developer API"
+        ]
+      },
+      "put": {
+        "operationId": "apiActivateRepository",
+        "parameters": [
+          {
+            "description": "Repository name, without the owner",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "Repository name, without the owner",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateRepository"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Activate a repository",
+        "tags": [
+          "Developer API"
         ]
       }
     },
@@ -1507,6 +2317,151 @@
         "summary": "Get the signed-in user",
         "tags": [
           "Auth"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/api-tokens": {
+      "get": {
+        "operationId": "listApiTokens",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APITokenList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List developer API tokens",
+        "tags": [
+          "Developer API"
+        ]
+      },
+      "post": {
+        "operationId": "createApiToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAPIToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APITokenSecret"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Create a developer API token",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/api-tokens/{id}": {
+      "delete": {
+        "operationId": "deleteApiToken",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Resource ID",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Revoke a developer API token",
+        "tags": [
+          "Developer API"
         ]
       }
     },
@@ -1650,6 +2605,66 @@
           }
         },
         "summary": "Delete a data plane",
+        "tags": [
+          "Data planes"
+        ]
+      },
+      "patch": {
+        "operationId": "updateDataPlane",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDataPlane"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPlane"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Update a data plane",
         "tags": [
           "Data planes"
         ]
@@ -1836,6 +2851,51 @@
         "summary": "Get an organization's overview",
         "tags": [
           "Activity"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/pools": {
+      "get": {
+        "operationId": "listPools",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List warm pools",
+        "tags": [
+          "Runner config"
         ]
       }
     },
@@ -2041,6 +3101,260 @@
         "summary": "Update a runner profile",
         "tags": [
           "Profiles"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/repositories": {
+      "get": {
+        "operationId": "listRepositories",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List repositories and their runner config",
+        "tags": [
+          "Runner config"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/repositories/{repo}/activation": {
+      "delete": {
+        "operationId": "deactivateRepository",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "GitHub repository ID",
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "description": "GitHub repository ID",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Deactivate a repository's runner config",
+        "tags": [
+          "Runner config"
+        ]
+      },
+      "put": {
+        "operationId": "activateRepository",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateRepository"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Activate a repository's runner config",
+        "tags": [
+          "Runner config"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/runner-config": {
+      "get": {
+        "operationId": "getOrganizationConfig",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRunnerConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the organization's runner config",
+        "tags": [
+          "Runner config"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/runner-config/validate": {
+      "post": {
+        "operationId": "validateRunnerConfig",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigValidation"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Check a runner config file",
+        "tags": [
+          "Runner config"
         ]
       }
     },

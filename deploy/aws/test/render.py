@@ -44,17 +44,25 @@ def _intrinsic(loader: yaml.SafeLoader, suffix: str, node: yaml.Node) -> dict:
 _CfnLoader.add_multi_constructor("!", _intrinsic)
 
 
-def _resolve_refs(value, params: dict):
+def _resolve_refs(value, params: dict, has: set = frozenset(), attrs: dict | None = None):
+    """Resolves Ref, Fn::If (on the conditions in has) and Fn::GetAtt (from
+    attrs, "Resource.Attribute" -> value)."""
     if isinstance(value, dict):
         if set(value) == {"Ref"}:
             return params[value["Ref"]]
-        return {k: _resolve_refs(v, params) for k, v in value.items()}
+        if set(value) == {"Fn::If"}:
+            cond, yes, no = value["Fn::If"]
+            return _resolve_refs(yes if cond in has else no, params, has, attrs)
+        if set(value) == {"Fn::GetAtt"}:
+            ref = value["Fn::GetAtt"]
+            return (attrs or {})[ref if isinstance(ref, str) else ".".join(ref)]
+        return {k: _resolve_refs(v, params, has, attrs) for k, v in value.items()}
     if isinstance(value, list):
-        return [_resolve_refs(v, params) for v in value]
+        return [_resolve_refs(v, params, has, attrs) for v in value]
     return value
 
 
-def _role_policies_from_template(template: str, params: dict, has: set) -> dict:
+def _role_policies_from_template(template: str, params: dict, has: set, attrs: dict) -> dict:
     """moto does not create AWS::IAM::RolePolicy resources, so read the ones
     whose condition holds straight from the template."""
     doc = yaml.load(template, Loader=_CfnLoader)  # noqa: S506 - safe loader subclass
@@ -63,8 +71,28 @@ def _role_policies_from_template(template: str, params: dict, has: set) -> dict:
         if resource["Type"] != "AWS::IAM::RolePolicy" or resource.get("Condition") not in has:
             continue
         props = resource["Properties"]
-        out[props["PolicyName"]] = _resolve_refs(props["PolicyDocument"], params)
+        out[props["PolicyName"]] = _resolve_refs(props["PolicyDocument"], params, has, attrs)
     return out
+
+
+def _bucket_policy_from_template(template: str, params: dict, has: set, attrs: dict) -> dict:
+    doc = yaml.load(template, Loader=_CfnLoader)  # noqa: S506 - safe loader subclass
+    props = doc["Resources"]["CacheBucketPolicy"]["Properties"]
+    return _sub(_resolve_refs(props["PolicyDocument"], params, has, attrs), attrs)
+
+
+def _sub(value, attrs: dict):
+    """Resolves the Fn::Sub strings the bucket policy uses (${X.Arn})."""
+    if isinstance(value, dict):
+        if set(value) == {"Fn::Sub"}:
+            out = value["Fn::Sub"]
+            for key, resolved in attrs.items():
+                out = out.replace("${" + key + "}", resolved)
+            return out
+        return {k: _sub(v, attrs) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sub(v, attrs) for v in value]
+    return value
 
 
 def render(template: str, endpoint: str, out_path: str) -> None:
@@ -102,10 +130,52 @@ def render(template: str, endpoint: str, out_path: str) -> None:
             doc = iam.get_role_policy(RoleName=role, PolicyName=policy_name)["PolicyDocument"]
             # moto returns inline policies as Python reprs, not JSON.
             policies[policy_name] = ast.literal_eval(doc) if isinstance(doc, str) else doc
-        conditions = {"HasRunnerRole"} if params.get("RunnerRoleArn") else set()
-        for policy_name, doc in _role_policies_from_template(template, params, conditions).items():
+        # Intrinsics resolved here see the template's defaults too.
+        defaults = yaml.load(template, Loader=_CfnLoader)["Parameters"]  # noqa: S506
+        params = {k: str(v["Default"]) for k, v in defaults.items() if "Default" in v} | params
+        conditions = set()
+        if params.get("RunnerRoleArn"):
+            conditions.add("HasRunnerRole")
+        if params.get("CacheBucket") == "Enabled":
+            conditions.add("CreateCache")
+            if "HasRunnerRole" not in conditions:
+                conditions.add("CreateCacheRole")
+        if conditions & {"HasRunnerRole", "CreateCacheRole"}:
+            conditions.add("RunnersHaveRole")
+        attrs = {}
+        if "CacheRunnerRole" in resources:
+            attrs["CacheRunnerRole.Arn"] = iam.get_role(RoleName=resources["CacheRunnerRole"]["PhysicalResourceId"])["Role"]["Arn"]
+        if "CacheBucketResource" in resources:
+            attrs["CacheBucketResource.Arn"] = "arn:aws:s3:::" + resources["CacheBucketResource"]["PhysicalResourceId"]
+        for policy_name, doc in _role_policies_from_template(template, params, conditions, attrs).items():
             policies.setdefault(policy_name, doc)
-        return {"policies": policies, "securityGroup": resources["RunnerSecurityGroup"]["PhysicalResourceId"]}
+        out = {"policies": policies, "securityGroup": resources["RunnerSecurityGroup"]["PhysicalResourceId"]}
+        if "CacheBucketResource" in resources:
+            bucket = resources["CacheBucketResource"]["PhysicalResourceId"]
+            outputs = {o["OutputKey"]: o["OutputValue"] for o in cfn.describe_stacks(StackName=name)["Stacks"][0].get("Outputs", [])}
+            task = resources["TaskDefinition"]["PhysicalResourceId"]
+            env = boto3.client("ecs", **kw).describe_task_definition(taskDefinition=task)["taskDefinition"]["containerDefinitions"][0]["environment"]
+            out["cache"] = {
+                "bucket": bucket,
+                "bucketArn": f"arn:aws:s3:::{bucket}",
+                "output": outputs.get("CacheBucketName"),
+                # moto does not create AWS::S3::BucketPolicy either.
+                "policy": _bucket_policy_from_template(
+                    template, {**params, "CacheBucketResource": bucket}, conditions, attrs
+                ),
+                # moto's CloudFormation ignores these properties, so they
+                # come from the template (cfn-lint checks their schema).
+                "properties": _resolve_refs(
+                    yaml.load(template, Loader=_CfnLoader)["Resources"]["CacheBucketResource"]["Properties"],  # noqa: S506
+                    params,
+                    conditions,
+                    attrs,
+                ),
+                "runnerRoleArn": attrs.get("CacheRunnerRole.Arn"),
+                "instanceProfile": next((e["value"] for e in env if e["name"] == "AIRSHIP_AWS_INSTANCE_PROFILE"), None),
+                "instanceProfileName": resources.get("CacheRunnerInstanceProfile", {}).get("PhysicalResourceId"),
+            }
+        return out
 
     rendered = {
         "dataPlaneId": DATA_PLANE_ID,
@@ -120,6 +190,11 @@ def render(template: str, endpoint: str, out_path: str) -> None:
                 "RunnerInstanceProfileName": "runner-profile",
                 "RunnerRoleArn": RUNNER_ROLE_ARN,
             },
+        ),
+        "cache": deploy("airship-cache", {"CacheBucket": "Enabled", "CacheRetentionDays": "3"}),
+        "cacheCustomRole": deploy(
+            "airship-cache-custom",
+            {"CacheBucket": "Enabled", "RunnerInstanceProfileName": "runner-profile", "RunnerRoleArn": RUNNER_ROLE_ARN},
         ),
     }
     with open(out_path, "w") as f:

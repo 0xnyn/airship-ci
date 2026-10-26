@@ -13,7 +13,7 @@ import (
 )
 
 const authenticateDataPlane = `-- name: AuthenticateDataPlane :one
-select data_planes.id, data_planes.installation_id, data_planes.name, data_planes.token_hash, data_planes.token_hint, data_planes.agent_version, data_planes.agent_provider, data_planes.last_seen_at, data_planes.created_at, data_planes.updated_at, installations.deleted_at as installation_deleted_at,
+select data_planes.id, data_planes.installation_id, data_planes.name, data_planes.token_hash, data_planes.token_hint, data_planes.agent_version, data_planes.agent_provider, data_planes.agent_region, data_planes.max_runners, data_planes.last_seen_at, data_planes.created_at, data_planes.updated_at, installations.deleted_at as installation_deleted_at,
     installations.suspended_at as installation_suspended_at
 from data_planes
 join installations on installations.id = data_planes.installation_id
@@ -37,6 +37,8 @@ func (q *Queries) AuthenticateDataPlane(ctx context.Context, tokenHash []byte) (
 		&i.DataPlane.TokenHint,
 		&i.DataPlane.AgentVersion,
 		&i.DataPlane.AgentProvider,
+		&i.DataPlane.AgentRegion,
+		&i.DataPlane.MaxRunners,
 		&i.DataPlane.LastSeenAt,
 		&i.DataPlane.CreatedAt,
 		&i.DataPlane.UpdatedAt,
@@ -60,7 +62,7 @@ func (q *Queries) CountDataPlaneProfiles(ctx context.Context, dataPlaneID uuid.U
 const createDataPlane = `-- name: CreateDataPlane :one
 insert into data_planes (installation_id, name, token_hash, token_hint)
 values ($1, $2, $3, $4)
-returning id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, last_seen_at, created_at, updated_at
+returning id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, agent_region, max_runners, last_seen_at, created_at, updated_at
 `
 
 type CreateDataPlaneParams struct {
@@ -86,6 +88,8 @@ func (q *Queries) CreateDataPlane(ctx context.Context, arg CreateDataPlaneParams
 		&i.TokenHint,
 		&i.AgentVersion,
 		&i.AgentProvider,
+		&i.AgentRegion,
+		&i.MaxRunners,
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -112,7 +116,7 @@ func (q *Queries) DeleteDataPlane(ctx context.Context, arg DeleteDataPlaneParams
 }
 
 const getDataPlane = `-- name: GetDataPlane :one
-select id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, last_seen_at, created_at, updated_at from data_planes
+select id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, agent_region, max_runners, last_seen_at, created_at, updated_at from data_planes
 where installation_id = $1 and id = $2
 `
 
@@ -132,6 +136,8 @@ func (q *Queries) GetDataPlane(ctx context.Context, arg GetDataPlaneParams) (Dat
 		&i.TokenHint,
 		&i.AgentVersion,
 		&i.AgentProvider,
+		&i.AgentRegion,
+		&i.MaxRunners,
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -140,7 +146,7 @@ func (q *Queries) GetDataPlane(ctx context.Context, arg GetDataPlaneParams) (Dat
 }
 
 const listDataPlanes = `-- name: ListDataPlanes :many
-select id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, last_seen_at, created_at, updated_at from data_planes
+select id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, agent_region, max_runners, last_seen_at, created_at, updated_at from data_planes
 where installation_id = $1
 order by lower(name)
 `
@@ -162,6 +168,8 @@ func (q *Queries) ListDataPlanes(ctx context.Context, installationID int64) ([]D
 			&i.TokenHint,
 			&i.AgentVersion,
 			&i.AgentProvider,
+			&i.AgentRegion,
+			&i.MaxRunners,
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -176,11 +184,24 @@ func (q *Queries) ListDataPlanes(ctx context.Context, installationID int64) ([]D
 	return items, nil
 }
 
+const lockDataPlane = `-- name: LockDataPlane :one
+select max_runners from data_planes where id = $1 for update
+`
+
+// Serialises claims for one data plane, so its max_runners and every
+// profile's hold even when an agent runs as more than one replica.
+func (q *Queries) LockDataPlane(ctx context.Context, id uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, lockDataPlane, id)
+	var max_runners int32
+	err := row.Scan(&max_runners)
+	return max_runners, err
+}
+
 const rotateDataPlaneToken = `-- name: RotateDataPlaneToken :one
 update data_planes
 set token_hash = $3, token_hint = $4, updated_at = now()
 where installation_id = $1 and id = $2
-returning id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, last_seen_at, created_at, updated_at
+returning id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, agent_region, max_runners, last_seen_at, created_at, updated_at
 `
 
 type RotateDataPlaneTokenParams struct {
@@ -206,6 +227,40 @@ func (q *Queries) RotateDataPlaneToken(ctx context.Context, arg RotateDataPlaneT
 		&i.TokenHint,
 		&i.AgentVersion,
 		&i.AgentProvider,
+		&i.AgentRegion,
+		&i.MaxRunners,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const setDataPlaneMaxRunners = `-- name: SetDataPlaneMaxRunners :one
+update data_planes set max_runners = $3, updated_at = now()
+where installation_id = $1 and id = $2
+returning id, installation_id, name, token_hash, token_hint, agent_version, agent_provider, agent_region, max_runners, last_seen_at, created_at, updated_at
+`
+
+type SetDataPlaneMaxRunnersParams struct {
+	InstallationID int64
+	ID             uuid.UUID
+	MaxRunners     int32
+}
+
+func (q *Queries) SetDataPlaneMaxRunners(ctx context.Context, arg SetDataPlaneMaxRunnersParams) (DataPlane, error) {
+	row := q.db.QueryRow(ctx, setDataPlaneMaxRunners, arg.InstallationID, arg.ID, arg.MaxRunners)
+	var i DataPlane
+	err := row.Scan(
+		&i.ID,
+		&i.InstallationID,
+		&i.Name,
+		&i.TokenHash,
+		&i.TokenHint,
+		&i.AgentVersion,
+		&i.AgentProvider,
+		&i.AgentRegion,
+		&i.MaxRunners,
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -215,7 +270,7 @@ func (q *Queries) RotateDataPlaneToken(ctx context.Context, arg RotateDataPlaneT
 
 const touchDataPlane = `-- name: TouchDataPlane :one
 update data_planes
-set last_seen_at = now(), agent_version = $2, agent_provider = $3
+set last_seen_at = now(), agent_version = $2, agent_provider = $3, agent_region = $4
 where id = $1
 returning last_seen_at::timestamptz
 `
@@ -224,11 +279,17 @@ type TouchDataPlaneParams struct {
 	ID            uuid.UUID
 	AgentVersion  *string
 	AgentProvider *string
+	AgentRegion   *string
 }
 
 // Returns the database's clock, which runner timestamps are compared to.
 func (q *Queries) TouchDataPlane(ctx context.Context, arg TouchDataPlaneParams) (time.Time, error) {
-	row := q.db.QueryRow(ctx, touchDataPlane, arg.ID, arg.AgentVersion, arg.AgentProvider)
+	row := q.db.QueryRow(ctx, touchDataPlane,
+		arg.ID,
+		arg.AgentVersion,
+		arg.AgentProvider,
+		arg.AgentRegion,
+	)
 	var last_seen_at time.Time
 	err := row.Scan(&last_seen_at)
 	return last_seen_at, err

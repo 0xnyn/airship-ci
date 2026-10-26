@@ -187,7 +187,7 @@ func (h *handlers) deleteProfile(ctx context.Context, in *orgIDInput) (*struct{}
 	if err != nil {
 		return nil, err
 	}
-	err = h.Profiles.DeleteProfile(ctx, inst.ID, in.ID)
+	err = h.Fleet.DeleteProfile(ctx, inst.ID, in.ID)
 	var busy *fleet.ProfileBusyError
 	switch {
 	case errors.Is(err, fleet.ErrProfileNotFound):

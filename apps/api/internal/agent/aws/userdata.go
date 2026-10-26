@@ -5,7 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
+	"strings"
 	"text/template"
 
 	"github.com/wizenheimer/airship/apps/api/internal/agentproto"
@@ -53,6 +56,11 @@ if [ "$(cat "$RUNNER_DIR/.version" 2>/dev/null || true)" != "$RUNNER_VERSION" ];
   "$RUNNER_DIR/bin/installdependencies.sh"
   echo "$RUNNER_VERSION" > "$RUNNER_DIR/.version"
 fi
+{{- if .EnvFile}}
+# Job environment variables from the runner's config. The runner loads
+# .env at startup; the content is base64 so nothing in it is shell.
+echo '{{.EnvFile}}' | base64 -d >> "$RUNNER_DIR/.env"
+{{- end}}
 chown -R runner:runner "$RUNNER_DIR"
 
 # The runner reads ACTIONS_RUNNER_INPUT_JITCONFIG as its --jitconfig
@@ -68,6 +76,7 @@ type userDataParams struct {
 	Arch            string
 	JITConfig       string
 	DeadlineMinutes int
+	EnvFile         string
 }
 
 // userData renders the boot script for a launch, base64 encoded for EC2.
@@ -86,6 +95,16 @@ func userData(launch agentproto.Launch) (string, error) {
 	}
 	if !jitPattern.MatchString(params.JITConfig) {
 		return "", errors.New("jit config is not base64")
+	}
+	if err := agentproto.CheckEnv(launch.Profile.Env); err != nil {
+		return "", err //nolint:wrapcheck // already descriptive
+	}
+	if len(launch.Profile.Env) > 0 {
+		var env strings.Builder
+		for _, name := range slices.Sorted(maps.Keys(launch.Profile.Env)) {
+			env.WriteString(name + "=" + launch.Profile.Env[name] + "\n")
+		}
+		params.EnvFile = base64.StdEncoding.EncodeToString([]byte(env.String()))
 	}
 
 	var out bytes.Buffer

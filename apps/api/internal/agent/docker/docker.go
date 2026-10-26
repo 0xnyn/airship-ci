@@ -13,10 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +44,10 @@ type Config struct {
 	DefaultImage string
 	// Network is the Docker network for runner containers ("" = default).
 	Network string
+	// AllowPrivileged lets runner configs ask for privileged containers.
+	// A privileged container is root on the host, so the host's operator
+	// has to opt in; without it such launches fail.
+	AllowPrivileged bool
 }
 
 // Provider is the Docker provider.
@@ -107,6 +113,12 @@ var shapePattern = regexp.MustCompile(`^(\d+)cpu-(\d+)gb$`)
 // runner, so a repeated launch fails with a conflict instead of starting a
 // second container.
 func (p *Provider) Launch(ctx context.Context, dataPlaneID string, launch agentproto.Launch) (string, error) {
+	if launch.Profile.Privileged && !p.cfg.AllowPrivileged {
+		return "", &agent.LaunchError{Err: errors.New("the runner asks for a privileged container; set AIRSHIP_DOCKER_ALLOW_PRIVILEGED=true on the agent to allow it")}
+	}
+	if err := agentproto.CheckEnv(launch.Profile.Env); err != nil {
+		return "", &agent.LaunchError{Err: err}
+	}
 	image := launch.Profile.Image
 	if image == "" {
 		image = fmt.Sprintf(p.cfg.DefaultImage, launch.RunnerVersion)
@@ -120,6 +132,14 @@ func (p *Provider) Launch(ctx context.Context, dataPlaneID string, launch agentp
 		"Init":        true,
 		"NetworkMode": p.cfg.Network,
 		"SecurityOpt": []string{"no-new-privileges"},
+	}
+	if launch.Profile.Privileged {
+		hostConfig["Privileged"] = true
+		delete(hostConfig, "SecurityOpt")
+	}
+	env := []string{"ACTIONS_RUNNER_INPUT_JITCONFIG=" + launch.JITConfig}
+	for _, name := range slices.Sorted(maps.Keys(launch.Profile.Env)) {
+		env = append(env, name+"="+launch.Profile.Env[name])
 	}
 	if m := shapePattern.FindStringSubmatch(launch.Profile.InstanceType); m != nil {
 		cpus, _ := strconv.ParseInt(m[1], 10, 64)
@@ -138,7 +158,7 @@ func (p *Provider) Launch(ctx context.Context, dataPlaneID string, launch agentp
 		// The runner reads ACTIONS_RUNNER_INPUT_* as arguments and removes
 		// them from its environment, keeping the JIT config out of ps output
 		// and out of the job's environment.
-		"Env":        []string{"ACTIONS_RUNNER_INPUT_JITCONFIG=" + launch.JITConfig},
+		"Env":        env,
 		"Labels":     map[string]string{labelDataPlane: dataPlaneID, labelRunner: launch.RunnerID},
 		"HostConfig": hostConfig,
 	}

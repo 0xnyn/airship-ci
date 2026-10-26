@@ -60,7 +60,7 @@ export function Runners() {
   return (
     <>
       <PageHeader
-        description="Each runner is a fresh machine registered for one job and destroyed after it. Airship starts one per queued job, up to each profile's limit."
+        description="Each runner is a fresh machine registered for one job and destroyed after it. Airship starts one per queued job, up to each profile's and data plane's limit, plus any warm pools your config files keep ready."
         title="Runners"
       />
       <FilterTabs
@@ -83,7 +83,7 @@ export function Runners() {
             <TableRow>
               <TableHead>State</TableHead>
               <TableHead>Runner</TableHead>
-              <TableHead>Profile</TableHead>
+              <TableHead>Definition</TableHead>
               <TableHead>Data plane</TableHead>
               <TableHead className="text-right">Lifetime</TableHead>
               <TableHead className="text-right">Created</TableHead>
@@ -108,6 +108,12 @@ export function Runners() {
     </>
   );
 }
+
+const sourceLabel: Record<Schemas["Runner"]["source"], string> = {
+  organization: ".airship.global.yml",
+  profile: "Profile",
+  repository: ".airship.yml",
+};
 
 function RunnerRow({
   dataPlane,
@@ -136,8 +142,15 @@ function RunnerRow({
           </span>
         </div>
       </TableCell>
-      <TableCell className="font-mono text-[11px]">
-        {runner.profileLabel}
+      <TableCell>
+        <div className="grid gap-0.5">
+          <span className="font-mono text-[11px]">{runner.profileLabel}</span>
+          <span className="text-muted-foreground">
+            {sourceLabel[runner.source]}
+            {runner.instanceType ? ` · ${runner.instanceType}` : ""}
+            {runner.warm ? " · warm pool" : ""}
+          </span>
+        </div>
       </TableCell>
       <TableCell>
         <div className="grid gap-0.5">

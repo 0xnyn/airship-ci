@@ -21,6 +21,8 @@ type DataPlane struct {
 	TokenHint    string     `doc:"First characters of the agent token"               json:"tokenHint"`
 	AgentVersion *string    `doc:"Agent build last seen"                             json:"agentVersion"`
 	Provider     *string    `doc:"Where the agent launches runners"                  json:"provider"`
+	Region       *string    `doc:"Region the agent reported, for runner configs"     json:"region"`
+	MaxRunners   int32      `doc:"Most active runners on this data plane at once"    json:"maxRunners"`
 	LastSeenAt   *time.Time `doc:"When the agent last synced"                        json:"lastSeenAt"`
 	CreatedAt    time.Time  `doc:"When the data plane was created"                   json:"createdAt"`
 }
@@ -36,7 +38,8 @@ func dataPlaneFromDB(d db.DataPlane, now time.Time) DataPlane {
 
 	return DataPlane{
 		ID: d.ID, Name: d.Name, Status: status, TokenHint: d.TokenHint, AgentVersion: d.AgentVersion,
-		Provider: d.AgentProvider, LastSeenAt: d.LastSeenAt, CreatedAt: d.CreatedAt,
+		Provider: d.AgentProvider, Region: d.AgentRegion, MaxRunners: d.MaxRunners,
+		LastSeenAt: d.LastSeenAt, CreatedAt: d.CreatedAt,
 	}
 }
 
@@ -132,6 +135,37 @@ func (h *handlers) rotateToken(ctx context.Context, in *orgIDInput) (*credential
 	}
 
 	return &credentialsOutput{Body: DataPlaneCredentials{DataPlane: dataPlaneFromDB(row, time.Now()), Token: token, ControlPlaneURL: h.PublicURL}}, nil
+}
+
+// UpdateDataPlane is the request body for changing a data plane.
+type UpdateDataPlane struct {
+	MaxRunners int32 `doc:"Most active runners on this data plane at once, across profiles and config files" json:"maxRunners" maximum:"10000" minimum:"1"`
+}
+
+type updateDataPlaneInput struct {
+	Org  string    `maxLength:"100" minLength:"1" path:"org"`
+	ID   uuid.UUID `format:"uuid" path:"id"`
+	Body UpdateDataPlane
+}
+
+type dataPlaneOutput struct {
+	Body DataPlane
+}
+
+func (h *handlers) updateDataPlane(ctx context.Context, in *updateDataPlaneInput) (*dataPlaneOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	row, err := h.Store.SetDataPlaneMaxRunners(ctx, db.SetDataPlaneMaxRunnersParams{InstallationID: inst.ID, ID: in.ID, MaxRunners: in.Body.MaxRunners})
+	if isNoRows(err) {
+		return nil, huma.Error404NotFound("data plane not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update data plane: %w", err)
+	}
+
+	return &dataPlaneOutput{Body: dataPlaneFromDB(row, time.Now())}, nil
 }
 
 func (h *handlers) deleteDataPlane(ctx context.Context, in *orgIDInput) (*struct{}, error) {

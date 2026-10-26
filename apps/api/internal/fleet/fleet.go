@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,6 +58,12 @@ type GitHub interface {
 	DeleteRunner(ctx context.Context, installationID int64, repo github.Repo, runnerID int64) error
 	GetJob(ctx context.Context, installationID int64, repo github.Repo, jobID int64) (github.WorkflowJob, error)
 	GetInstallation(ctx context.Context, installationID int64) (github.Installation, error)
+	GetFile(ctx context.Context, installationID int64, repo github.Repo, path, ref string, limit int) (github.File, bool, error)
+	GetRunAttempt(ctx context.Context, installationID int64, repo github.Repo, runID int64, attempt int32) (github.RunAttempt, error)
+	TeamMember(ctx context.Context, installationID int64, org, team, user string) (bool, error)
+	RepoRoles(ctx context.Context, installationID int64, repo github.Repo, user string) ([]string, error)
+	ListRepositories(ctx context.Context, installationID int64) ([]github.Repository, error)
+	GetRepositoryByID(ctx context.Context, installationID int64, id int64) (github.Repository, error)
 }
 
 // AppGitHub adapts a *github.App to GitHub.
@@ -64,34 +71,64 @@ type AppGitHub struct {
 	App *github.App
 }
 
-// GenerateJITConfig implements GitHub.
+//nolint:wrapcheck // the github package's errors are already descriptive
 func (a AppGitHub) GenerateJITConfig(ctx context.Context, inst int64, repo github.Repo, name string, labels []string) (github.JITConfig, error) {
-	return a.App.Installation(inst).GenerateJITConfig(ctx, repo, name, labels) //nolint:wrapcheck // already descriptive
+	return a.App.Installation(inst).GenerateJITConfig(ctx, repo, name, labels)
 }
 
-// GetRunner implements GitHub.
+//nolint:wrapcheck // see GenerateJITConfig
 func (a AppGitHub) GetRunner(ctx context.Context, inst int64, repo github.Repo, id int64) (github.Runner, error) {
-	return a.App.Installation(inst).GetRunner(ctx, repo, id) //nolint:wrapcheck // already descriptive
+	return a.App.Installation(inst).GetRunner(ctx, repo, id)
 }
 
-// FindRunnerByName implements GitHub.
+//nolint:wrapcheck // see GenerateJITConfig
 func (a AppGitHub) FindRunnerByName(ctx context.Context, inst int64, repo github.Repo, name string) (github.Runner, bool, error) {
-	return a.App.Installation(inst).FindRunnerByName(ctx, repo, name) //nolint:wrapcheck // already descriptive
+	return a.App.Installation(inst).FindRunnerByName(ctx, repo, name)
 }
 
-// DeleteRunner implements GitHub.
+//nolint:wrapcheck // see GenerateJITConfig
 func (a AppGitHub) DeleteRunner(ctx context.Context, inst int64, repo github.Repo, id int64) error {
-	return a.App.Installation(inst).DeleteRunner(ctx, repo, id) //nolint:wrapcheck // already descriptive
+	return a.App.Installation(inst).DeleteRunner(ctx, repo, id)
 }
 
-// GetJob implements GitHub.
+//nolint:wrapcheck // see GenerateJITConfig
 func (a AppGitHub) GetJob(ctx context.Context, inst int64, repo github.Repo, id int64) (github.WorkflowJob, error) {
-	return a.App.Installation(inst).GetJob(ctx, repo, id) //nolint:wrapcheck // already descriptive
+	return a.App.Installation(inst).GetJob(ctx, repo, id)
 }
 
-// GetInstallation implements GitHub.
+//nolint:wrapcheck // see GenerateJITConfig
 func (a AppGitHub) GetInstallation(ctx context.Context, inst int64) (github.Installation, error) {
-	return a.App.GetInstallation(ctx, inst) //nolint:wrapcheck // already descriptive
+	return a.App.GetInstallation(ctx, inst)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) GetFile(ctx context.Context, inst int64, repo github.Repo, path, ref string, limit int) (github.File, bool, error) {
+	return a.App.Installation(inst).GetFile(ctx, repo, path, ref, limit)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) GetRunAttempt(ctx context.Context, inst int64, repo github.Repo, runID int64, attempt int32) (github.RunAttempt, error) {
+	return a.App.Installation(inst).GetRunAttempt(ctx, repo, runID, attempt)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) TeamMember(ctx context.Context, inst int64, org, team, user string) (bool, error) {
+	return a.App.Installation(inst).TeamMember(ctx, org, team, user)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) RepoRoles(ctx context.Context, inst int64, repo github.Repo, user string) ([]string, error) {
+	return a.App.Installation(inst).RepoRoles(ctx, repo, user)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) ListRepositories(ctx context.Context, inst int64) ([]github.Repository, error) {
+	return a.App.Installation(inst).ListRepositories(ctx)
+}
+
+//nolint:wrapcheck // see GenerateJITConfig
+func (a AppGitHub) GetRepositoryByID(ctx context.Context, inst int64, id int64) (github.Repository, error) {
+	return a.App.Installation(inst).GetRepositoryByID(ctx, id)
 }
 
 // Config tunes the scheduler. The zero value is not usable; start from
@@ -149,6 +186,7 @@ type Service struct {
 	notifier *Notifier
 	cfg      Config
 	log      *slog.Logger
+	configs  *configCache
 }
 
 // New returns a Service.
@@ -160,6 +198,7 @@ func New(pool *pgxpool.Pool, gh GitHub, cfg Config, logger *slog.Logger) *Servic
 		notifier: NewNotifier(),
 		cfg:      cfg,
 		log:      logger,
+		configs:  newConfigCache(),
 	}
 }
 
@@ -196,44 +235,55 @@ func newRunnerName() string {
 	return "airship-" + hex.EncodeToString(b[:])
 }
 
-// createRunner queues a runner for a job, unless one is already live for it
-// or the job has used up its attempts. It returns whether a runner was added.
-func (s *Service) createRunner(ctx context.Context, q *db.Queries, job db.Job, profile db.Profile) (bool, error) {
+// createRunner queues a runner for a job from its plan, unless one is
+// already live for it or the job has had maxAttempts failed runners. Each
+// failure moves on to the plan's next attempt. It returns the runner added.
+func (s *Service) createRunner(ctx context.Context, q *db.Queries, job db.Job, plan Plan, maxAttempts int64) (*db.Runner, error) {
 	failed, err := q.CountFailedRunnersForJob(ctx, &job.ID)
 	if err != nil {
-		return false, fmt.Errorf("count attempts: %w", err)
+		return nil, fmt.Errorf("count attempts: %w", err)
 	}
-	if failed >= s.cfg.MaxAttempts {
-		return false, nil
+	if failed >= maxAttempts {
+		return nil, nil
+	}
+	attempt := plan.at(failed)
+	spec, err := json.Marshal(attempt.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("encode spec: %w", err)
 	}
 
-	_, err = q.CreateRunner(ctx, db.CreateRunnerParams{
+	runner, err := q.CreateRunner(ctx, db.CreateRunnerParams{
 		InstallationID:     job.InstallationID,
-		ProfileID:          &profile.ID,
-		ProfileLabel:       profile.Label,
-		DataPlaneID:        profile.DataPlaneID,
+		ProfileID:          attempt.ProfileID,
+		ProfileLabel:       attempt.Name,
+		Source:             attempt.Source,
+		Spec:               spec,
+		Labels:             attempt.Labels,
+		Attempt:            int32(failed), //nolint:gosec // bounded by maxAttempts
+		DataPlaneID:        attempt.DataPlaneID,
 		RepositoryID:       job.RepositoryID,
 		RepositoryFullName: job.RepositoryFullName,
 		TriggerJobID:       &job.ID,
 		Name:               newRunnerName(),
 	})
 	if isNoRows(err) || isForeignKeyViolation(err) {
-		// A live runner already serves the job, or the profile was just
-		// deleted.
-		return false, nil
+		// A live runner already serves the job, or its profile or data plane
+		// was just deleted.
+		return nil, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("create runner: %w", err)
+		return nil, fmt.Errorf("create runner: %w", err)
 	}
 
-	return true, nil
+	return &runner, nil
 }
 
 // retryJob queues a fresh runner for the job a failed runner was serving, if
-// that job is still waiting.
-func (s *Service) retryJob(ctx context.Context, failed db.Runner) error {
-	if failed.TriggerJobID == nil || failed.ProfileID == nil {
-		return nil
+// that job is still waiting. A failure that would recur on retry only moves
+// on to the plan's other attempts.
+func (s *Service) retryJob(ctx context.Context, failed db.Runner, retryable bool) error {
+	if failed.TriggerJobID == nil {
+		return nil // an idle pool runner; its pool replaces it
 	}
 	job, err := s.q.GetJob(ctx, *failed.TriggerJobID)
 	if isNoRows(err) {
@@ -245,19 +295,30 @@ func (s *Service) retryJob(ctx context.Context, failed db.Runner) error {
 	if job.Status != "queued" {
 		return nil
 	}
-	profile, err := s.q.GetProfile(ctx, db.GetProfileParams{InstallationID: failed.InstallationID, ID: *failed.ProfileID})
-	if isNoRows(err) {
-		return nil
+	plan, err := decodePlan(job.Plan)
+	if err != nil || len(plan) == 0 {
+		return err
 	}
-	if err != nil {
-		return fmt.Errorf("get profile: %w", err)
+	limit := plan.maxAttempts(s.cfg.MaxAttempts)
+	if !retryable {
+		limit = int64(len(plan))
 	}
-	added, err := s.createRunner(ctx, s.q, job, profile)
+	var wake *uuid.UUID
+	var fromPool bool
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		var err error
+		wake, fromPool, err = s.serveJob(ctx, q, job, plan, limit)
+
+		return err
+	})
 	if err != nil {
 		return err
 	}
-	if added {
-		s.notifier.Notify(profile.DataPlaneID)
+	if wake != nil {
+		s.notifier.Notify(*wake)
+	}
+	if fromPool {
+		s.fillRepositoryPools(ctx, job.RepositoryID)
 	}
 
 	return nil
@@ -281,7 +342,8 @@ func (e *ProfileBusyError) Error() string {
 
 // DeleteProfile deletes a profile that has no active runners. The profile
 // row stays locked between the check and the delete, so a webhook cannot
-// queue a runner for it in between. Finished runners keep their history
+// queue a runner for it in between (creating a runner checks the profile
+// row through its foreign key). Finished runners keep their history
 // (profile_id becomes null) and are still removed from GitHub.
 func (s *Service) DeleteProfile(ctx context.Context, installationID int64, id uuid.UUID) error {
 	return s.inTx(ctx, func(q *db.Queries) error {

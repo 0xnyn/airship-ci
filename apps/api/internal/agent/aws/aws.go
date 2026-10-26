@@ -210,12 +210,7 @@ func (p *Provider) run(ctx context.Context, dataPlaneID string, launch agentprot
 		},
 		BlockDeviceMappings: []ec2types.BlockDeviceMapping{{
 			DeviceName: awssdk.String(image.rootDevice),
-			Ebs: &ec2types.EbsBlockDevice{
-				VolumeSize:          awssdk.Int32(int32(launch.Profile.DiskGB)), //nolint:gosec // bounded by the API
-				VolumeType:          ec2types.VolumeTypeGp3,
-				DeleteOnTermination: awssdk.Bool(true),
-				Encrypted:           awssdk.Bool(true),
-			},
+			Ebs:        rootVolume(launch.Profile),
 		}},
 		TagSpecifications: []ec2types.TagSpecification{
 			{ResourceType: ec2types.ResourceTypeInstance, Tags: tags},
@@ -247,6 +242,28 @@ func (p *Provider) run(ctx context.Context, dataPlaneID string, launch agentprot
 	}
 
 	return awssdk.ToString(out.Instances[0].InstanceId), nil
+}
+
+// rootVolume is the encrypted root EBS volume for a profile, gp3 unless
+// the profile asks for another type.
+func rootVolume(profile agentproto.LaunchProfile) *ec2types.EbsBlockDevice {
+	volume := &ec2types.EbsBlockDevice{
+		VolumeSize:          awssdk.Int32(int32(profile.DiskGB)), //nolint:gosec // bounded by the API
+		VolumeType:          ec2types.VolumeTypeGp3,
+		DeleteOnTermination: awssdk.Bool(true),
+		Encrypted:           awssdk.Bool(true),
+	}
+	if profile.DiskType != "" {
+		volume.VolumeType = ec2types.VolumeType(profile.DiskType)
+	}
+	if profile.DiskIOPS > 0 {
+		volume.Iops = awssdk.Int32(int32(profile.DiskIOPS)) //nolint:gosec // validated by the control plane
+	}
+	if profile.DiskThroughput > 0 {
+		volume.Throughput = awssdk.Int32(int32(profile.DiskThroughput)) //nolint:gosec // validated by the control plane
+	}
+
+	return volume
 }
 
 func firstSubnet(runnerID string) uint64 {

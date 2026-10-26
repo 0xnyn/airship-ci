@@ -45,30 +45,38 @@ func (s *Service) HandleWorkflowJob(ctx context.Context, event github.WorkflowJo
 	return s.applyJob(ctx, installation, event.Repository, event.WorkflowJob, status)
 }
 
-// applyJob records a job observation and reacts to it. The repository's
-// visibility only matters for queued jobs, which carry it in the webhook.
+// applyJob records a job observation and reacts to it. A job is planned
+// once, when first seen queued: later events and refreshes reuse the plan,
+// so a config change never changes how a job already waiting is served.
 func (s *Service) applyJob(ctx context.Context, installation db.Installation, repo github.Repository, job github.WorkflowJob, status string) error {
-	labels := lowerAll(job.Labels)
-	candidates, err := s.q.FindProfilesByLabels(ctx, db.FindProfilesByLabelsParams{InstallationID: installation.ID, Labels: labels})
+	var plan Plan
+	var why verdict
+	existing, err := s.q.GetJob(ctx, job.ID)
+	switch {
+	case err == nil && existing.Plan != nil:
+		if plan, err = decodePlan(existing.Plan); err != nil {
+			return err
+		}
+	case err != nil && !isNoRows(err):
+		return fmt.Errorf("get job: %w", err)
+	case status == "queued":
+		if plan, why, err = s.planJob(ctx, installation, repo, job); err != nil {
+			return err
+		}
+	}
+	rawPlan, err := encodePlan(plan)
 	if err != nil {
-		return fmt.Errorf("find profiles: %w", err)
+		return err
 	}
-	match := MatchProfile(labels, candidates, repo.Private)
-	if installation.SuspendedAt != nil && match.Profile != nil {
-		match = Match{SkipReason: SkipInstallationSuspended}
-	}
-
 	var profileID *uuid.UUID
-	if match.Profile != nil {
-		profileID = uuidPtr(match.Profile.ID)
-	}
-	var skipReason *string
-	if match.SkipReason != "" {
-		skipReason = &match.SkipReason
+	if len(plan) > 0 {
+		profileID = plan[0].ProfileID
 	}
 
-	var wake *uuid.UUID
+	var wake []uuid.UUID
+	var refill bool
 	err = s.inTx(ctx, func(q *db.Queries) error {
+		wake, refill = nil, false
 		row, err := q.UpsertJob(ctx, db.UpsertJobParams{
 			ID:                 job.ID,
 			InstallationID:     installation.ID,
@@ -79,12 +87,15 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 			WorkflowName:       job.WorkflowName,
 			Name:               job.Name,
 			HeadBranch:         job.HeadBranch,
+			HeadSha:            nilIfEmpty(job.HeadSHA),
 			HtmlUrl:            job.HTMLURL,
 			Labels:             job.Labels,
 			Status:             status,
 			Conclusion:         job.Conclusion,
 			ProfileID:          profileID,
-			SkipReason:         skipReason,
+			Plan:               rawPlan,
+			SkipReason:         nilIfEmpty(why.reason),
+			SkipDetail:         nilIfEmpty(why.detail),
 			RunnerName:         job.RunnerName,
 			QueuedAt:           job.CreatedAt,
 			StartedAt:          job.StartedAt,
@@ -97,18 +108,17 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 		// React to the folded row, not the event: a late "queued" for a job
 		// that already started must not create a runner.
 		if row.Status == "queued" {
-			if match.Profile == nil || row.ProfileID == nil {
-				return nil
-			}
-			added, err := s.createRunner(ctx, q, row, *match.Profile)
-			if err != nil {
+			stored, err := decodePlan(row.Plan)
+			if err != nil || len(stored) == 0 {
 				return err
 			}
-			if added {
-				wake = uuidPtr(match.Profile.DataPlaneID)
+			dp, fromPool, err := s.serveJob(ctx, q, row, stored, s.cfg.MaxAttempts)
+			if dp != nil {
+				wake = append(wake, *dp)
 			}
+			refill = fromPool
 
-			return nil
+			return err
 		}
 
 		runner, ours, err := s.lookupRunner(ctx, q, row)
@@ -120,9 +130,13 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 				return err
 			}
 		}
-		// The job has a runner now (ours or not), so a runner still queued for
-		// it is surplus. One already launched may pick up another job, and is
-		// reaped by the idle timeout if it does not.
+		// The job has a runner now (ours or not). Pool runners waiting for it
+		// go back to their pool, and a runner still queued for it is surplus.
+		// One already launched may pick up another job, and is reaped by the
+		// idle timeout if it does not.
+		if _, err := q.ReturnPoolRunners(ctx, db.ReturnPoolRunnersParams{JobID: &row.ID, ExceptID: runner.ID}); err != nil {
+			return fmt.Errorf("return pool runners: %w", err)
+		}
 		if _, err := q.CancelPendingRunnersForJob(ctx, &row.ID); err != nil {
 			return fmt.Errorf("cancel pending runners: %w", err)
 		}
@@ -130,22 +144,45 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 			return nil
 		}
 
-		if err := s.bindRunner(ctx, q, row, runner); err != nil {
+		if refill, err = s.bindRunner(ctx, q, row, runner); err != nil {
 			return err
 		}
 		// Wake the agent so a finished runner's machine goes promptly.
-		wake = uuidPtr(runner.DataPlaneID)
+		wake = append(wake, runner.DataPlaneID)
 
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if wake != nil {
-		s.notifier.Notify(*wake)
+	for _, id := range wake {
+		s.notifier.Notify(id)
+	}
+	if refill {
+		// A pool runner was taken, or a usage-based pool just woke up.
+		s.fillRepositoryPools(ctx, repo.ID)
 	}
 
 	return nil
+}
+
+// serveJob gives a queued job a runner: an idle one from a warm pool if
+// one fits, otherwise a new one from the plan. It returns the data plane
+// to wake, if any, and whether the runner came from a pool.
+func (s *Service) serveJob(ctx context.Context, q *db.Queries, job db.Job, plan Plan, maxAttempts int64) (*uuid.UUID, bool, error) {
+	if err := q.LockJob(ctx, job.ID); err != nil {
+		return nil, false, fmt.Errorf("lock job: %w", err)
+	}
+	reserved, err := s.reservePoolRunner(ctx, q, job, plan)
+	if err != nil || reserved != nil {
+		return reserved, reserved != nil, err
+	}
+	added, err := s.createRunner(ctx, q, job, plan, maxAttempts)
+	if err != nil || added == nil {
+		return nil, false, err
+	}
+
+	return &added.DataPlaneID, false, nil
 }
 
 // lookupRunner finds the Airship runner GitHub says a job ran on.
@@ -195,32 +232,38 @@ func (s *Service) handOff(ctx context.Context, q *db.Queries, job db.Job, runner
 
 // bindRunner links a started or finished job to the runner it ran on and
 // advances that runner.
-func (s *Service) bindRunner(ctx context.Context, q *db.Queries, job db.Job, runner db.Runner) error {
+// extended reports that a usage-based pool for the runner's definition was
+// extended and may need filling.
+func (s *Service) bindRunner(ctx context.Context, q *db.Queries, job db.Job, runner db.Runner) (extended bool, err error) {
 	if err := q.SetJobRunner(ctx, db.SetJobRunnerParams{ID: job.ID, RunnerID: &runner.ID}); err != nil {
-		return fmt.Errorf("link job to runner: %w", err)
+		return false, fmt.Errorf("link job to runner: %w", err)
 	}
 
 	if job.Status == "in_progress" {
-		if _, err := q.MarkRunnerBusy(ctx, runner.ID); err != nil && !isNoRows(err) {
-			return fmt.Errorf("mark runner busy: %w", err)
+		busy, err := q.MarkRunnerBusy(ctx, runner.ID)
+		if isNoRows(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("mark runner busy: %w", err)
 		}
 
-		return nil
+		return s.extendUsagePools(ctx, q, busy)
 	}
 
 	// Completed. GitHub removes an ephemeral runner after its job, so it is
 	// already deregistered.
-	_, err := q.FinishRunner(ctx, db.FinishRunnerParams{
+	_, err = q.FinishRunner(ctx, db.FinishRunnerParams{
 		ID:           runner.ID,
 		Reason:       ReasonCompleted,
 		Deregistered: true,
 		FromStates:   []string{StateAssigned, StateRunning, StateBusy},
 	})
 	if err != nil && !isNoRows(err) {
-		return fmt.Errorf("finish runner: %w", err)
+		return false, fmt.Errorf("finish runner: %w", err)
 	}
 
-	return nil
+	return false, nil
 }
 
 // ensureInstallation returns the installation, fetching it from GitHub when
@@ -298,6 +341,14 @@ func (s *Service) HandleInstallation(ctx context.Context, event github.Installat
 
 		return err
 	}
+}
+
+func nilIfEmpty(value string) *string {
+	if value == "" {
+		return nil
+	}
+
+	return &value
 }
 
 func (s *Service) wrap(what string, err error) error {

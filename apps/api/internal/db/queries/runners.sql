@@ -1,10 +1,15 @@
 -- name: CreateRunner :one
 -- Returns no row when a live runner for the triggering job already exists.
 insert into runners (
-    installation_id, profile_id, profile_label, data_plane_id, repository_id,
-    repository_full_name, trigger_job_id, name
+    installation_id, profile_id, profile_label, source, spec, labels, attempt,
+    pool_id, data_plane_id, repository_id, repository_full_name, trigger_job_id, name
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8)
+values (
+    sqlc.arg(installation_id), sqlc.narg(profile_id), sqlc.arg(profile_label), sqlc.arg(source),
+    sqlc.arg(spec), sqlc.arg(labels)::text[], sqlc.arg(attempt), sqlc.narg(pool_id),
+    sqlc.arg(data_plane_id), sqlc.arg(repository_id), sqlc.arg(repository_full_name),
+    sqlc.narg(trigger_job_id), sqlc.arg(name)
+)
 on conflict (trigger_job_id) where state <> 'finished' do nothing
 returning *;
 
@@ -28,19 +33,22 @@ from runners
 where data_plane_id = $1 and state in ('assigned', 'running', 'busy')
 group by profile_id;
 
--- name: ClaimPendingRunners :many
+-- name: ListClaimableRunners :many
+-- Pending runners an agent could be handed now, oldest first. The caller
+-- holds the data plane lock and picks among them within each cap.
+select * from runners
+where data_plane_id = sqlc.arg(data_plane_id) and state = 'pending'
+    and (not_before is null or not_before <= now())
+order by created_at
+limit sqlc.arg(max_results)
+for update skip locked;
+
+-- name: AssignRunners :many
 update runners
 set state = 'assigned',
     assigned_at = now(),
     lease_expires_at = now() + make_interval(secs => sqlc.arg(lease_seconds)::float8)
-where id in (
-    select candidates.id from runners as candidates
-    where candidates.profile_id = sqlc.arg(profile_id) and candidates.state = 'pending'
-        and (candidates.not_before is null or candidates.not_before <= now())
-    order by candidates.created_at
-    limit sqlc.arg(max_runners)
-    for update skip locked
-)
+where id = any(sqlc.arg(ids)::uuid[]) and state = 'pending'
 returning *;
 
 -- name: ReleaseRunner :exec
@@ -157,8 +165,11 @@ where state = 'assigned' and lease_expires_at < now()
 returning *;
 
 -- name: ListIdleRunners :many
+-- Launched runners that never got a job. Warm-pool runners waiting for one
+-- are idle on purpose; their pool decides when they go.
 select * from runners
 where state = 'running' and running_at < sqlc.arg(running_before)::timestamptz
+    and (pool_id is null or trigger_job_id is not null)
 order by running_at
 limit sqlc.arg(max_results);
 

@@ -41,6 +41,7 @@ the others avoided.
 | Machines destroy themselves. | Each instance gets a hard `shutdown` deadline and `InstanceInitiatedShutdownBehavior=terminate`, and the boot script powers off on every exit path. A control plane outage cannot leave customer machines running forever. |
 | Tag-scoped IAM, no `iam:PassRole` by default. | The agent's role can only create and terminate instances tagged with its own data plane ID, in one VPC. Runners get no AWS credentials unless the customer opts in with an instance profile. |
 | Public repositories are refused by default. | Anyone can open a pull request against a public repository and run arbitrary code on the customer's machines. A profile must opt in. |
+| Runner definitions can live in the repository, as Cirun does it. | Cirun's `.cirun.yml` model (fallback lists, `--suffix` labels, idle pools, an org `.cirun` repository with access policies) is a better fit than dashboard profiles for teams that review infrastructure in pull requests. We kept its format and changed what it trusts; see [Runner config files](#runner-config-files). |
 | Redeliver failed webhooks ourselves. | GitHub never redelivers automatically. Every two minutes one API replica reads the app's delivery log down to the last delivery it saw, records failures in Postgres, and asks GitHub to resend them with exponential backoff until one succeeds. As a second net, the reconciler asks GitHub directly about jobs that have been queued for 10 minutes without news (at most two per installation per pass, so one backlog cannot eat an installation's rate limit). |
 
 ## Components
@@ -79,10 +80,10 @@ Every transition is a conditional `UPDATE ... WHERE state = <expected>`, so
 concurrent webhooks, syncs and reconciler passes cannot apply a transition
 twice or undo each other. A few cases needed specific handling:
 
-- **Capacity.** `max_runners` is checked while holding a row lock on the
-  profile, and pending runners are claimed with `FOR UPDATE SKIP LOCKED`. A
-  test starts 40 concurrent claims against a limit of 3; without the lock it
-  launches 24.
+- **Capacity.** A claim locks the data plane row, then counts active
+  runners against the data plane's `max_runners` and each profile's, and
+  picks pending runners with `FOR UPDATE SKIP LOCKED`. A test starts 40
+  concurrent claims against a limit of 3; without the lock it launches 24.
 - **Late reports.** If an agent reports an instance after its runner's lease
   expired, and the runner has not been deregistered from GitHub yet, it is
   revived instead of orphaned (it may already be running a job). The retry
@@ -96,12 +97,60 @@ twice or undo each other. A few cases needed specific handling:
   acknowledged was in a response that never reached the agent; it goes back
   to `pending` and is handed out again with a fresh registration, without
   costing a launch attempt.
-- **Retries.** A job gets at most 3 failed launches. Retryable failures (no
-  capacity, throttling) go back to `pending`; others fail the runner. When
-  GitHub rate-limits runner registration, the runner is not claimed again
-  until its `Retry-After` has passed.
+- **Plans and retries.** When a job is first seen queued, Airship stores
+  its plan: the attempts that could serve it, in fallback order (a profile
+  is a one-attempt plan). The Nth failed launch moves to attempt N, so a
+  capacity error on one instance type tries the next. A job gets at most
+  3 failed launches, or one per attempt if the plan is longer; failures the
+  agent marks as not retryable stop after every attempt was tried once.
+  Each runner keeps a copy of the machine it was created for, so editing a
+  profile or a config file never changes a runner in flight. When GitHub
+  rate-limits runner registration, the runner is not claimed again until
+  its `Retry-After` has passed.
 - **Cleanup order.** A finished runner is removed from GitHub after 2 minutes,
   and only if GitHub says it is not busy.
+
+## Runner config files
+
+`internal/runnerconfig` parses `.airship.yml`, `.airship.global.yml` and
+`.access.yml` (pure functions, no I/O) and turns a job's labels into
+attempts. `internal/fleet/config.go` decides what a job gets:
+
+1. Dashboard profiles match first. Otherwise only jobs with an `airship-`
+   label go further, so other jobs cost no API calls.
+2. The repository must be activated (a `repositories` row an admin
+   created), and a public one must have been activated with public access
+   allowed.
+3. The run attempt is fetched to learn the event, who started it, and
+   whether its code comes from a fork. The file is read at the job's
+   commit, or on the default branch for a fork. Reads at a commit are
+   cached until evicted; branch reads for a minute (and dropped on push).
+4. One-line labels (`airship-aws-c7i-xlarge`) that no file defines become
+   runners of their own, except for forks, which can edit `runs-on`.
+   Organization runners from the `.airship` repository are added after
+   the repository's own, then filtered by `.access.yml`, checking team
+   membership and repository role with GitHub only when a policy needs it.
+   A broken `.access.yml` closes every organization runner.
+5. Each attempt becomes one plan entry per connected data plane whose agent
+   reported a matching provider and region.
+
+The plan, and the reason when there is none, is stored on the job. The
+dashboard shows the reason, the stale-job reconciler reuses the plan, and
+a later config change cannot reroute a job that is already waiting.
+
+**Warm pools** are `idle_pools` rows, rebuilt from the default branch's file
+when a push webhook marks the repository stale (and hourly regardless).
+The reconciler keeps each pool at the size its schedule wants now, holding
+the pool row lock so two passes cannot both fill one gap. Pool runners have
+no trigger job and are exempt from the idle reaper. A queued job whose
+labels a pool's runners carry reserves one (sets its trigger job) instead
+of creating a runner, and the pool refills at once. GitHub may still give
+the job a different idle pool runner; the reserved one is then returned to
+the pool rather than left to time out. Trimming a pool drops pending
+runners outright and detaches running ones before deregistering them, so a
+job cannot reserve a runner that is being removed. Pools are repository
+scoped on purpose: a runner registered on the organization could be taken
+by repositories that were never activated or that `.access.yml` excludes.
 
 ## The agent protocol
 
@@ -134,10 +183,28 @@ on the API replica that got the webhook.
   refused. Roles are re-checked with GitHub hourly, so removing someone from
   the organization revokes their access without waiting for their session
   to expire.
+- **Developer API.** `asa_` bearer tokens, stored as SHA-256, scoped to one
+  installation, created and revoked only by admins. The `/v1/api` routes
+  accept no session cookie, so a page in a signed-in browser cannot drive
+  them. Tokens stop working when the installation is suspended or removed.
 - **Webhooks.** `X-Hub-Signature-256` is verified in constant time before
   parsing. Bodies are capped at 25 MB.
 - **Boot script.** Everything interpolated into the instance's user data is
-  validated against a strict pattern first, since it runs as root.
+  validated against a strict pattern first, since it runs as root. Job
+  environment variables from config files are written to the runner's
+  `.env` as base64 that is decoded on the machine, so no value is ever
+  shell; the agent rechecks names and line breaks itself.
+- **Config files.** A config file only acts in a repository an admin
+  activated. Fork pull requests read the default branch's file and cannot
+  use one-line labels, so outside code cannot pick machines or set job
+  variables. Variables cannot use the
+  runner's own prefixes (`GITHUB_`, `RUNNER_`, `ACTIONS_`). Privileged
+  containers need the Docker host's operator to opt in on the agent. Anyone
+  who can push a branch to an activated repository can pick the machines for
+  that branch's jobs, as with any Actions workflow; the data plane's
+  `max_runners` bounds what that can cost. Files
+  are capped at 64 KiB and parsed strictly, with YAML alias expansion
+  bounded.
 - **Instances.** IMDSv2 required with hop limit 1, encrypted gp3 root
   volumes, egress-only security group.
 - **Images.** The agent role can only launch AMIs owned by Canonical or the
@@ -165,11 +232,23 @@ These are deliberate scope cuts, not oversights.
   prebuilt image is the obvious next step.
 - **One agent per data plane.** The control plane assumes a single agent sees
   the whole inventory. The CloudFormation template enforces one task.
-- **No cache.** runs-on ships an S3-backed actions/cache server. We do not.
+- **Cache is opt-in and unscoped.** The stack's cache bucket is shared by
+  every job on the data plane, with no per-branch isolation. We do not run
+  an actions/cache protocol proxy on runners (runs-on and Cirun's automatic
+  mode do); jobs use an S3 cache action instead.
 - **Wake-ups are per process.** Long polls are woken in-process and otherwise
   recheck every 2 seconds. Postgres `LISTEN/NOTIFY` would make this instant
   across replicas.
 - **Linux only.** No Windows or macOS runners.
+- **Config files cover AWS and Docker only.** Other Cirun clouds, GPUs on
+  Docker and `provision_via` are refused; see
+  [the differences from Cirun](runner-config.md#differences-from-cirun).
+- **Developer API tokens are organization-wide.** A token can activate any
+  repository the app can reach; there are no per-repository scopes.
+- **No organization warm pools.** See [Runner config files](#runner-config-files).
+- **Config reads cost API calls.** Each queued config job reads its run
+  attempt and the file at its commit (cached per run and commit), and the
+  organization files at most once a minute per replica.
 - **AWS is emulated in CI, not real.** Two checks stand in for a live
   account. The provider's real SDK calls run against moto, which checks
   request shapes, tags, filters and termination but ignores `ClientToken`

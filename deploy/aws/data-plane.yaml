@@ -14,6 +14,8 @@ Metadata:
         Parameters: [VpcId, SubnetIds, AssignPublicIp]
       - Label: { default: Runners }
         Parameters: [RunnerInstanceProfileName, RunnerRoleArn]
+      - Label: { default: Cache }
+        Parameters: [CacheBucket, CacheRetentionDays]
 
 Parameters:
   ControlPlaneUrl:
@@ -65,9 +67,27 @@ Parameters:
     Type: String
     Default: ""
     Description: The role inside RunnerInstanceProfileName; required with it.
+  CacheBucket:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Disabled
+    Description: >-
+      Enabled creates an S3 bucket for the actions cache that runners can
+      read and write with no keys. Without RunnerInstanceProfileName, this
+      stack creates a runner role that can reach only that bucket.
+  CacheRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 365
+    Description: Days a cache entry is kept after it was written.
 
 Conditions:
   HasRunnerRole: !Not [!Equals [!Ref RunnerRoleArn, ""]]
+  CreateCache: !Equals [!Ref CacheBucket, Enabled]
+  # A cache needs runner credentials; make a role only when none was given.
+  CreateCacheRole: !And [!Equals [!Ref CacheBucket, Enabled], !Equals [!Ref RunnerRoleArn, ""]]
+  RunnersHaveRole: !Or [!Equals [!Ref CacheBucket, Enabled], !Not [!Equals [!Ref RunnerRoleArn, ""]]]
   DefaultImageOwners: !Equals [!Ref ImageOwners, ""]
 
 Resources:
@@ -210,11 +230,85 @@ Resources:
                 Condition:
                   StringLike: { iam:AWSServiceName: spot.amazonaws.com }
 
+  # The actions cache. Objects expire after CacheRetentionDays; only the
+  # runner role may use it, and only over TLS.
+  CacheBucketResource:
+    Type: AWS::S3::Bucket
+    Condition: CreateCache
+    DeletionPolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-cache
+            Status: Enabled
+            ExpirationInDays: !Ref CacheRetentionDays
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+      Tags:
+        - { Key: airship:data-plane, Value: !Ref DataPlaneId }
+
+  CacheBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CreateCache
+    Properties:
+      Bucket: !Ref CacheBucketResource
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: RunnersUseCache
+            Effect: Allow
+            Principal:
+              AWS: !If [HasRunnerRole, !Ref RunnerRoleArn, !GetAtt CacheRunnerRole.Arn]
+            Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:AbortMultipartUpload]
+            Resource: !Sub ${CacheBucketResource.Arn}/*
+          - Sid: RunnersListCache
+            Effect: Allow
+            Principal:
+              AWS: !If [HasRunnerRole, !Ref RunnerRoleArn, !GetAtt CacheRunnerRole.Arn]
+            Action: [s3:ListBucket, s3:GetBucketLocation]
+            Resource: !GetAtt CacheBucketResource.Arn
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt CacheBucketResource.Arn, !Sub "${CacheBucketResource.Arn}/*"]
+            Condition:
+              Bool: { aws:SecureTransport: "false" }
+
+  # Runner role for the cache alone: no permissions of its own, the bucket
+  # policy grants what it needs.
+  CacheRunnerRole:
+    Type: AWS::IAM::Role
+    Condition: CreateCacheRole
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+
+  CacheRunnerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: CreateCacheRole
+    Properties:
+      Roles: [!Ref CacheRunnerRole]
+
   # Only when runners get an instance profile: lets the agent hand that one
   # role to EC2, and nothing else.
   PassRunnerRole:
     Type: AWS::IAM::RolePolicy
-    Condition: HasRunnerRole
+    Condition: RunnersHaveRole
     Properties:
       RoleName: !Ref AgentRole
       PolicyName: pass-runner-role
@@ -223,7 +317,7 @@ Resources:
         Statement:
           - Effect: Allow
             Action: iam:PassRole
-            Resource: !Ref RunnerRoleArn
+            Resource: !If [HasRunnerRole, !Ref RunnerRoleArn, !GetAtt CacheRunnerRole.Arn]
             Condition:
               StringEquals: { iam:PassedToService: ec2.amazonaws.com }
 
@@ -248,7 +342,8 @@ Resources:
             - { Name: AIRSHIP_PROVIDER, Value: aws }
             - { Name: AIRSHIP_AWS_SUBNETS, Value: !Join [",", !Ref SubnetIds] }
             - { Name: AIRSHIP_AWS_SECURITY_GROUPS, Value: !GetAtt RunnerSecurityGroup.GroupId }
-            - { Name: AIRSHIP_AWS_INSTANCE_PROFILE, Value: !Ref RunnerInstanceProfileName }
+            - Name: AIRSHIP_AWS_INSTANCE_PROFILE
+              Value: !If [CreateCacheRole, !Ref CacheRunnerInstanceProfile, !Ref RunnerInstanceProfileName]
           Secrets:
             - { Name: AIRSHIP_TOKEN, ValueFrom: !Ref AgentTokenSecret }
           LogConfiguration:
@@ -283,3 +378,7 @@ Outputs:
     Value: !GetAtt AgentRole.Arn
   LogGroupName:
     Value: !Ref LogGroup
+  CacheBucketName:
+    Condition: CreateCache
+    Description: Set this as the AIRSHIP_CACHE_BUCKET organization variable.
+    Value: !Ref CacheBucketResource

@@ -35,6 +35,16 @@ where data_planes.token_hash = $1;
 -- name: TouchDataPlane :one
 -- Returns the database's clock, which runner timestamps are compared to.
 update data_planes
-set last_seen_at = now(), agent_version = $2, agent_provider = $3
+set last_seen_at = now(), agent_version = $2, agent_provider = $3, agent_region = $4
 where id = $1
 returning last_seen_at::timestamptz;
+
+-- name: LockDataPlane :one
+-- Serialises claims for one data plane, so its max_runners and every
+-- profile's hold even when an agent runs as more than one replica.
+select max_runners from data_planes where id = $1 for update;
+
+-- name: SetDataPlaneMaxRunners :one
+update data_planes set max_runners = $3, updated_at = now()
+where installation_id = $1 and id = $2
+returning *;

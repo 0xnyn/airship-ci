@@ -164,8 +164,16 @@ function JobRow({ job }: { job: Schemas["Job"] }) {
 function RunsOnDetail({ job }: { job: Schemas["Job"] }) {
   if (job.skipReason) {
     return (
-      <span className="text-amber-700 dark:text-amber-400">
+      <span
+        className="text-amber-700 dark:text-amber-400"
+        title={job.skipDetail ?? undefined}
+      >
         Not run by Airship: {skipReasonLabel[job.skipReason] ?? job.skipReason}
+        {job.skipDetail ? (
+          <span className="block truncate text-muted-foreground">
+            {job.skipDetail}
+          </span>
+        ) : null}
       </span>
     );
   }

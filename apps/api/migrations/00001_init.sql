@@ -62,6 +62,12 @@ create table data_planes (
     token_hint text not null,
     agent_version text,
     agent_provider text,
+    -- Reported by the agent: the cloud region it launches in, if any.
+    -- Runner configs select data planes by cloud and region.
+    agent_region text check (char_length(agent_region) <= 64),
+    -- Cap on live runners across every profile and config on this data
+    -- plane, so no config file can run up an unbounded bill.
+    max_runners integer not null default 20 check (max_runners between 1 and 10000),
     last_seen_at timestamptz,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
@@ -90,6 +96,69 @@ create table profiles (
 
 create index profiles_data_plane_id_idx on profiles (data_plane_id);
 
+-- Repositories an admin activated for runner config files (.airship.yml
+-- and the organization's .airship.global.yml). A config file can choose
+-- machines in the customer's account, so only activated repositories'
+-- files are read.
+-- Developer API tokens: scripts use one to manage an installation's
+-- repositories without a browser. Only a SHA-256 of the token is stored.
+create table api_tokens (
+    id uuid primary key default uuidv7(),
+    installation_id bigint not null references installations (id) on delete cascade,
+    name text not null check (char_length(name) between 1 and 63),
+    token_hash bytea not null unique,
+    token_hint text not null,
+    created_by uuid references users (id) on delete set null,
+    created_at timestamptz not null default now(),
+    last_used_at timestamptz
+);
+
+create index api_tokens_installation_id_idx on api_tokens (installation_id);
+
+create table repositories (
+    id bigint primary key,
+    installation_id bigint not null references installations (id) on delete cascade,
+    full_name text not null,
+    private boolean not null,
+    default_branch text not null,
+    -- Public repositories run code from fork pull requests on the
+    -- customer's machines; serving one is a separate, explicit choice.
+    allow_public boolean not null default false,
+    activated_by uuid references users (id) on delete set null,
+    activated_at timestamptz not null default now(),
+    -- The default branch's .airship.yml as last read: idle pools come
+    -- from it, and the dashboard shows its problems.
+    config_sha text,
+    config_error text,
+    config_checked_at timestamptz,
+    -- Set when a push may have changed the config; the next refresh pass
+    -- reads it again.
+    config_stale boolean not null default true
+);
+
+create index repositories_installation_idx on repositories (installation_id, lower(full_name));
+create index repositories_stale_idx on repositories (config_checked_at) where config_stale;
+
+-- A warm pool: runners kept booted and registered ahead of demand, from an
+-- idle: section of a repository's .airship.yml on its default branch.
+-- Pool runners register on that repository only.
+create table idle_pools (
+    id uuid primary key default uuidv7(),
+    installation_id bigint not null references installations (id) on delete cascade,
+    repository_id bigint not null references repositories (id) on delete cascade,
+    name text not null,
+    -- The attempts to launch with, in fallback order (fleet.Plan).
+    plan jsonb not null,
+    -- The idle: section (fleet.IdleSpec): fixed, scheduled or usage-based.
+    idle jsonb not null,
+    -- Usage-based pools stay warm until this time after a runner from the
+    -- same definition is allocated a job.
+    usage_until timestamptz,
+    source_sha text not null,
+    updated_at timestamptz not null default now(),
+    unique (installation_id, repository_id, name)
+);
+
 -- One row per runner Airship has created. A runner is created for a queued
 -- job, but GitHub may hand it any queued job in the same repository with
 -- matching labels, so jobs.runner_id (not trigger_job_id) records which job a
@@ -107,7 +176,19 @@ create table runners (
     -- Null once the profile is deleted; the row stays so the runner can
     -- still be removed from GitHub and its history is kept.
     profile_id uuid references profiles (id) on delete set null,
+    -- The profile label or config runner name it was launched as.
     profile_label text not null,
+    -- Where the definition came from: a dashboard profile, the
+    -- repository's .airship.yml or the organization's .airship.global.yml.
+    source text not null default 'profile' check (source in ('profile', 'repository', 'organization')),
+    -- The machine to launch (fleet.Spec), fixed when the runner is created.
+    spec jsonb not null,
+    -- Labels the runner registers with.
+    labels text[] not null,
+    -- Which entry of the job's plan this runner is.
+    attempt integer not null default 0,
+    -- Set for warm-pool runners. Without a trigger job they are idle.
+    pool_id uuid references idle_pools (id) on delete set null,
     data_plane_id uuid not null references data_planes (id) on delete cascade,
     repository_id bigint not null,
     repository_full_name text not null,
@@ -147,6 +228,7 @@ create index runners_claim_idx on runners (data_plane_id, created_at) where stat
 create index runners_active_idx on runners (data_plane_id, state) where state <> 'finished';
 create index runners_installation_created_idx on runners (installation_id, created_at desc);
 create index runners_unreaped_idx on runners (data_plane_id) where instance_gone_at is null;
+create index runners_pool_idx on runners (pool_id) where state <> 'finished';
 
 -- Orders job statuses so webhooks delivered out of order never move a job
 -- backwards (queued < in_progress < completed).
@@ -172,8 +254,17 @@ create table jobs (
     status text not null check (status in ('queued', 'in_progress', 'completed')),
     conclusion text,
     profile_id uuid references profiles (id) on delete set null,
+    head_sha text,
+    -- How Airship serves the job: attempts in fallback order (fleet.Plan).
+    -- Null when the job is not Airship's to run.
+    plan jsonb,
     -- Set when the job asked for an Airship label but will not be served.
-    skip_reason text check (skip_reason in ('public_repository', 'unsatisfiable_labels', 'ambiguous_labels', 'installation_suspended')),
+    skip_reason text check (skip_reason in (
+        'public_repository', 'unsatisfiable_labels', 'ambiguous_labels', 'installation_suspended',
+        'repository_inactive', 'config_invalid', 'access_denied', 'no_data_plane'
+    )),
+    -- Explains skip_reason, such as the config file's error.
+    skip_detail text check (char_length(skip_detail) <= 2000),
     runner_id uuid references runners (id) on delete set null,
     runner_name text,
     queued_at timestamptz not null,
@@ -184,7 +275,7 @@ create table jobs (
 );
 
 create index jobs_installation_queued_idx on jobs (installation_id, queued_at desc, id desc);
-create index jobs_stale_queued_idx on jobs (queued_at) where status = 'queued' and profile_id is not null;
+create index jobs_stale_queued_idx on jobs (queued_at) where status = 'queued' and plan is not null;
 create index jobs_runner_id_idx on jobs (runner_id);
 
 -- GitHub never redelivers a failed webhook on its own. The redeliverer
@@ -213,6 +304,9 @@ drop table webhook_scan;
 drop table jobs;
 drop function job_status_rank;
 drop table runners;
+drop table idle_pools;
+drop table repositories;
+drop table api_tokens;
 drop table profiles;
 drop table data_planes;
 drop table memberships;

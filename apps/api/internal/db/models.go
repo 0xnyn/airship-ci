@@ -10,6 +10,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type ApiToken struct {
+	ID             uuid.UUID
+	InstallationID int64
+	Name           string
+	TokenHash      []byte
+	TokenHint      string
+	CreatedBy      *uuid.UUID
+	CreatedAt      time.Time
+	LastUsedAt     *time.Time
+}
+
 type DataPlane struct {
 	ID             uuid.UUID
 	InstallationID int64
@@ -18,6 +29,8 @@ type DataPlane struct {
 	TokenHint      string
 	AgentVersion   *string
 	AgentProvider  *string
+	AgentRegion    *string
+	MaxRunners     int32
 	LastSeenAt     *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
@@ -30,6 +43,18 @@ type FailedDelivery struct {
 	Attempts      int32
 	NextAttemptAt time.Time
 	FirstFailedAt time.Time
+}
+
+type IdlePool struct {
+	ID             uuid.UUID
+	InstallationID int64
+	RepositoryID   int64
+	Name           string
+	Plan           []byte
+	Idle           []byte
+	UsageUntil     *time.Time
+	SourceSha      string
+	UpdatedAt      time.Time
 }
 
 type Installation struct {
@@ -58,7 +83,10 @@ type Job struct {
 	Status             string
 	Conclusion         *string
 	ProfileID          *uuid.UUID
+	HeadSha            *string
+	Plan               []byte
 	SkipReason         *string
+	SkipDetail         *string
 	RunnerID           *uuid.UUID
 	RunnerName         *string
 	QueuedAt           time.Time
@@ -91,11 +119,31 @@ type Profile struct {
 	UpdatedAt        time.Time
 }
 
+type Repository struct {
+	ID              int64
+	InstallationID  int64
+	FullName        string
+	Private         bool
+	DefaultBranch   string
+	AllowPublic     bool
+	ActivatedBy     *uuid.UUID
+	ActivatedAt     time.Time
+	ConfigSha       *string
+	ConfigError     *string
+	ConfigCheckedAt *time.Time
+	ConfigStale     bool
+}
+
 type Runner struct {
 	ID                 uuid.UUID
 	InstallationID     int64
 	ProfileID          *uuid.UUID
 	ProfileLabel       string
+	Source             string
+	Spec               []byte
+	Labels             []string
+	Attempt            int32
+	PoolID             *uuid.UUID
 	DataPlaneID        uuid.UUID
 	RepositoryID       int64
 	RepositoryFullName string

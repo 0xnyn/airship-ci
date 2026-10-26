@@ -9,7 +9,10 @@ run the control plane: webhooks, scheduling, the GitHub integration and the
 dashboard. You run the data plane: a small agent that only makes outbound
 HTTPS calls. Your code, secrets and build output never leave your account.
 
-See [docs/architecture.md](docs/architecture.md) for how it works, the design
+Runners are defined either as profiles in the dashboard or in a
+`.airship.yml` committed to the repository, with fallback machine types and
+warm pools ([docs/runner-config.md](docs/runner-config.md)). See
+[docs/architecture.md](docs/architecture.md) for how it works, the design
 decisions and the known limitations.
 
 ## Layout
@@ -68,9 +71,12 @@ Create an app at **GitHub → Settings → Developer settings → GitHub Apps**:
   For local development, expose port 8080 with a tunnel (e.g. `cloudflared
   tunnel --url localhost:8080`) and use that as `PUBLIC_URL`.
 - **Repository permissions**: Administration read & write (to create and
-  remove repository runners), Actions read (to look up jobs), Metadata read.
-- **Organization permissions**: Members read (to tell admins from members).
-- **Subscribe to events**: Workflow job.
+  remove repository runners), Actions read (to look up jobs and runs),
+  Contents read (to read `.airship.yml`), Metadata read.
+- **Organization permissions**: Members read (to tell admins from members,
+  and for team rules in `.access.yml`).
+- **Subscribe to events**: Workflow job, Push (to refresh warm pools when
+  `.airship.yml` changes), Repository (renames and visibility changes).
 
 Then set `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `GITHUB_WEBHOOK_SECRET` and `GITHUB_PRIVATE_KEY_FILE` (or

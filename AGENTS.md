@@ -83,8 +83,12 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   (`internal/testsupport/fakegithub`); `internal/e2e` drives the whole HTTP
   surface. Races and lifecycle edge cases belong in `internal/fleet` tests.
 - Every state change to `runners` is a conditional UPDATE on the expected
-  state; never read-then-write. Capacity (`max_runners`) is enforced under a
-  row lock on the profile.
+  state; never read-then-write. Capacity (the data plane's and each
+  profile's `max_runners`) is enforced under a row lock on the data plane.
+- Runner config files (`.airship.yml`) are parsed in `internal/runnerconfig`
+  (pure, no I/O) and planned in `internal/fleet/config.go`; see
+  `docs/runner-config.md` for the format and `docs/architecture.md` for the
+  trust rules.
 - Errors: return `huma.Error404NotFound(...)` and friends for client errors;
   wrap everything else with `fmt.Errorf("...: %w", err)`. Huma renders RFC 9457
   problem details, which the client exposes as `ApiError` / `error.detail`.

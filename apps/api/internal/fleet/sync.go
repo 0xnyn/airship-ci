@@ -37,7 +37,7 @@ type DataPlane struct {
 func (s *Service) Sync(ctx context.Context, dp DataPlane, req agentproto.SyncRequest) (agentproto.SyncResponse, error) {
 	resp := agentproto.SyncResponse{DataPlaneID: dp.ID.String(), Launch: []agentproto.Launch{}, Terminate: []agentproto.Terminate{}}
 
-	received, err := s.q.TouchDataPlane(ctx, db.TouchDataPlaneParams{ID: dp.ID, AgentVersion: &req.AgentVersion, AgentProvider: &req.Provider})
+	received, err := s.q.TouchDataPlane(ctx, db.TouchDataPlaneParams{ID: dp.ID, AgentVersion: &req.AgentVersion, AgentProvider: &req.Provider, AgentRegion: nilIfEmpty(req.Region)})
 	if err != nil {
 		return resp, fmt.Errorf("touch data plane: %w", err)
 	}
@@ -110,10 +110,8 @@ func (s *Service) recordFailures(ctx context.Context, dp DataPlane, failures []a
 			return fmt.Errorf("record launch failure: %w", err)
 		}
 		s.log.InfoContext(ctx, "launch failed", slog.String("runner", id.String()), slog.String("error", message))
-		if failure.Retryable {
-			if err := s.retryJob(ctx, runner); err != nil {
-				return err
-			}
+		if err := s.retryJob(ctx, runner, failure.Retryable); err != nil {
+			return err
 		}
 	}
 
@@ -208,7 +206,7 @@ func (s *Service) reconcileInstances(ctx context.Context, dp DataPlane, instance
 	for _, runner := range gone {
 		if runner.State == StateFinished && deref(runner.FinishReason) == ReasonLost {
 			s.log.InfoContext(ctx, "runner instance disappeared before taking a job", slog.String("runner", runner.ID.String()))
-			if err := s.retryJob(ctx, runner); err != nil {
+			if err := s.retryJob(ctx, runner, true); err != nil {
 				return nil, err
 			}
 		}
@@ -240,52 +238,70 @@ func (s *Service) reviveRunners(ctx context.Context, dp DataPlane, ids []uuid.UU
 	return nil
 }
 
-// claim assigns up to capacity pending runners to the agent, respecting
-// each profile's max_runners, and mints their JIT configs.
-func (s *Service) claim(ctx context.Context, dp DataPlane, capacity int) ([]agentproto.Launch, error) {
-	type claimed struct {
-		runner  db.Runner
-		profile db.Profile
-	}
-	var batch []claimed
+// claimScan bounds how many pending runners one claim looks at.
+const claimScan = 500
 
+// claim assigns up to capacity pending runners to the agent, within the
+// data plane's max_runners and each profile's, and mints their JIT
+// configs. The data plane row is locked while counting, so concurrent
+// syncs cannot both take the last slot.
+func (s *Service) claim(ctx context.Context, dp DataPlane, capacity int) ([]agentproto.Launch, error) {
+	var batch []db.Runner
 	err := s.inTx(ctx, func(q *db.Queries) error {
-		profiles, err := q.LockDataPlaneProfiles(ctx, dp.ID)
+		batch = nil
+		maxRunners, err := q.LockDataPlane(ctx, dp.ID)
 		if err != nil {
-			return fmt.Errorf("lock profiles: %w", err)
+			return fmt.Errorf("lock data plane: %w", err)
+		}
+		limits, err := q.ListDataPlaneProfileLimits(ctx, dp.ID)
+		if err != nil {
+			return fmt.Errorf("list profile limits: %w", err)
+		}
+		profileMax := map[uuid.UUID]int32{}
+		for _, limit := range limits {
+			profileMax[limit.ID] = limit.MaxRunners
 		}
 		counts, err := q.CountActiveRunnersByProfile(ctx, dp.ID)
 		if err != nil {
 			return fmt.Errorf("count active runners: %w", err)
 		}
 		active := map[uuid.UUID]int32{}
+		var total int32
 		for _, count := range counts {
+			total += count.Active
 			if count.ProfileID != nil {
 				active[*count.ProfileID] = count.Active
 			}
 		}
 
-		left := int32(capacity) //nolint:gosec // capacity is validated to <= 100
-		for _, profile := range profiles {
-			headroom := min(profile.MaxRunners-active[profile.ID], left)
-			if headroom <= 0 {
-				continue
-			}
-			runners, err := q.ClaimPendingRunners(ctx, db.ClaimPendingRunnersParams{
-				ProfileID:    &profile.ID,
-				MaxRunners:   headroom,
-				LeaseSeconds: s.cfg.LeaseDuration.Seconds(),
-			})
-			if err != nil {
-				return fmt.Errorf("claim runners: %w", err)
-			}
-			for _, runner := range runners {
-				batch = append(batch, claimed{runner: runner, profile: profile})
-			}
-			left -= int32(len(runners)) //nolint:gosec // bounded by headroom
-			if left <= 0 {
+		left := min(int32(capacity), maxRunners-total) //nolint:gosec // capacity is validated to <= 100
+		if left <= 0 {
+			return nil
+		}
+		pending, err := q.ListClaimableRunners(ctx, db.ListClaimableRunnersParams{DataPlaneID: dp.ID, MaxResults: claimScan})
+		if err != nil {
+			return fmt.Errorf("list claimable runners: %w", err)
+		}
+		ids := make([]uuid.UUID, 0, left)
+		for _, runner := range pending {
+			if int32(len(ids)) >= left { //nolint:gosec // bounded by left
 				break
 			}
+			if runner.ProfileID != nil {
+				limit, ok := profileMax[*runner.ProfileID]
+				if !ok || active[*runner.ProfileID] >= limit {
+					continue
+				}
+				active[*runner.ProfileID]++
+			}
+			ids = append(ids, runner.ID)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		batch, err = q.AssignRunners(ctx, db.AssignRunnersParams{Ids: ids, LeaseSeconds: s.cfg.LeaseDuration.Seconds()})
+		if err != nil {
+			return fmt.Errorf("assign runners: %w", err)
 		}
 
 		return nil
@@ -298,11 +314,11 @@ func (s *Service) claim(ctx context.Context, dp DataPlane, capacity int) ([]agen
 	launches := make([]*agentproto.Launch, len(batch))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, jitConcurrency)
-	for i, item := range batch {
+	for i, runner := range batch {
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			launches[i] = s.prepareLaunch(ctx, item.runner, item.profile)
+			launches[i] = s.prepareLaunch(ctx, runner)
 		})
 	}
 	wg.Wait()
@@ -320,7 +336,7 @@ func (s *Service) claim(ctx context.Context, dp DataPlane, capacity int) ([]agen
 // prepareLaunch registers the runner with GitHub. On failure the runner is
 // put back in the queue (transient) or finished (permanent), and nil is
 // returned.
-func (s *Service) prepareLaunch(ctx context.Context, runner db.Runner, profile db.Profile) *agentproto.Launch {
+func (s *Service) prepareLaunch(ctx context.Context, runner db.Runner) *agentproto.Launch {
 	log := s.log.With(slog.String("runner", runner.ID.String()), slog.String("repository", runner.RepositoryFullName))
 
 	repo, err := github.ParseRepo(runner.RepositoryFullName)
@@ -329,7 +345,13 @@ func (s *Service) prepareLaunch(ctx context.Context, runner db.Runner, profile d
 
 		return nil
 	}
-	jit, err := s.generateJIT(ctx, runner, repo, profile)
+	spec, err := decodeSpec(runner.Spec)
+	if err != nil {
+		s.failRunner(ctx, runner, err.Error())
+
+		return nil
+	}
+	jit, err := s.generateJIT(ctx, runner, repo)
 	if err != nil {
 		if isPermanent(err) {
 			log.WarnContext(ctx, "github refused to register runner", slog.Any("error", err))
@@ -354,19 +376,12 @@ func (s *Service) prepareLaunch(ctx context.Context, runner db.Runner, profile d
 	}
 
 	return &agentproto.Launch{
-		RunnerID:      runner.ID.String(),
-		RunnerName:    runner.Name,
-		Repository:    runner.RepositoryFullName,
-		JITConfig:     jit.EncodedConfig,
-		RunnerVersion: s.cfg.RunnerVersion,
-		Profile: agentproto.LaunchProfile{
-			Label:        profile.Label,
-			Arch:         profile.Arch,
-			InstanceType: profile.InstanceType,
-			Image:        deref(profile.Image),
-			DiskGB:       int(profile.DiskGb),
-			Spot:         profile.Spot,
-		},
+		RunnerID:           runner.ID.String(),
+		RunnerName:         runner.Name,
+		Repository:         runner.RepositoryFullName,
+		JITConfig:          jit.EncodedConfig,
+		RunnerVersion:      s.cfg.RunnerVersion,
+		Profile:            spec.launchProfile(runner.ProfileLabel),
 		MaxLifetimeSeconds: int(s.cfg.MaxLifetime.Seconds()),
 	}
 }
@@ -374,8 +389,8 @@ func (s *Service) prepareLaunch(ctx context.Context, runner db.Runner, profile d
 // generateJIT registers the runner. A 409 means a registration with this
 // name already exists, which happens when an earlier attempt succeeded at
 // GitHub but its response was lost; remove that one and register again.
-func (s *Service) generateJIT(ctx context.Context, runner db.Runner, repo github.Repo, profile db.Profile) (github.JITConfig, error) {
-	labels := RunnerLabels(profile)
+func (s *Service) generateJIT(ctx context.Context, runner db.Runner, repo github.Repo) (github.JITConfig, error) {
+	labels := runner.Labels
 	jit, err := s.github.GenerateJITConfig(ctx, runner.InstallationID, repo, runner.Name, labels)
 	if github.StatusOf(err) != http.StatusConflict {
 		return jit, err

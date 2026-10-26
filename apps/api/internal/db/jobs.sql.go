@@ -13,7 +13,7 @@ import (
 )
 
 const getJob = `-- name: GetJob :one
-select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, skip_reason, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs where id = $1
+select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs where id = $1
 `
 
 func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
@@ -34,7 +34,10 @@ func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
 		&i.Status,
 		&i.Conclusion,
 		&i.ProfileID,
+		&i.HeadSha,
+		&i.Plan,
 		&i.SkipReason,
+		&i.SkipDetail,
 		&i.RunnerID,
 		&i.RunnerName,
 		&i.QueuedAt,
@@ -104,7 +107,7 @@ func (q *Queries) JobStats(ctx context.Context, arg JobStatsParams) (JobStatsRow
 }
 
 const listJobs = `-- name: ListJobs :many
-select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, skip_reason, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs
+select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs
 where installation_id = $1
     and ($2::timestamptz is null
         or (queued_at, id) < ($2::timestamptz, $3::bigint))
@@ -151,7 +154,10 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 			&i.Status,
 			&i.Conclusion,
 			&i.ProfileID,
+			&i.HeadSha,
+			&i.Plan,
 			&i.SkipReason,
+			&i.SkipDetail,
 			&i.RunnerID,
 			&i.RunnerName,
 			&i.QueuedAt,
@@ -171,7 +177,7 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 }
 
 const listStaleQueuedJobs = `-- name: ListStaleQueuedJobs :many
-select jobs.id, jobs.installation_id, jobs.repository_id, jobs.repository_full_name, jobs.run_id, jobs.run_attempt, jobs.workflow_name, jobs.name, jobs.head_branch, jobs.html_url, jobs.labels, jobs.status, jobs.conclusion, jobs.profile_id, jobs.skip_reason, jobs.runner_id, jobs.runner_name, jobs.queued_at, jobs.started_at, jobs.completed_at, jobs.created_at, jobs.updated_at from (
+select jobs.id, jobs.installation_id, jobs.repository_id, jobs.repository_full_name, jobs.run_id, jobs.run_attempt, jobs.workflow_name, jobs.name, jobs.head_branch, jobs.html_url, jobs.labels, jobs.status, jobs.conclusion, jobs.profile_id, jobs.head_sha, jobs.plan, jobs.skip_reason, jobs.skip_detail, jobs.runner_id, jobs.runner_name, jobs.queued_at, jobs.started_at, jobs.completed_at, jobs.created_at, jobs.updated_at from (
     select jobs.id,
         row_number() over (
             partition by jobs.installation_id
@@ -181,7 +187,7 @@ select jobs.id, jobs.installation_id, jobs.repository_id, jobs.repository_full_n
             ), jobs.updated_at
         ) as rank
     from jobs
-    where jobs.status = 'queued' and jobs.profile_id is not null
+    where jobs.status = 'queued' and jobs.plan is not null
         and jobs.updated_at < $1
 ) as stale
 join jobs on jobs.id = stale.id
@@ -230,7 +236,10 @@ func (q *Queries) ListStaleQueuedJobs(ctx context.Context, arg ListStaleQueuedJo
 			&i.Job.Status,
 			&i.Job.Conclusion,
 			&i.Job.ProfileID,
+			&i.Job.HeadSha,
+			&i.Job.Plan,
 			&i.Job.SkipReason,
+			&i.Job.SkipDetail,
 			&i.Job.RunnerID,
 			&i.Job.RunnerName,
 			&i.Job.QueuedAt,
@@ -247,6 +256,18 @@ func (q *Queries) ListStaleQueuedJobs(ctx context.Context, arg ListStaleQueuedJo
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockJob = `-- name: LockJob :exec
+select id from jobs where id = $1 for update
+`
+
+// Serializes giving one job a runner, so a retry and a webhook cannot both
+// pass the "no live runner yet" check. (Webhooks already hold the row
+// lock from UpsertJob; retries do not.)
+func (q *Queries) LockJob(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, lockJob, id)
+	return err
 }
 
 const setJobRunner = `-- name: SetJobRunner :exec
@@ -276,16 +297,17 @@ func (q *Queries) TouchJob(ctx context.Context, id int64) error {
 const upsertJob = `-- name: UpsertJob :one
 insert into jobs (
     id, installation_id, repository_id, repository_full_name, run_id,
-    run_attempt, workflow_name, name, head_branch, html_url, labels, status,
-    conclusion, profile_id, skip_reason, runner_name, queued_at, started_at, completed_at
+    run_attempt, workflow_name, name, head_branch, head_sha, html_url, labels, status,
+    conclusion, profile_id, plan, skip_reason, skip_detail, runner_name, queued_at, started_at, completed_at
 )
 values (
     $1, $2, $3,
     $4, $5, $6,
-    $7, $8, $9,
-    $10, $11::text[], $12,
-    $13, $14, $15, $16,
-    $17, $18, $19
+    $7, $8, $9, $10,
+    $11, $12::text[], $13,
+    $14, $15, $16, $17,
+    $18, $19,
+    $20, $21, $22
 )
 on conflict (id) do update
 set
@@ -300,10 +322,24 @@ set
     workflow_name = coalesce(excluded.workflow_name, jobs.workflow_name),
     head_branch = coalesce(excluded.head_branch, jobs.head_branch),
     html_url = coalesce(excluded.html_url, jobs.html_url),
-    profile_id = coalesce(jobs.profile_id, excluded.profile_id),
-    skip_reason = case when jobs.profile_id is null then excluded.skip_reason else jobs.skip_reason end,
+    head_sha = coalesce(jobs.head_sha, excluded.head_sha),
+    -- A job is planned once, when first seen queued; later events reuse it.
+    profile_id = case when jobs.plan is null then excluded.profile_id else jobs.profile_id end,
+    plan = coalesce(jobs.plan, excluded.plan),
+    -- A job skipped earlier and planned now (its repository was activated
+    -- since, say) loses the old reason.
+    skip_reason = case
+        when jobs.plan is not null then jobs.skip_reason
+        when excluded.plan is not null then null
+        else coalesce(excluded.skip_reason, jobs.skip_reason)
+    end,
+    skip_detail = case
+        when jobs.plan is not null then jobs.skip_detail
+        when excluded.plan is not null then null
+        else coalesce(excluded.skip_detail, jobs.skip_detail)
+    end,
     updated_at = now()
-returning id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, skip_reason, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at
+returning id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, profile_id, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at
 `
 
 type UpsertJobParams struct {
@@ -316,12 +352,15 @@ type UpsertJobParams struct {
 	WorkflowName       *string
 	Name               string
 	HeadBranch         *string
+	HeadSha            *string
 	HtmlUrl            *string
 	Labels             []string
 	Status             string
 	Conclusion         *string
 	ProfileID          *uuid.UUID
+	Plan               []byte
 	SkipReason         *string
+	SkipDetail         *string
 	RunnerName         *string
 	QueuedAt           time.Time
 	StartedAt          *time.Time
@@ -341,12 +380,15 @@ func (q *Queries) UpsertJob(ctx context.Context, arg UpsertJobParams) (Job, erro
 		arg.WorkflowName,
 		arg.Name,
 		arg.HeadBranch,
+		arg.HeadSha,
 		arg.HtmlUrl,
 		arg.Labels,
 		arg.Status,
 		arg.Conclusion,
 		arg.ProfileID,
+		arg.Plan,
 		arg.SkipReason,
+		arg.SkipDetail,
 		arg.RunnerName,
 		arg.QueuedAt,
 		arg.StartedAt,
@@ -368,7 +410,10 @@ func (q *Queries) UpsertJob(ctx context.Context, arg UpsertJobParams) (Job, erro
 		&i.Status,
 		&i.Conclusion,
 		&i.ProfileID,
+		&i.HeadSha,
+		&i.Plan,
 		&i.SkipReason,
+		&i.SkipDetail,
 		&i.RunnerID,
 		&i.RunnerName,
 		&i.QueuedAt,

@@ -36,3 +36,27 @@ func (unconfiguredGitHub) GetJob(context.Context, int64, github.Repo, int64) (gi
 func (unconfiguredGitHub) GetInstallation(context.Context, int64) (github.Installation, error) {
 	return github.Installation{}, errNoGitHubApp
 }
+
+func (unconfiguredGitHub) GetFile(context.Context, int64, github.Repo, string, string, int) (github.File, bool, error) {
+	return github.File{}, false, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) GetRunAttempt(context.Context, int64, github.Repo, int64, int32) (github.RunAttempt, error) {
+	return github.RunAttempt{}, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) TeamMember(context.Context, int64, string, string, string) (bool, error) {
+	return false, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) RepoRoles(context.Context, int64, github.Repo, string) ([]string, error) {
+	return nil, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) ListRepositories(context.Context, int64) ([]github.Repository, error) {
+	return nil, errNoGitHubApp
+}
+
+func (unconfiguredGitHub) GetRepositoryByID(context.Context, int64, int64) (github.Repository, error) {
+	return github.Repository{}, errNoGitHubApp
+}

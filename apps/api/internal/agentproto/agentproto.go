@@ -9,6 +9,11 @@
 // the next sync, and agent restarts need no local state.
 package agentproto
 
+import (
+	"fmt"
+	"strings"
+)
+
 // ReceivedWindow is how long the agent keeps acknowledging a launch. It
 // must outlast the control plane's lease on an assigned runner.
 const ReceivedWindow = 15 * 60 // seconds
@@ -24,6 +29,9 @@ const MaxWaitSeconds = 25
 type SyncRequest struct {
 	AgentVersion string `doc:"Agent build" json:"agentVersion" maxLength:"64"`
 	Provider     string `doc:"Provider the agent launches runners with" enum:"aws,docker,fake" json:"provider"`
+	// Region is where the provider launches, such as us-east-1. Runner
+	// config files pick data planes by cloud and region.
+	Region string `doc:"Region the provider launches in" json:"region,omitempty" maxLength:"64" pattern:"^[A-Za-z0-9-]*$"`
 	// Instances must be the provider's complete view of live runner
 	// instances for this data plane, or the control plane will conclude
 	// unreported instances are gone.
@@ -94,7 +102,18 @@ type LaunchProfile struct {
 	InstanceType string `doc:"Provider machine type, such as c7i.xlarge" json:"instanceType"`
 	Image        string `doc:"Machine image; empty means the agent's default for the arch" json:"image,omitempty"`
 	DiskGB       int    `doc:"Root disk size in GiB" json:"diskGb"`
-	Spot         bool   `doc:"Use spot or preemptible capacity" json:"spot"`
+	// DiskType, DiskIOPS and DiskThroughput tune EBS; zero means the
+	// provider's default.
+	DiskType       string `doc:"Root volume type (gp3, gp2, io1, io2); empty means gp3" json:"diskType,omitempty"`
+	DiskIOPS       int    `doc:"Provisioned IOPS; 0 means the volume type's default" json:"diskIops,omitempty"`
+	DiskThroughput int    `doc:"gp3 throughput in MiB/s; 0 means the default" json:"diskThroughput,omitempty"`
+	Spot           bool   `doc:"Use spot or preemptible capacity" json:"spot"`
+	// Env is set for every job on the runner. Names and values are
+	// validated by the control plane; providers must still pass them on
+	// without interpreting them as shell.
+	Env map[string]string `doc:"Environment variables for the runner's jobs" json:"env,omitempty"`
+	// Privileged runs a container runner privileged, for docker-in-docker.
+	Privileged bool `doc:"Run the container privileged (Docker provider)" json:"privileged,omitempty"`
 }
 
 // Terminate asks the agent to destroy an instance.
@@ -102,4 +121,40 @@ type Terminate struct {
 	RunnerID   string `doc:"Runner the instance belongs to" format:"uuid" json:"runnerId"`
 	InstanceID string `doc:"Provider's instance ID" json:"instanceId"`
 	Reason     string `doc:"Why the instance should go" json:"reason"`
+}
+
+// CheckEnv is the agent's own check on job environment variables, so a
+// compromised or buggy control plane still cannot reconfigure the runner
+// or smuggle line breaks into files the runner reads.
+func CheckEnv(env map[string]string) error {
+	for name, value := range env {
+		if !validEnvName(name) {
+			return fmt.Errorf("invalid environment variable name %q", name)
+		}
+		upper := strings.ToUpper(name)
+		for _, prefix := range []string{"GITHUB_", "RUNNER_", "ACTIONS_"} {
+			if strings.HasPrefix(upper, prefix) {
+				return fmt.Errorf("environment variable %s is reserved for the runner", name)
+			}
+		}
+		if strings.ContainsAny(value, "\x00\r\n") {
+			return fmt.Errorf("environment variable %s contains a line break", name)
+		}
+	}
+
+	return nil
+}
+
+func validEnvName(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	for i, c := range name {
+		letter := c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+		if !letter && (i == 0 || c < '0' || c > '9') {
+			return false
+		}
+	}
+
+	return true
 }

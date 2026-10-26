@@ -115,6 +115,7 @@ export function DataPlanes() {
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Provider</TableHead>
+              <TableHead className="text-right">Max runners</TableHead>
               <TableHead>Agent</TableHead>
               <TableHead>Token</TableHead>
               <TableHead className="text-right">Last seen</TableHead>
@@ -133,9 +134,21 @@ export function DataPlanes() {
                   <DataPlaneStatus status={plane.status} />
                 </TableCell>
                 <TableCell>
-                  {plane.provider
-                    ? (providerLabel[plane.provider] ?? plane.provider)
-                    : "—"}
+                  <div className="grid gap-0.5">
+                    <span>
+                      {plane.provider
+                        ? (providerLabel[plane.provider] ?? plane.provider)
+                        : "—"}
+                    </span>
+                    {plane.region ? (
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {plane.region}
+                      </span>
+                    ) : null}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums">
+                  {plane.maxRunners}
                 </TableCell>
                 <TableCell className="font-mono text-[11px]">
                   {plane.agentVersion ?? "—"}
@@ -266,6 +279,7 @@ function DataPlaneActions({
   const { org } = useOrg();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState<"rotate" | "delete" | null>(null);
+  const [limiting, setLimiting] = useState(false);
   const path = { params: { path: { id: plane.id, org: org.login } } };
 
   const rotate = $api.useMutation(
@@ -309,6 +323,9 @@ function DataPlaneActions({
           <MoreHorizontal />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setLimiting(true)}>
+            Change runner limit
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setConfirm("rotate")}>
             Rotate token
           </DropdownMenuItem>
@@ -351,7 +368,88 @@ function DataPlaneActions({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <RunnerLimitDialog
+        onOpenChange={setLimiting}
+        open={limiting}
+        plane={plane}
+      />
     </>
+  );
+}
+
+function RunnerLimitDialog({
+  onOpenChange,
+  open,
+  plane,
+}: {
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  plane: Schemas["DataPlane"];
+}) {
+  const { org } = useOrg();
+  const queryClient = useQueryClient();
+  const [value, setValue] = useState(String(plane.maxRunners));
+  const update = $api.useMutation("patch", "/v1/orgs/{org}/data-planes/{id}", {
+    onSuccess: async () => {
+      onOpenChange(false);
+      toast.success(`${plane.name} now runs at most ${value} runners`);
+      await invalidatePath(queryClient, DATA_PLANES);
+    },
+  });
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    update.mutate({
+      body: { maxRunners: Number(value) },
+      params: { path: { id: plane.id, org: org.login } },
+    });
+  };
+
+  return (
+    <Dialog
+      onOpenChange={(next) => {
+        update.reset();
+        setValue(String(plane.maxRunners));
+        onOpenChange(next);
+      }}
+      open={open}
+    >
+      <DialogContent>
+        <form className="grid gap-4" onSubmit={submit}>
+          <DialogHeader>
+            <DialogTitle>Runner limit for {plane.name}</DialogTitle>
+            <DialogDescription>
+              The most runners this data plane runs at once, across profiles,
+              config files and warm pools. Jobs past it wait in the queue.
+            </DialogDescription>
+          </DialogHeader>
+          <Field data-invalid={update.isError || undefined}>
+            <FieldLabel htmlFor={`limit-${plane.id}`}>Max runners</FieldLabel>
+            <Input
+              aria-invalid={update.isError || undefined}
+              id={`limit-${plane.id}`}
+              inputMode="numeric"
+              max={10_000}
+              min={1}
+              onChange={(event) => setValue(event.target.value)}
+              required
+              type="number"
+              value={value}
+            />
+            {update.isError ? (
+              <FieldError>
+                {errorMessage(update.error, "Could not change the limit")}
+              </FieldError>
+            ) : null}
+          </Field>
+          <DialogFooter>
+            <Button disabled={update.isPending} type="submit">
+              {update.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

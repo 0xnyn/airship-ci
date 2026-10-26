@@ -54,6 +54,9 @@ func NewAPI(mux *http.ServeMux, deps Deps) huma.API {
 	// Drop the $schema property and Link header Huma adds to every response;
 	// they leak into the generated TypeScript types without helping callers.
 	cfg.CreateHooks = nil
+	cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"apiToken": {Type: "http", Scheme: "bearer", Description: "Developer API token (asa_...), created by an organization owner in the dashboard."},
+	}
 
 	api := humago.New(mux, cfg)
 
@@ -64,8 +67,8 @@ func NewAPI(mux *http.ServeMux, deps Deps) huma.API {
 		AllowedOrigins: deps.CORSOrigins, Logger: deps.Logger,
 	})
 	console.Register(api, console.Config{
-		Profiles: deps.Fleet,
-		Store:    deps.Queries, Sessions: deps.Sessions, AllowedOrigins: deps.CORSOrigins, PublicURL: deps.PublicURL,
+		Fleet: deps.Fleet,
+		Store: deps.Queries, Sessions: deps.Sessions, AllowedOrigins: deps.CORSOrigins, PublicURL: deps.PublicURL,
 	})
 	agentapi.Register(api, deps.Queries, deps.Fleet)
 

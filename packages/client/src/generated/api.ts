@@ -2,6 +2,24 @@
 // Change the Go handlers in apps/api, then run `pnpm generate`.
 
 export interface paths {
+    "/api/v1/repo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List repositories (Cirun-compatible) */
+        get: operations["cirunListRepositories"];
+        put?: never;
+        /** Activate or deactivate a repository (Cirun-compatible) */
+        post: operations["cirunSetRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -34,6 +52,41 @@ export interface paths {
          */
         post: operations["agentSync"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List repositories */
+        get: operations["apiListRepositories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api/repositories/{name}/activation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Activate a repository */
+        put: operations["apiActivateRepository"];
+        post?: never;
+        /** Deactivate a repository */
+        delete: operations["apiDeactivateRepository"];
         options?: never;
         head?: never;
         patch?: never;
@@ -110,6 +163,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List developer API tokens */
+        get: operations["listApiTokens"];
+        put?: never;
+        /** Create a developer API token */
+        post: operations["createApiToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/api-tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a developer API token */
+        delete: operations["deleteApiToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/data-planes": {
         parameters: {
             query?: never;
@@ -142,7 +230,8 @@ export interface paths {
         delete: operations["deleteDataPlane"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update a data plane */
+        patch: operations["updateDataPlane"];
         trace?: never;
     };
     "/v1/orgs/{org}/data-planes/{id}/rotate-token": {
@@ -196,6 +285,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/pools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List warm pools */
+        get: operations["listPools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/profiles": {
         parameters: {
             query?: never;
@@ -232,6 +338,75 @@ export interface paths {
         patch: operations["updateProfile"];
         trace?: never;
     };
+    "/v1/orgs/{org}/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List repositories and their runner config */
+        get: operations["listRepositories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/repositories/{repo}/activation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Activate a repository's runner config */
+        put: operations["activateRepository"];
+        post?: never;
+        /** Deactivate a repository's runner config */
+        delete: operations["deactivateRepository"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/runner-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the organization's runner config */
+        get: operations["getOrganizationConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/runner-config/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check a runner config file */
+        post: operations["validateRunnerConfig"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/runners": {
         parameters: {
             query?: never;
@@ -253,6 +428,42 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIToken: {
+            /**
+             * Format: date-time
+             * @description When it was created
+             */
+            createdAt: string;
+            /**
+             * Format: uuid
+             * @description Token ID
+             */
+            id: string;
+            /**
+             * Format: date-time
+             * @description When it was last used, to the minute
+             */
+            lastUsedAt: string | null;
+            /** @description What the token is for */
+            name: string;
+            /** @description First characters of the token */
+            tokenHint: string;
+        };
+        APITokenList: {
+            items: components["schemas"]["APIToken"][] | null;
+        };
+        APITokenSecret: {
+            apiToken: components["schemas"]["APIToken"];
+            /** @description The token. Store it now: it cannot be shown again. */
+            token: string;
+        };
+        ActivateRepository: {
+            /**
+             * @description Serve jobs while the repository is public. Public repositories run code from fork pull requests on your machines.
+             * @default false
+             */
+            allowPublic: boolean;
+        };
         AuthConfig: {
             /** @description Whether development sign-in is enabled */
             devSignIn: boolean;
@@ -260,6 +471,48 @@ export interface components {
             githubSignInUrl: string | null;
             /** @description Where to install the GitHub App */
             installUrl: string | null;
+        };
+        ConfigProblem: {
+            /** @description What is wrong */
+            detail: string;
+            /** @description Where in the file, such as runners[0].instance_type */
+            path: string;
+        };
+        ConfigRunner: {
+            /**
+             * @description Where it launches
+             * @enum {string}
+             */
+            cloud: "aws" | "on_prem";
+            /** @description Data plane it is pinned to, if any */
+            dataPlane?: string;
+            /** @description Warm pool summary, if it has one */
+            idle?: string;
+            /** @description runs-on labels it serves */
+            labels: string[] | null;
+            /** @description Machine shapes to try, in fallback order */
+            machines: string[] | null;
+            /** @description Runner name */
+            name: string;
+        };
+        ConfigState: {
+            /**
+             * Format: date-time
+             * @description When it was last read
+             */
+            checkedAt: string | null;
+            /** @description Why the file cannot be used */
+            error: string | null;
+            /** @description Blob SHA of the file; null when there is none */
+            sha: string | null;
+        };
+        ConfigValidation: {
+            /** @description The first problem found */
+            problem: components["schemas"]["ConfigProblem"];
+            /** @description Runner definitions in the file */
+            runners: components["schemas"]["ConfigRunner"][] | null;
+            /** @description Whether the file can be used */
+            valid: boolean;
         };
         Cookie: {
             Domain: string;
@@ -279,6 +532,10 @@ export interface components {
             Secure: boolean;
             Unparsed: string[] | null;
             Value: string;
+        };
+        CreateAPIToken: {
+            /** @description What the token is for */
+            name: string;
         };
         CreateDataPlane: {
             /** @description Name, unique in the organization */
@@ -342,10 +599,17 @@ export interface components {
              * @description When the agent last synced
              */
             lastSeenAt: string | null;
+            /**
+             * Format: int32
+             * @description Most active runners on this data plane at once
+             */
+            maxRunners: number;
             /** @description Name, unique in the organization */
             name: string;
             /** @description Where the agent launches runners */
             provider: string | null;
+            /** @description Region the agent reported, for runner configs */
+            region: string | null;
             /**
              * @description Whether the agent is connected
              * @enum {string}
@@ -467,11 +731,13 @@ export interface components {
             repository: string;
             /** @description Runner GitHub ran the job on */
             runnerName: string | null;
+            /** @description The skip explained, for config file runners */
+            skipDetail: string | null;
             /**
              * @description Why Airship did not run a job that asked for it
              * @enum {string|null}
              */
-            skipReason: "public_repository" | "unsatisfiable_labels" | "ambiguous_labels" | "installation_suspended" | null;
+            skipReason: "public_repository" | "unsatisfiable_labels" | "ambiguous_labels" | "installation_suspended" | "repository_inactive" | "config_invalid" | "access_denied" | "no_data_plane" | null;
             /**
              * Format: date-time
              * @description When it started
@@ -533,12 +799,30 @@ export interface components {
              * @description Root disk size in GiB
              */
             diskGb: number;
+            /**
+             * Format: int64
+             * @description Provisioned IOPS; 0 means the volume type's default
+             */
+            diskIops?: number;
+            /**
+             * Format: int64
+             * @description gp3 throughput in MiB/s; 0 means the default
+             */
+            diskThroughput?: number;
+            /** @description Root volume type (gp3, gp2, io1, io2); empty means gp3 */
+            diskType?: string;
+            /** @description Environment variables for the runner's jobs */
+            env?: {
+                [key: string]: string;
+            };
             /** @description Machine image; empty means the agent's default for the arch */
             image?: string;
             /** @description Provider machine type, such as c7i.xlarge */
             instanceType: string;
             /** @description runs-on label */
             label: string;
+            /** @description Run the container privileged (Docker provider) */
+            privileged?: boolean;
             /** @description Use spot or preemptible capacity */
             spot: boolean;
         };
@@ -572,6 +856,18 @@ export interface components {
              * @enum {string}
              */
             type: "Organization" | "User";
+        };
+        OrganizationRunnerConfig: {
+            /** @description Whether the organization has a .airship.global.yml */
+            found: boolean;
+            /** @description Why the files cannot be used */
+            problem: string | null;
+            /** @description Whether .access.yml limits who can use the runners */
+            restricted: boolean;
+            /** @description Organization runner definitions */
+            runners: components["schemas"]["ConfigRunner"][] | null;
+            /** @description Blob SHA of .airship.global.yml */
+            sha: string | null;
         };
         Overview: {
             /**
@@ -620,6 +916,50 @@ export interface components {
              * @description Jobs that succeeded
              */
             succeeded: number;
+        };
+        Pool: {
+            /**
+             * Format: int64
+             * @description Idle runners the pool wants now
+             */
+            desired: number;
+            /**
+             * Format: uuid
+             * @description Pool ID
+             */
+            id: string;
+            /**
+             * Format: int32
+             * @description Runners waiting for a job
+             */
+            idle: number;
+            /**
+             * @description How the pool's size is decided
+             * @enum {string}
+             */
+            mode: "fixed" | "schedule" | "usage";
+            /** @description Runner definition name */
+            name: string;
+            /** @description Repository whose .airship.yml defines it */
+            repository: string;
+            /**
+             * Format: int32
+             * @description Pool runners that took a job and are not done
+             */
+            taken: number;
+            /**
+             * Format: date-time
+             * @description When the definition last changed
+             */
+            updatedAt: string;
+            /**
+             * Format: date-time
+             * @description Usage-based pools stay warm until this time
+             */
+            warmUntil: string | null;
+        };
+        PoolList: {
+            items: components["schemas"]["Pool"][] | null;
         };
         Profile: {
             /** @description Run jobs from public repositories, including fork pull requests */
@@ -671,6 +1011,35 @@ export interface components {
         ProfileList: {
             items: components["schemas"]["Profile"][] | null;
         };
+        Repository: {
+            /** @description Whether the app can still access the repository */
+            accessible: boolean;
+            /** @description Whether its .airship.yml launches runners */
+            activated: boolean;
+            /**
+             * Format: date-time
+             * @description When it was activated
+             */
+            activatedAt: string | null;
+            /** @description Serve jobs while the repository is public */
+            allowPublic: boolean;
+            /** @description The default branch's .airship.yml as last read */
+            config: components["schemas"]["ConfigState"];
+            /** @description Branch idle runner config is read from */
+            defaultBranch: string;
+            /** @description owner/name */
+            fullName: string;
+            /**
+             * Format: int64
+             * @description GitHub repository ID
+             */
+            id: number;
+            /** @description Whether the repository is private */
+            private: boolean;
+        };
+        RepositoryList: {
+            items: components["schemas"]["Repository"][] | null;
+        };
         Runner: {
             /**
              * Format: date-time
@@ -703,9 +1072,13 @@ export interface components {
             id: string;
             /** @description Provider instance ID */
             instanceId: string | null;
+            /** @description Machine type it launched as */
+            instanceType: string;
+            /** @description Labels it registered with */
+            labels: string[] | null;
             /** @description Name registered with GitHub */
             name: string;
-            /** @description Profile label */
+            /** @description Profile label, or config runner name */
             profileLabel: string;
             /** @description Repository the runner is registered to */
             repository: string;
@@ -715,10 +1088,17 @@ export interface components {
              */
             runningAt: string | null;
             /**
+             * @description What defined the runner
+             * @enum {string}
+             */
+            source: "profile" | "repository" | "organization";
+            /**
              * @description Lifecycle state
              * @enum {string}
              */
             state: "pending" | "assigned" | "running" | "busy" | "finished";
+            /** @description Whether it was started ahead of demand by a warm pool */
+            warm: boolean;
         };
         RunnerCounts: {
             /**
@@ -747,6 +1127,12 @@ export interface components {
             /** @description Pass as cursor to get the next page */
             nextCursor: string | null;
         };
+        SetRepository: {
+            /** @description true activates, false deactivates */
+            active: boolean;
+            /** @description owner/name, or just the name */
+            repository: string;
+        };
         SyncRequest: {
             /** @description Agent build */
             agentVersion: string;
@@ -768,6 +1154,8 @@ export interface components {
             provider: "aws" | "docker" | "fake";
             /** @description Runner IDs received in launches recently */
             received?: string[] | null;
+            /** @description Region the provider launches in */
+            region?: string;
             /**
              * Format: int64
              * @description Seconds to hold the request open when there is no work
@@ -796,6 +1184,13 @@ export interface components {
              */
             runnerId: string;
         };
+        UpdateDataPlane: {
+            /**
+             * Format: int32
+             * @description Most active runners on this data plane at once, across profiles and config files
+             */
+            maxRunners: number;
+        };
         UpdateProfile: {
             /** @description Run jobs from public repositories */
             allowPublicRepos?: boolean;
@@ -816,6 +1211,15 @@ export interface components {
             /** @description Use spot capacity */
             spot?: boolean;
         };
+        ValidateConfig: {
+            /** @description The file's content */
+            content: string;
+            /**
+             * @description Which file this is
+             * @enum {string}
+             */
+            file: ".airship.yml" | ".airship.global.yml" | ".access.yml";
+        };
     };
     responses: never;
     parameters: never;
@@ -825,6 +1229,68 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    cirunListRepositories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    cirunSetRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRepository"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Repository"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -878,6 +1344,101 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SyncResponse"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    apiListRepositories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    apiActivateRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Repository name, without the owner */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivateRepository"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Repository"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    apiDeactivateRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Repository name, without the owner */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -1006,6 +1567,105 @@ export interface operations {
             };
         };
     };
+    listApiTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APITokenList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAPIToken"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APITokenSecret"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+                /** @description Resource ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     listDataPlanes: {
         parameters: {
             query?: never;
@@ -1093,6 +1753,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateDataPlane: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDataPlane"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataPlane"];
+                };
             };
             /** @description Error */
             default: {
@@ -1196,6 +1892,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Overview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listPools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolList"];
                 };
             };
             /** @description Error */
@@ -1331,6 +2059,173 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listRepositories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    activateRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+                repo: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivateRepository"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Repository"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deactivateRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+                /** @description GitHub repository ID */
+                repo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getOrganizationConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationRunnerConfig"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    validateRunnerConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidateConfig"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigValidation"];
                 };
             };
             /** @description Error */

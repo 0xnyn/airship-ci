@@ -25,6 +25,8 @@ const maxPayloadBytes = 25 << 20
 type Handler interface {
 	HandleWorkflowJob(ctx context.Context, event github.WorkflowJobEvent) error
 	HandleInstallation(ctx context.Context, event github.InstallationEvent) error
+	HandlePush(ctx context.Context, event github.PushEvent) error
+	HandleRepository(ctx context.Context, event github.RepositoryEvent) error
 }
 
 // New returns the webhook endpoint. Requests with a missing or wrong
@@ -85,6 +87,20 @@ func dispatch(ctx context.Context, handler Handler, event string, body []byte) e
 		}
 
 		return handler.HandleInstallation(ctx, payload) //nolint:wrapcheck // logged with context above
+	case "push":
+		var payload github.PushEvent
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return errMalformed
+		}
+
+		return handler.HandlePush(ctx, payload) //nolint:wrapcheck // logged with context above
+	case "repository":
+		var payload github.RepositoryEvent
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return errMalformed
+		}
+
+		return handler.HandleRepository(ctx, payload) //nolint:wrapcheck // logged with context above
 	default:
 		// ping, installation_repositories and anything else Airship does not
 		// act on.

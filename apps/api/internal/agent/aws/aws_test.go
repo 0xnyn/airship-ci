@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -236,5 +239,69 @@ func TestRepeatedLaunchSendsTheSameRequest(t *testing.T) {
 	}
 	if len(subnets) != 3 {
 		t.Fatalf("30 runners landed in %d of 3 subnets", len(subnets))
+	}
+}
+
+// Job variables reach the runner's .env byte for byte, and nothing in
+// them is ever evaluated by the boot script's shell.
+func TestUserDataEnvIsInert(t *testing.T) {
+	t.Parallel()
+	launch := testLaunch()
+	launch.Profile.Env = map[string]string{"GREETING": "hello world", "TRICKY": `$(touch pwned)'"` + "`id`"}
+	encoded, err := userData(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := base64.StdEncoding.DecodeString(encoded)
+	script := string(raw)
+	if strings.Contains(script, "pwned") {
+		t.Fatal("a variable's value appears in the script as text")
+	}
+
+	// Run the script's .env line for real against a scratch directory.
+	var line string
+	for l := range strings.SplitSeq(script, "\n") {
+		if strings.Contains(l, "/.env") {
+			line = l
+		}
+	}
+	dir := t.TempDir()
+	cmd := exec.CommandContext(context.Background(), "bash", "-c", "set -euo pipefail; RUNNER_DIR=.; "+line)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s: %v: %s", line, err, out)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "GREETING=hello world\nTRICKY=" + launch.Profile.Env["TRICKY"] + "\n"; string(got) != want {
+		t.Fatalf(".env = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pwned")); err == nil {
+		t.Fatal("a variable's value was executed")
+	}
+
+	if out, err := exec.CommandContext(context.Background(), "bash", "-n", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("boot script does not parse: %v: %s", err, out)
+	}
+
+	for _, bad := range []map[string]string{{"RUNNER_TOKEN": "x"}, {"OK": "a\nb"}, {"1BAD": "x"}} {
+		launch.Profile.Env = bad
+		if _, err := userData(launch); err == nil {
+			t.Errorf("env %v accepted", bad)
+		}
+	}
+}
+
+func TestRootVolumeTuning(t *testing.T) {
+	t.Parallel()
+	ebs := rootVolume(agentproto.LaunchProfile{DiskGB: 200, DiskType: "io2", DiskIOPS: 8000})
+	if ebs.VolumeType != ec2types.VolumeTypeIo2 || awssdk.ToInt32(ebs.Iops) != 8000 || ebs.Throughput != nil || !awssdk.ToBool(ebs.Encrypted) {
+		t.Fatalf("io2 volume = %+v", ebs)
+	}
+	ebs = rootVolume(agentproto.LaunchProfile{DiskGB: 50, DiskThroughput: 500})
+	if ebs.VolumeType != ec2types.VolumeTypeGp3 || awssdk.ToInt32(ebs.Throughput) != 500 || ebs.Iops != nil {
+		t.Fatalf("gp3 volume = %+v", ebs)
 	}
 }

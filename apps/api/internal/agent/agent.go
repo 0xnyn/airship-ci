@@ -66,6 +66,9 @@ type Config struct {
 	Parallelism int
 	// Version is reported to the control plane.
 	Version string
+	// Region is where the provider launches, reported so runner configs
+	// can pick this data plane by region.
+	Region string
 }
 
 // Agent runs the sync loop.
@@ -133,6 +136,7 @@ func (a *Agent) Step(ctx context.Context, wait int) (bool, error) {
 	req := agentproto.SyncRequest{
 		AgentVersion: a.cfg.Version,
 		Provider:     a.provider.Name(),
+		Region:       a.cfg.Region,
 		Instances:    []agentproto.Instance{},
 		Failures:     a.failures,
 		Capacity:     a.cfg.Capacity,

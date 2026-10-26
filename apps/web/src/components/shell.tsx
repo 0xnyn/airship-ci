@@ -22,6 +22,7 @@ import {
   Activity,
   ChevronsUpDown,
   Cpu,
+  FileCode,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -46,6 +47,7 @@ const sections = [
   { href: "/jobs", icon: ListChecks, label: "Jobs" },
   { href: "/runners", icon: Activity, label: "Runners" },
   { href: "/profiles", icon: Cpu, label: "Profiles" },
+  { href: "/config", icon: FileCode, label: "Runner config" },
   { href: "/data-planes", icon: Server, label: "Data planes" },
 ] as const;
 

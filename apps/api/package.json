@@ -1,0 +1,19 @@
+{
+  "name": "@airship/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Go HTTP API. Its OpenAPI document is the source of truth for @airship/client.",
+  "scripts": {
+    "build": "go build -trimpath -ldflags=\"-s -w\" -o bin/ ./cmd/...",
+    "db:migrate": "go run ./cmd/migrate up",
+    "db:new": "go tool -modfile=tools/go.mod goose -s -dir migrations create",
+    "db:rollback": "go run ./cmd/migrate down",
+    "db:status": "go run ./cmd/migrate status",
+    "dev": "go tool -modfile=tools/go.mod air",
+    "format": "go tool -modfile=tools/go.mod golangci-lint fmt ./...",
+    "generate": "go tool -modfile=tools/go.mod sqlc generate && go run ./cmd/openapi -o openapi.json",
+    "lint": "go tool -modfile=tools/go.mod golangci-lint run ./...",
+    "test": "go test -race ./...",
+    "typecheck": "go vet ./..."
+  }
+}

@@ -1,0 +1,482 @@
+// Package fakegithub is an in-memory GitHub for tests. It implements the
+// endpoints Airship calls, checks app JWTs against the app's real key, and
+// lets tests script failures.
+package fakegithub
+
+import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/wizenheimer/airship/apps/api/internal/github"
+)
+
+// ClientID is the fake app's client ID.
+const ClientID = "Iv1.fake"
+
+// Server is a fake GitHub API.
+type Server struct {
+	*httptest.Server
+
+	key *rsa.PrivateKey
+
+	mu            sync.Mutex
+	installations map[int64]github.Installation
+	runners       map[int64]*Runner
+	nextRunnerID  int64
+	jobs          map[int64]github.WorkflowJob
+	failures      map[string][]int
+	deliveries    []github.HookDelivery
+	redelivered   []int64
+	calls         map[string]int
+	users         map[string]userGrant
+	orgRoles      map[string]string
+}
+
+// Runner is a registration created through generate-jitconfig.
+type Runner struct {
+	ID     int64
+	Repo   string
+	Name   string
+	Labels []string
+	Busy   bool
+	// JITConfig is the opaque config handed out for this runner.
+	JITConfig string
+}
+
+type userGrant struct {
+	user          github.User
+	installations []int64
+}
+
+// New starts a fake GitHub.
+func New(t *testing.T) *Server {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	s := &Server{
+		key:           key,
+		installations: map[int64]github.Installation{},
+		runners:       map[int64]*Runner{},
+		nextRunnerID:  1000,
+		jobs:          map[int64]github.WorkflowJob{},
+		failures:      map[string][]int{},
+		calls:         map[string]int{},
+		users:         map[string]userGrant{},
+		orgRoles:      map[string]string{},
+	}
+	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
+	t.Cleanup(s.Close)
+
+	return s
+}
+
+// PrivateKeyPEM is the app key Airship should be configured with.
+func (s *Server) PrivateKeyPEM() []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(s.key)})
+}
+
+// App returns a real github.App client pointed at the fake.
+func (s *Server) App(t *testing.T) *github.App {
+	t.Helper()
+	app, err := github.NewApp(github.AppConfig{ClientID: ClientID, PrivateKeyPEM: s.PrivateKeyPEM(), APIURL: s.URL})
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+
+	return app
+}
+
+// AddInstallation registers an installation of the app.
+func (s *Server) AddInstallation(inst github.Installation) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.installations[inst.ID] = inst
+}
+
+// SetJob sets what GET /repos/.../actions/jobs/{id} returns.
+func (s *Server) SetJob(job github.WorkflowJob) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.jobs[job.ID] = job
+}
+
+// RetryAfterSeconds is what scripted 429 responses ask clients to wait.
+const RetryAfterSeconds = 60
+
+// FailNext makes the next calls to a route ("POST generate-jitconfig",
+// "GET runner", "DELETE runner", "GET job", "GET membership") answer with
+// these statuses.
+func (s *Server) FailNext(route string, statuses ...int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failures[route] = append(s.failures[route], statuses...)
+}
+
+// Calls returns how many times a route was hit.
+func (s *Server) Calls(route string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.calls[route]
+}
+
+// Runners returns a snapshot of registered runners.
+func (s *Server) Runners() []Runner {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Runner, 0, len(s.runners))
+	for _, runner := range s.runners {
+		out = append(out, *runner)
+	}
+
+	return out
+}
+
+// RunnerByJIT finds the registration a JIT config belongs to, as a real
+// runner would when it connects.
+func (s *Server) RunnerByJIT(config string) (Runner, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, runner := range s.runners {
+		if runner.JITConfig == config {
+			return *runner, true
+		}
+	}
+
+	return Runner{}, false
+}
+
+// SetRunnerBusy marks a runner busy, as when it accepts a job.
+func (s *Server) SetRunnerBusy(id int64, busy bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if runner, ok := s.runners[id]; ok {
+		runner.Busy = busy
+	}
+}
+
+// RemoveRunner deletes a registration, as GitHub does after an ephemeral
+// runner's job.
+func (s *Server) RemoveRunner(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.runners, id)
+}
+
+// AddDelivery appends to the app's webhook delivery log.
+func (s *Server) AddDelivery(delivery github.HookDelivery) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deliveries = append([]github.HookDelivery{delivery}, s.deliveries...)
+}
+
+// Redelivered lists delivery ids Airship asked to resend.
+func (s *Server) Redelivered() []int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]int64(nil), s.redelivered...)
+}
+
+// SetOrgRole sets a user's organization role ("admin" or "member"); ""
+// removes them from the organization.
+func (s *Server) SetOrgRole(org, login, role string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if role == "" {
+		delete(s.orgRoles, org+"/"+login)
+
+		return
+	}
+	s.orgRoles[org+"/"+login] = role
+}
+
+// AddUser lets an OAuth code sign in as user, with access to installations.
+func (s *Server) AddUser(code string, user github.User, installations ...int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.users[code] = userGrant{user: user, installations: installations}
+}
+
+func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+
+	switch {
+	case r.Method == http.MethodPost && path == "/login/oauth/access_token":
+		s.oauthToken(w, r)
+	case r.Method == http.MethodGet && path == "/user":
+		s.withUser(w, r, func(grant userGrant) { writeJSON(w, http.StatusOK, grant.user) })
+	case r.Method == http.MethodGet && path == "/user/installations":
+		s.withUser(w, r, func(grant userGrant) { s.userInstallations(w, grant) })
+	case len(parts) >= 2 && parts[0] == "app":
+		if !s.checkJWT(w, r) {
+			return
+		}
+		s.serveApp(w, r, parts)
+	case r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "orgs" && parts[2] == "memberships":
+		s.mu.Lock()
+		s.calls["GET membership"]++
+		if queue := s.failures["GET membership"]; len(queue) > 0 {
+			s.failures["GET membership"] = queue[1:]
+			s.mu.Unlock()
+			writeJSON(w, queue[0], map[string]string{"message": "scripted failure"})
+
+			return
+		}
+		role, ok := s.orgRoles[parts[1]+"/"+parts[3]]
+		s.mu.Unlock()
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"role": role, "state": "active"})
+	case len(parts) >= 5 && parts[0] == "repos" && parts[3] == "actions":
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "token ghs_") {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Bad credentials"})
+
+			return
+		}
+		s.serveRepo(w, r, parts[1]+"/"+parts[2], parts[4:])
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+	}
+}
+
+func (s *Server) serveApp(w http.ResponseWriter, r *http.Request, parts []string) {
+	switch {
+	case r.Method == http.MethodPost && len(parts) == 4 && parts[1] == "installations" && parts[3] == "access_tokens":
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"token":      "ghs_" + parts[2],
+			"expires_at": time.Now().Add(time.Hour),
+		})
+	case r.Method == http.MethodGet && len(parts) == 3 && parts[1] == "installations":
+		id, _ := strconv.ParseInt(parts[2], 10, 64)
+		s.mu.Lock()
+		inst, ok := s.installations[id]
+		s.mu.Unlock()
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+			return
+		}
+		writeJSON(w, http.StatusOK, inst)
+	case r.Method == http.MethodGet && len(parts) == 3 && parts[1] == "hook" && parts[2] == "deliveries":
+		s.mu.Lock()
+		out := append([]github.HookDelivery(nil), s.deliveries...)
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, out)
+	case r.Method == http.MethodPost && len(parts) == 5 && parts[1] == "hook" && parts[4] == "attempts":
+		id, _ := strconv.ParseInt(parts[3], 10, 64)
+		s.mu.Lock()
+		s.redelivered = append(s.redelivered, id)
+		s.mu.Unlock()
+		writeJSON(w, http.StatusAccepted, map[string]any{})
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+	}
+}
+
+func (s *Server) serveRepo(w http.ResponseWriter, r *http.Request, repo string, rest []string) {
+	route := ""
+	switch {
+	case r.Method == http.MethodPost && len(rest) == 2 && rest[0] == "runners" && rest[1] == "generate-jitconfig":
+		route = "POST generate-jitconfig"
+	case r.Method == http.MethodGet && len(rest) == 1 && rest[0] == "runners":
+		route = "GET runners"
+	case r.Method == http.MethodGet && len(rest) == 2 && rest[0] == "runners":
+		route = "GET runner"
+	case r.Method == http.MethodDelete && len(rest) == 2 && rest[0] == "runners":
+		route = "DELETE runner"
+	case r.Method == http.MethodGet && len(rest) == 2 && rest[0] == "jobs":
+		route = "GET job"
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+		return
+	}
+
+	s.mu.Lock()
+	s.calls[route]++
+	if queue := s.failures[route]; len(queue) > 0 {
+		status := queue[0]
+		s.failures[route] = queue[1:]
+		s.mu.Unlock()
+		if status == http.StatusTooManyRequests {
+			// GitHub's secondary rate limit asks clients to wait.
+			w.Header().Set("Retry-After", strconv.Itoa(RetryAfterSeconds))
+		}
+		writeJSON(w, status, map[string]string{"message": "scripted failure"})
+
+		return
+	}
+	defer s.mu.Unlock()
+
+	switch route {
+	case "POST generate-jitconfig":
+		var body struct {
+			Name   string   `json:"name"`
+			Labels []string `json:"labels"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || len(body.Labels) == 0 {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "invalid"})
+
+			return
+		}
+		for _, existing := range s.runners {
+			if existing.Repo == repo && existing.Name == body.Name {
+				writeJSON(w, http.StatusConflict, map[string]string{"message": "Already exists"})
+
+				return
+			}
+		}
+		s.nextRunnerID++
+		runner := &Runner{
+			ID: s.nextRunnerID, Repo: repo, Name: body.Name, Labels: body.Labels,
+			JITConfig: base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "jit:%s:%d", body.Name, s.nextRunnerID)),
+		}
+		s.runners[runner.ID] = runner
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"runner":             map[string]any{"id": runner.ID, "name": runner.Name, "status": "offline", "busy": false},
+			"encoded_jit_config": runner.JITConfig,
+		})
+	case "GET runners":
+		name := r.URL.Query().Get("name")
+		out := []map[string]any{}
+		for _, runner := range s.runners {
+			if runner.Repo == repo && (name == "" || runner.Name == name) {
+				out = append(out, map[string]any{"id": runner.ID, "name": runner.Name, "busy": runner.Busy})
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "runners": out})
+	case "GET runner", "DELETE runner":
+		id, _ := strconv.ParseInt(rest[1], 10, 64)
+		runner, ok := s.runners[id]
+		if !ok || runner.Repo != repo {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+			return
+		}
+		if route == "GET runner" {
+			writeJSON(w, http.StatusOK, map[string]any{"id": runner.ID, "name": runner.Name, "busy": runner.Busy})
+
+			return
+		}
+		if runner.Busy {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "Runner is still running a job"})
+
+			return
+		}
+		delete(s.runners, id)
+		w.WriteHeader(http.StatusNoContent)
+	case "GET job":
+		id, _ := strconv.ParseInt(rest[1], 10, 64)
+		job, ok := s.jobs[id]
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+
+			return
+		}
+		writeJSON(w, http.StatusOK, job)
+	}
+}
+
+func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_request"})
+
+		return
+	}
+	code := r.PostForm.Get("code")
+	s.mu.Lock()
+	_, ok := s.users[code]
+	s.mu.Unlock()
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]string{"error": "bad_verification_code", "error_description": "bad code"})
+
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"access_token": "ghu_" + code, "token_type": "bearer"})
+}
+
+func (s *Server) withUser(w http.ResponseWriter, r *http.Request, fn func(userGrant)) {
+	code, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ghu_")
+	s.mu.Lock()
+	grant, found := s.users[code]
+	s.mu.Unlock()
+	if !ok || !found {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Bad credentials"})
+
+		return
+	}
+	fn(grant)
+}
+
+func (s *Server) userInstallations(w http.ResponseWriter, grant userGrant) {
+	s.mu.Lock()
+	out := []github.Installation{}
+	for _, id := range grant.installations {
+		if inst, ok := s.installations[id]; ok {
+			out = append(out, inst)
+		}
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "installations": out})
+}
+
+// checkJWT verifies the app JWT's RS256 signature, issuer and lifetime, the
+// way GitHub does.
+func (s *Server) checkJWT(w http.ResponseWriter, r *http.Request) bool {
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	parts := strings.Split(token, ".")
+	if !ok || len(parts) != 3 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "A JSON web token could not be decoded"})
+
+		return false
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	if err != nil || rsa.VerifyPKCS1v15(&s.key.PublicKey, crypto.SHA256, digest[:], sig) != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "bad signature"})
+
+		return false
+	}
+	raw, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	var claims struct {
+		Iss string `json:"iss"`
+		Iat int64  `json:"iat"`
+		Exp int64  `json:"exp"`
+	}
+	if json.Unmarshal(raw, &claims) != nil || claims.Iss != ClientID ||
+		claims.Exp-claims.Iat > 600 || time.Now().Unix() > claims.Exp || claims.Iat > time.Now().Unix() {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "bad claims"})
+
+		return false
+	}
+
+	return true
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}

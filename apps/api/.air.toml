@@ -1,0 +1,20 @@
+# Hot reload for `pnpm dev`. Each rebuild also refreshes openapi.json, which
+# the @airship/client dev task turns into TypeScript types, so a Go change
+# reaches the web app's types without a manual step.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/api ./cmd/api && go run ./cmd/openapi -o openapi.json"
+  entrypoint = ["./tmp/api"]
+  include_ext = ["go", "sql"]
+  exclude_dir = ["bin", "tmp", "tools"]
+  exclude_regex = ["_test\\.go$"]
+  delay = 300
+  stop_on_error = true
+
+[log]
+  main_only = true
+
+[misc]
+  clean_on_exit = true

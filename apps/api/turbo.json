@@ -1,0 +1,30 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "generate": {
+      "inputs": [
+        "**/*.go",
+        "**/*.sql",
+        "sqlc.yaml",
+        "go.mod",
+        "go.sum",
+        "!internal/db/*.go"
+      ],
+      "outputs": ["internal/db/*.go", "openapi.json"]
+    },
+    "build": {
+      "inputs": ["**/*.go", "migrations/*.sql", "go.mod", "go.sum"],
+      "outputs": ["bin/**"]
+    },
+    "lint": {
+      "inputs": ["**/*.go", ".golangci.yml", "go.mod", "go.sum"]
+    },
+    "typecheck": {
+      "inputs": ["**/*.go", "go.mod", "go.sum"]
+    },
+    "test": {
+      "inputs": ["**/*.go", "**/*.sql", "go.mod", "go.sum"]
+    }
+  }
+}

@@ -1,0 +1,56 @@
+version: "2"
+
+run:
+  modules-download-mode: readonly
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - exhaustive
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - perfsprint
+    - revive
+    - sloglint
+    - unconvert
+    - usestdlibvars
+    - wrapcheck
+  settings:
+    revive:
+      rules:
+        # Huma names OpenAPI schemas after Go types, so names such as
+        # project.ProjectList are deliberate: they become ProjectList in TS.
+        - name: exported
+          arguments: [disableStutteringCheck]
+        - name: package-comments
+        - name: var-naming
+    sloglint:
+      attr-only: true
+    wrapcheck:
+      ignore-sig-regexps:
+        - huma/v2\.Error\d+
+        - \.Write\(
+      ignore-package-globs:
+        - github.com/wizenheimer/airship/apps/api/*
+  exclusions:
+    generated: strict
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [bodyclose, gosec, wrapcheck]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/wizenheimer/airship/apps/api

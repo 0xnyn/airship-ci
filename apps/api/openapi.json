@@ -1,0 +1,2126 @@
+{
+  "components": {
+    "schemas": {
+      "AuthConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "devSignIn": {
+            "description": "Whether development sign-in is enabled",
+            "type": "boolean"
+          },
+          "githubSignInUrl": {
+            "description": "Where to send the browser to sign in with GitHub",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installUrl": {
+            "description": "Where to install the GitHub App",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "githubSignInUrl",
+          "installUrl",
+          "devSignIn"
+        ],
+        "type": "object"
+      },
+      "Cookie": {
+        "additionalProperties": false,
+        "properties": {
+          "Domain": {
+            "type": "string"
+          },
+          "Expires": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "HttpOnly": {
+            "type": "boolean"
+          },
+          "MaxAge": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "Name": {
+            "type": "string"
+          },
+          "Partitioned": {
+            "type": "boolean"
+          },
+          "Path": {
+            "type": "string"
+          },
+          "Quoted": {
+            "type": "boolean"
+          },
+          "Raw": {
+            "type": "string"
+          },
+          "RawExpires": {
+            "type": "string"
+          },
+          "SameSite": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "Secure": {
+            "type": "boolean"
+          },
+          "Unparsed": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "Value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Name",
+          "Value",
+          "Quoted",
+          "Path",
+          "Domain",
+          "Expires",
+          "RawExpires",
+          "MaxAge",
+          "Secure",
+          "HttpOnly",
+          "SameSite",
+          "Partitioned",
+          "Raw",
+          "Unparsed"
+        ],
+        "type": "object"
+      },
+      "CreateDataPlane": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Name, unique in the organization",
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "CreateProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPublicRepos": {
+            "default": false,
+            "description": "Run jobs from public repositories, including fork pull requests",
+            "type": "boolean"
+          },
+          "arch": {
+            "description": "CPU architecture",
+            "enum": [
+              "x64",
+              "arm64"
+            ],
+            "type": "string"
+          },
+          "dataPlaneId": {
+            "description": "Data plane that launches the runners",
+            "format": "uuid",
+            "type": "string"
+          },
+          "diskGb": {
+            "default": 75,
+            "description": "Root disk size in GiB",
+            "format": "int32",
+            "maximum": 16384,
+            "minimum": 8,
+            "type": "integer"
+          },
+          "image": {
+            "description": "Machine image; omit to use the agent's default",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "instanceType": {
+            "description": "Machine type, such as c7i.xlarge",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+            "type": "string"
+          },
+          "label": {
+            "description": "runs-on label; lowercase letters, digits, '.', '_' and '-'",
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "type": "string"
+          },
+          "maxRunners": {
+            "default": 20,
+            "description": "Most runners of this profile at once",
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "spot": {
+            "default": false,
+            "description": "Use spot capacity",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "dataPlaneId",
+          "arch",
+          "instanceType"
+        ],
+        "type": "object"
+      },
+      "DataPlane": {
+        "additionalProperties": false,
+        "properties": {
+          "agentVersion": {
+            "description": "Agent build last seen",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "description": "When the data plane was created",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Data plane ID",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "description": "When the agent last synced",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Name, unique in the organization",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Where the agent launches runners",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Whether the agent is connected",
+            "enum": [
+              "online",
+              "offline",
+              "pending"
+            ],
+            "type": "string"
+          },
+          "tokenHint": {
+            "description": "First characters of the agent token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "tokenHint",
+          "agentVersion",
+          "provider",
+          "lastSeenAt",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "DataPlaneCredentials": {
+        "additionalProperties": false,
+        "properties": {
+          "controlPlaneUrl": {
+            "description": "URL the agent connects to",
+            "type": "string"
+          },
+          "dataPlane": {
+            "$ref": "#/components/schemas/DataPlane"
+          },
+          "token": {
+            "description": "Agent token. Store it now: it cannot be shown again.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataPlane",
+          "token",
+          "controlPlaneUrl"
+        ],
+        "type": "object"
+      },
+      "DataPlaneList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DataPlane"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "description": "Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'",
+            "type": "string"
+          },
+          "message": {
+            "description": "Error message text",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value at the given location"
+          }
+        },
+        "type": "object"
+      },
+      "ErrorModel": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "description": "A human-readable explanation specific to this occurrence of the problem.",
+            "examples": [
+              "Property foo is required but is missing."
+            ],
+            "type": "string"
+          },
+          "errors": {
+            "description": "Optional list of individual error details",
+            "items": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instance": {
+            "description": "A URI reference that identifies the specific occurrence of the problem.",
+            "examples": [
+              "https://example.com/error-log/abc123"
+            ],
+            "format": "uri",
+            "type": "string"
+          },
+          "status": {
+            "description": "HTTP status code",
+            "examples": [
+              400
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "A short, human-readable summary of the problem type. This value should not change between occurrences of the error.",
+            "examples": [
+              "Bad Request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "default": "about:blank",
+            "description": "A URI reference to human-readable documentation for the error.",
+            "examples": [
+              "https://example.com/errors/example"
+            ],
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "HealthStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "database": {
+            "description": "Database status",
+            "enum": [
+              "ok",
+              "down"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "description": "Overall status",
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "Running api build",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "database",
+          "version"
+        ],
+        "type": "object"
+      },
+      "Instance": {
+        "additionalProperties": false,
+        "properties": {
+          "instanceId": {
+            "description": "Provider's instance ID",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "runnerId": {
+            "description": "Airship runner ID the instance was launched for",
+            "format": "uuid",
+            "type": "string"
+          },
+          "stopping": {
+            "description": "The instance is already shutting down",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "runnerId",
+          "instanceId"
+        ],
+        "type": "object"
+      },
+      "Job": {
+        "additionalProperties": false,
+        "properties": {
+          "completedAt": {
+            "description": "When it completed",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conclusion": {
+            "description": "Result once completed",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headBranch": {
+            "description": "Branch the job ran for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "htmlUrl": {
+            "description": "Link to the job on GitHub",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "GitHub job ID",
+            "format": "int64",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "runs-on labels",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Job name",
+            "type": "string"
+          },
+          "onAirship": {
+            "description": "Whether the job ran on an Airship runner",
+            "type": "boolean"
+          },
+          "profileId": {
+            "description": "Profile that served the job, if any",
+            "format": "uuid",
+            "type": "string"
+          },
+          "queuedAt": {
+            "description": "When the job was queued",
+            "format": "date-time",
+            "type": "string"
+          },
+          "repository": {
+            "description": "Repository (owner/name)",
+            "type": "string"
+          },
+          "runnerName": {
+            "description": "Runner GitHub ran the job on",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skipReason": {
+            "description": "Why Airship did not run a job that asked for it",
+            "enum": [
+              "public_repository",
+              "unsatisfiable_labels",
+              "ambiguous_labels",
+              "installation_suspended"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAt": {
+            "description": "When it started",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Job status",
+            "enum": [
+              "queued",
+              "in_progress",
+              "completed"
+            ],
+            "type": "string"
+          },
+          "workflowName": {
+            "description": "Workflow name",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "repository",
+          "workflowName",
+          "name",
+          "headBranch",
+          "htmlUrl",
+          "labels",
+          "status",
+          "conclusion",
+          "profileId",
+          "skipReason",
+          "runnerName",
+          "onAirship",
+          "queuedAt",
+          "startedAt",
+          "completedAt"
+        ],
+        "type": "object"
+      },
+      "JobList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Pass as cursor to get the next page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "Launch": {
+        "additionalProperties": false,
+        "properties": {
+          "jitConfig": {
+            "description": "Single-use GitHub runner registration. Treat as a secret.",
+            "type": "string"
+          },
+          "maxLifetimeSeconds": {
+            "description": "Hard deadline after which the instance powers itself off",
+            "format": "int64",
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/LaunchProfile"
+          },
+          "repository": {
+            "description": "Repository the runner is registered to (owner/name)",
+            "type": "string"
+          },
+          "runnerId": {
+            "description": "Airship runner ID; tag the instance with it",
+            "format": "uuid",
+            "type": "string"
+          },
+          "runnerName": {
+            "description": "GitHub runner name",
+            "type": "string"
+          },
+          "runnerVersion": {
+            "description": "actions/runner version to run",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runnerId",
+          "runnerName",
+          "repository",
+          "jitConfig",
+          "runnerVersion",
+          "profile",
+          "maxLifetimeSeconds"
+        ],
+        "type": "object"
+      },
+      "LaunchFailure": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "description": "Provider error, shown to the customer",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "retryable": {
+            "description": "Whether launching again could succeed",
+            "type": "boolean"
+          },
+          "runnerId": {
+            "description": "Runner the launch was for",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runnerId",
+          "error",
+          "retryable"
+        ],
+        "type": "object"
+      },
+      "LaunchProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "description": "CPU architecture",
+            "enum": [
+              "x64",
+              "arm64"
+            ],
+            "type": "string"
+          },
+          "diskGb": {
+            "description": "Root disk size in GiB",
+            "format": "int64",
+            "type": "integer"
+          },
+          "image": {
+            "description": "Machine image; empty means the agent's default for the arch",
+            "type": "string"
+          },
+          "instanceType": {
+            "description": "Provider machine type, such as c7i.xlarge",
+            "type": "string"
+          },
+          "label": {
+            "description": "runs-on label",
+            "type": "string"
+          },
+          "spot": {
+            "description": "Use spot or preemptible capacity",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "arch",
+          "instanceType",
+          "diskGb",
+          "spot"
+        ],
+        "type": "object"
+      },
+      "Me": {
+        "additionalProperties": false,
+        "properties": {
+          "avatarUrl": {
+            "description": "Avatar image URL",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "login": {
+            "description": "GitHub login",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organizations": {
+            "description": "Organizations with Airship installed",
+            "items": {
+              "$ref": "#/components/schemas/Organization"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "login",
+          "name",
+          "avatarUrl",
+          "organizations"
+        ],
+        "type": "object"
+      },
+      "Organization": {
+        "additionalProperties": false,
+        "properties": {
+          "installationId": {
+            "description": "GitHub App installation ID",
+            "format": "int64",
+            "type": "integer"
+          },
+          "login": {
+            "description": "GitHub account login",
+            "type": "string"
+          },
+          "role": {
+            "description": "The user's role; only admins change settings",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          },
+          "suspended": {
+            "description": "Whether the installation is suspended",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "GitHub account type",
+            "enum": [
+              "Organization",
+              "User"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "login",
+          "type",
+          "role",
+          "installationId",
+          "suspended"
+        ],
+        "type": "object"
+      },
+      "Overview": {
+        "additionalProperties": false,
+        "properties": {
+          "airshipJobs": {
+            "description": "Of those, jobs that ran on Airship",
+            "format": "int64",
+            "type": "integer"
+          },
+          "failed": {
+            "description": "Jobs that failed",
+            "format": "int64",
+            "type": "integer"
+          },
+          "inProgress": {
+            "description": "Jobs running now",
+            "format": "int64",
+            "type": "integer"
+          },
+          "jobs": {
+            "description": "Jobs queued in the window",
+            "format": "int64",
+            "type": "integer"
+          },
+          "queueP50Seconds": {
+            "description": "Median wait from queued to started on Airship",
+            "format": "double",
+            "type": "number"
+          },
+          "queueP90Seconds": {
+            "description": "90th percentile wait from queued to started",
+            "format": "double",
+            "type": "number"
+          },
+          "queued": {
+            "description": "Jobs still waiting",
+            "format": "int64",
+            "type": "integer"
+          },
+          "runnerMinutes": {
+            "description": "Minutes of jobs run on Airship",
+            "format": "double",
+            "type": "number"
+          },
+          "runners": {
+            "$ref": "#/components/schemas/RunnerCounts"
+          },
+          "succeeded": {
+            "description": "Jobs that succeeded",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "jobs",
+          "airshipJobs",
+          "queued",
+          "inProgress",
+          "succeeded",
+          "failed",
+          "queueP50Seconds",
+          "queueP90Seconds",
+          "runnerMinutes",
+          "runners"
+        ],
+        "type": "object"
+      },
+      "Profile": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPublicRepos": {
+            "description": "Run jobs from public repositories, including fork pull requests",
+            "type": "boolean"
+          },
+          "arch": {
+            "description": "CPU architecture",
+            "enum": [
+              "x64",
+              "arm64"
+            ],
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the profile was created",
+            "format": "date-time",
+            "type": "string"
+          },
+          "dataPlaneId": {
+            "description": "Data plane that launches the runners",
+            "format": "uuid",
+            "type": "string"
+          },
+          "diskGb": {
+            "description": "Root disk size in GiB",
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Profile ID",
+            "format": "uuid",
+            "type": "string"
+          },
+          "image": {
+            "description": "Machine image; null uses the agent's default",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instanceType": {
+            "description": "Machine type, such as c7i.xlarge",
+            "type": "string"
+          },
+          "label": {
+            "description": "The runs-on label that selects this profile",
+            "type": "string"
+          },
+          "maxRunners": {
+            "description": "Most runners of this profile at once",
+            "format": "int32",
+            "type": "integer"
+          },
+          "spot": {
+            "description": "Use spot capacity",
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "description": "When the profile last changed",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "dataPlaneId",
+          "arch",
+          "instanceType",
+          "image",
+          "diskGb",
+          "spot",
+          "maxRunners",
+          "allowPublicRepos",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "ProfileList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Profile"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "Runner": {
+        "additionalProperties": false,
+        "properties": {
+          "busyAt": {
+            "description": "When it started a job",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "description": "When demand for it was created",
+            "format": "date-time",
+            "type": "string"
+          },
+          "dataPlaneId": {
+            "description": "Data plane that runs it",
+            "format": "uuid",
+            "type": "string"
+          },
+          "error": {
+            "description": "Launch error reported by the data plane",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishReason": {
+            "description": "Why the runner finished",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishedAt": {
+            "description": "When it finished",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Runner ID",
+            "format": "uuid",
+            "type": "string"
+          },
+          "instanceId": {
+            "description": "Provider instance ID",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Name registered with GitHub",
+            "type": "string"
+          },
+          "profileLabel": {
+            "description": "Profile label",
+            "type": "string"
+          },
+          "repository": {
+            "description": "Repository the runner is registered to",
+            "type": "string"
+          },
+          "runningAt": {
+            "description": "When its instance was first seen",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "Lifecycle state",
+            "enum": [
+              "pending",
+              "assigned",
+              "running",
+              "busy",
+              "finished"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "finishReason",
+          "error",
+          "repository",
+          "profileLabel",
+          "dataPlaneId",
+          "instanceId",
+          "createdAt",
+          "runningAt",
+          "busyAt",
+          "finishedAt"
+        ],
+        "type": "object"
+      },
+      "RunnerCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "busy": {
+            "description": "Running a job",
+            "format": "int64",
+            "type": "integer"
+          },
+          "idle": {
+            "description": "Online, waiting for a job",
+            "format": "int64",
+            "type": "integer"
+          },
+          "pending": {
+            "description": "Waiting for capacity",
+            "format": "int64",
+            "type": "integer"
+          },
+          "starting": {
+            "description": "Handed to an agent or booting",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pending",
+          "starting",
+          "idle",
+          "busy"
+        ],
+        "type": "object"
+      },
+      "RunnerList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Runner"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Pass as cursor to get the next page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "SyncRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "agentVersion": {
+            "description": "Agent build",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "capacity": {
+            "description": "Launches the agent will accept in this response",
+            "format": "int64",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "failures": {
+            "description": "Launches that failed since the last sync",
+            "items": {
+              "$ref": "#/components/schemas/LaunchFailure"
+            },
+            "maxItems": 1000,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instances": {
+            "description": "Every live runner instance the provider reports for this data plane",
+            "items": {
+              "$ref": "#/components/schemas/Instance"
+            },
+            "maxItems": 10000,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "inventoryUnknown": {
+            "description": "Instances is not a complete inventory; skip reconciliation",
+            "type": "boolean"
+          },
+          "provider": {
+            "description": "Provider the agent launches runners with",
+            "enum": [
+              "aws",
+              "docker",
+              "fake"
+            ],
+            "type": "string"
+          },
+          "received": {
+            "description": "Runner IDs received in launches recently",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "waitSeconds": {
+            "description": "Seconds to hold the request open when there is no work",
+            "format": "int64",
+            "maximum": 25,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agentVersion",
+          "provider",
+          "instances",
+          "failures",
+          "capacity",
+          "waitSeconds"
+        ],
+        "type": "object"
+      },
+      "SyncResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "dataPlaneId": {
+            "description": "Data plane the token belongs to",
+            "format": "uuid",
+            "type": "string"
+          },
+          "launch": {
+            "description": "Runners to launch",
+            "items": {
+              "$ref": "#/components/schemas/Launch"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "terminate": {
+            "description": "Instances to terminate",
+            "items": {
+              "$ref": "#/components/schemas/Terminate"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "dataPlaneId",
+          "launch",
+          "terminate"
+        ],
+        "type": "object"
+      },
+      "Terminate": {
+        "additionalProperties": false,
+        "properties": {
+          "instanceId": {
+            "description": "Provider's instance ID",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the instance should go",
+            "type": "string"
+          },
+          "runnerId": {
+            "description": "Runner the instance belongs to",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runnerId",
+          "instanceId",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "UpdateProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPublicRepos": {
+            "description": "Run jobs from public repositories",
+            "type": "boolean"
+          },
+          "diskGb": {
+            "description": "New root disk size in GiB",
+            "format": "int32",
+            "maximum": 16384,
+            "minimum": 8,
+            "type": "integer"
+          },
+          "image": {
+            "description": "New machine image; an empty string restores the agent's default",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "instanceType": {
+            "description": "New machine type",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+            "type": "string"
+          },
+          "maxRunners": {
+            "description": "Most runners at once",
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "spot": {
+            "description": "Use spot capacity",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Airship is a managed control plane for GitHub Actions runners that run in your own cloud. The TypeScript client in packages/client is generated from this document.",
+    "title": "Airship API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Check service health",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/v1/agent/sync": {
+      "post": {
+        "description": "Reports the agent's inventory and returns runners to launch and instances to terminate. Long-polls up to waitSeconds when there is nothing to do.",
+        "operationId": "agentSync",
+        "parameters": [
+          {
+            "description": "Bearer data plane token",
+            "in": "header",
+            "name": "Authorization",
+            "required": true,
+            "schema": {
+              "description": "Bearer data plane token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Sync a data plane agent",
+        "tags": [
+          "Agent"
+        ]
+      }
+    },
+    "/v1/auth/config": {
+      "get": {
+        "operationId": "getAuthConfig",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthConfig"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get sign-in options",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/dev-sign-in": {
+      "post": {
+        "operationId": "devSignIn",
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cookie"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Sign in without GitHub (development only)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/sign-out": {
+      "post": {
+        "operationId": "signOut",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "airship_session",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cookie"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Sign out",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "description": "Returns the user and the GitHub organizations they can manage in Airship.",
+        "operationId": "getMe",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the signed-in user",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/data-planes": {
+      "get": {
+        "operationId": "listDataPlanes",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPlaneList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List data planes",
+        "tags": [
+          "Data planes"
+        ]
+      },
+      "post": {
+        "operationId": "createDataPlane",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDataPlane"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPlaneCredentials"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Create a data plane",
+        "tags": [
+          "Data planes"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/data-planes/{id}": {
+      "delete": {
+        "operationId": "deleteDataPlane",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Resource ID",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a data plane",
+        "tags": [
+          "Data planes"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/data-planes/{id}/rotate-token": {
+      "post": {
+        "operationId": "rotateDataPlaneToken",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Resource ID",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPlaneCredentials"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Rotate a data plane's agent token",
+        "tags": [
+          "Data planes"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/jobs": {
+      "get": {
+        "operationId": "listJobs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only jobs with this status",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Only jobs with this status",
+              "enum": [
+                "queued",
+                "in_progress",
+                "completed"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cursor from a previous page",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor from a previous page",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Page size",
+              "format": "int32",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List jobs",
+        "tags": [
+          "Activity"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/overview": {
+      "get": {
+        "operationId": "getOverview",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get an organization's overview",
+        "tags": [
+          "Activity"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/profiles": {
+      "get": {
+        "operationId": "listProfiles",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List runner profiles",
+        "tags": [
+          "Profiles"
+        ]
+      },
+      "post": {
+        "operationId": "createProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProfile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Create a runner profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/profiles/{id}": {
+      "delete": {
+        "operationId": "deleteProfile",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Resource ID",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a runner profile",
+        "tags": [
+          "Profiles"
+        ]
+      },
+      "patch": {
+        "operationId": "updateProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Update a runner profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/runners": {
+      "get": {
+        "operationId": "listRunners",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only runners that have not finished",
+            "explode": false,
+            "in": "query",
+            "name": "active",
+            "schema": {
+              "description": "Only runners that have not finished",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Cursor from a previous page",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor from a previous page",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Page size",
+              "format": "int32",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunnerList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List runners",
+        "tags": [
+          "Activity"
+        ]
+      }
+    }
+  }
+}

@@ -302,6 +302,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/clouds/daytona": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Daytona */
+        put: operations["connectDaytona"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/clouds/gcp": {
         parameters: {
             query?: never;
@@ -629,25 +646,25 @@ export interface components {
             installUrl: string | null;
         };
         Cloud: {
-            /** @description Cloud account ID */
+            /** @description Cloud account ID (AWS account, GCP project, Daytona organization) */
             accountId: string | null;
             /**
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws" | "gcp";
+            cloud: "aws" | "gcp" | "daytona";
             /**
              * Format: date-time
              * @description When it was connected
              */
             connectedAt: string;
-            /** @description Region (or GCP zone) used when a config names none */
+            /** @description Region (or GCP zone, or Daytona region) used when a config names none */
             defaultRegion: string;
             /** @description Why the credential stopped working */
             error: string | null;
-            /** @description Public half of the credential (AWS access key ID, GCP service account email) */
+            /** @description Public half of the credential (AWS access key ID, GCP service account email, masked Daytona API key) */
             identity: string;
-            /** @description Who the credential is, such as an IAM ARN */
+            /** @description Who the credential is, such as an IAM ARN or an API key's name */
             principal: string | null;
             /**
              * @description Whether the credential works
@@ -670,8 +687,8 @@ export interface components {
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws" | "gcp";
-            /** @description Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region) */
+            cloud: "aws" | "gcp" | "daytona";
+            /** @description Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for daytona: api_key and optionally api_url and region */
             credentials: {
                 [key: string]: string;
             };
@@ -729,6 +746,20 @@ export interface components {
             defaultRegion: string;
             /** @description IAM secret access key */
             secretAccessKey: string;
+        };
+        ConnectDaytona: {
+            /** @description Organization API key (write:sandboxes and delete:sandboxes) */
+            apiKey: string;
+            /**
+             * Format: uri
+             * @description API URL, for a self-hosted Daytona; the hosted service by default
+             */
+            apiUrl?: string;
+            /**
+             * @description Region used when a config names none
+             * @default us
+             */
+            defaultRegion: string;
         };
         ConnectGCP: {
             /**
@@ -1202,7 +1233,7 @@ export interface components {
              * @description Cloud it launched in
              * @enum {string}
              */
-            cloud: "aws" | "gcp";
+            cloud: "aws" | "gcp" | "daytona";
             /**
              * Format: date-time
              * @description When demand for it was created
@@ -2019,6 +2050,41 @@ export interface operations {
             };
         };
     };
+    connectDaytona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectDaytona"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     connectGcp: {
         parameters: {
             query?: never;
@@ -2061,7 +2127,7 @@ export interface operations {
             path: {
                 org: string;
                 /** @description Cloud name */
-                cloud: "aws" | "gcp";
+                cloud: "aws" | "gcp" | "daytona";
             };
             cookie?: never;
         };

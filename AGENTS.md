@@ -1,6 +1,7 @@
 # Airship
 
-Self-hosted GitHub Actions runners on the customer's AWS or Google Cloud account, built to
+Self-hosted GitHub Actions runners on the customer's AWS, Google Cloud or
+Daytona account, built to
 Cirun's model and file format (`.cirun.yml`, `cirun-` labels, the `.cirun`
 organization repository, cirun-py's API): a Go control plane that holds
 the customer's sealed access key and launches EC2 instances itself, a
@@ -88,7 +89,10 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   cases belong in `internal/fleet` tests. The EC2 provider also runs
   against moto (`TestAgainstEmulator`, needs `AIRSHIP_AWS_ENDPOINT`); the
   Compute Engine provider against `internal/cloud/gcp/gcptest`, a fake of the
-  REST API driven through the real SDK.
+  REST API driven through the real SDK. The Daytona provider runs against
+  `internal/cloud/daytona/daytonatest`, a fake of Daytona's API and toolbox
+  driven through Daytona's generated Go clients, and opt-in against a real
+  organization (`TestAgainstLiveDaytona`, needs `AIRSHIP_LIVE_DAYTONA_API_KEY`).
 - Every state change to `runners` is a conditional UPDATE on the expected
   state; never read-then-write. Capacity (`installations.max_runners`) is
   enforced under a row lock on the installation.
@@ -99,7 +103,9 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   the duration of a provider call; never log or return them.
 - `internal/cloud` is the provider boundary: `fleet` must not import the
   cloud SDKs. A new cloud is a new `cloud.Provider` (and `cloud.Cacher` if
-  it has object storage).
+  it has object storage). Daytona has no object storage, so `cache: true`
+  on it launches without the proxy and records a `cache.unavailable` warning;
+  the fleet tests register its fake through `fake.WithoutCache` for that.
 - Errors: return `huma.Error404NotFound(...)` and friends for client errors;
   wrap everything else with `fmt.Errorf("...: %w", err)`. Huma renders RFC 9457
   problem details, which the client exposes as `ApiError` / `error.detail`.

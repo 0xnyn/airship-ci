@@ -29,3 +29,7 @@ coverage
 
 # GitHub App private keys
 *.pem
+
+# Environment variables
+.env*
+!.env.example

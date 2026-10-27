@@ -13,6 +13,7 @@ import (
 
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud/fake"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
@@ -59,6 +60,7 @@ type harness struct {
 	svc     *fleet.Service
 	aws     *fake.Provider
 	gcp     *fake.Provider
+	daytona *fake.Provider
 	nextJob int64
 	lastJob github.WorkflowJob
 }
@@ -80,13 +82,14 @@ func newHarness(t *testing.T) *harness {
 	keyring, _ := secrets.New(key)
 	aws := fake.New(cloud.AWS)
 	gcp := fake.New(cloud.GCP)
+	daytona := fake.New(cloud.Daytona)
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "https://api.test"
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: gcp}, keyring, cfg, slog.New(slog.DiscardHandler))
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: gcp, cloud.Daytona: fake.WithoutCache(daytona)}, keyring, cfg, slog.New(slog.DiscardHandler))
 	if _, err := svc.SaveInstallation(ctx, inst); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, gcp: gcp, nextJob: 100}
+	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, gcp: gcp, daytona: daytona, nextJob: 100}
 	h.connect()
 	h.activate(false)
 	h.setRun("push", repoID, "alice")
@@ -114,6 +117,20 @@ func (h *harness) connectGCP(project, location string) {
 		h.t.Fatal(err)
 	}
 	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.GCP, secret, location, nil); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// connectDaytona connects the fake Daytona provider with an API key;
+// region is the credential's default region.
+func (h *harness) connectDaytona(region string) {
+	h.t.Helper()
+	h.daytona.AccountID = "org-0000-1111"
+	secret, err := daytonacloud.EncodeSecret(daytonacloud.Secret{APIKey: "dtn_0123456789abcdef0123456789abcdef"})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.Daytona, secret, region, nil); err != nil {
 		h.t.Fatal(err)
 	}
 }

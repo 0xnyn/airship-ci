@@ -38,6 +38,8 @@ type Spec struct {
 	Zone    string            `json:"zone,omitempty"`
 	GPUType string            `json:"gpuType,omitempty"`
 	GCP     *cloud.GCPOptions `json:"gcp,omitempty"`
+	// Daytona carries a sandbox's shape or snapshot and its extra_config.
+	Daytona *cloud.DaytonaOptions `json:"daytona,omitempty"`
 }
 
 func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
@@ -59,7 +61,28 @@ func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
 		Zone:             v.Zone,
 		GPUType:          r.GPUType,
 		GCP:              gcpOptions(r.GCP),
+		Daytona:          daytonaOptions(r, v),
 	}
+}
+
+// daytonaOptions copies a Daytona definition's settings into the
+// provider's type: the variant's shape or snapshot, and the runner's
+// extra_config.
+func daytonaOptions(r runnerconfig.Runner, v runnerconfig.Variant) *cloud.DaytonaOptions {
+	if r.Cloud != runnerconfig.CloudDaytona {
+		return nil
+	}
+	out := &cloud.DaytonaOptions{Snapshot: v.Snapshot, CPU: v.CPU, MemoryGB: v.MemoryGB}
+	if d := r.Daytona; d != nil {
+		out.Docker = d.Docker
+		out.NetworkAllowList = d.NetworkAllowList
+		out.DomainAllowList = d.DomainAllowList
+		for _, vol := range d.Volumes {
+			out.Volumes = append(out.Volumes, cloud.DaytonaVolume{Volume: vol.Volume, MountPath: vol.MountPath, Subpath: vol.Subpath})
+		}
+	}
+
+	return out
 }
 
 // gcpOptions copies a definition's GCP settings into the provider's type.
@@ -93,7 +116,7 @@ func (s Spec) machine() cloud.Machine {
 	return cloud.Machine{
 		InstanceType: s.InstanceType, Image: s.Image, Arch: s.Arch, Spot: s.Spot, Disk: s.Disk,
 		SubnetID: s.SubnetID, SecurityGroupIDs: s.SecurityGroupIDs, InstanceProfile: s.InstanceProfile,
-		Zone: s.Zone, GPUType: s.GPUType, GCP: s.GCP,
+		Zone: s.Zone, GPUType: s.GPUType, GCP: s.GCP, Daytona: s.Daytona,
 	}
 }
 

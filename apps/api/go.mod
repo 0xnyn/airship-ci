@@ -38,6 +38,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.7 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/daytona/clients/api-client-go v0.226.1 // indirect
+	github.com/daytona/clients/toolbox-api-client-go v0.226.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

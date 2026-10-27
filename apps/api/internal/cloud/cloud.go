@@ -16,8 +16,9 @@ import (
 
 // Clouds the control plane can launch on, by their name in config files.
 const (
-	AWS = "aws"
-	GCP = "gcp"
+	AWS     = "aws"
+	GCP     = "gcp"
+	Daytona = "daytona"
 )
 
 // Identity is who a credential authenticates as, as the cloud reports it.
@@ -53,6 +54,38 @@ type Machine struct {
 	InstanceProfile  string
 	// GCP holds the Compute Engine settings from extra_config.
 	GCP *GCPOptions
+	// Daytona holds the sandbox settings for the Daytona provider.
+	Daytona *DaytonaOptions
+}
+
+// DaytonaOptions shape a Daytona sandbox. A sandbox is either built from a
+// container image with the resources below, or started from a snapshot the
+// customer made (which fixes the resources itself).
+type DaytonaOptions struct {
+	// Snapshot names a Daytona snapshot to start from. Empty means build
+	// from Machine.Image with CPU, MemoryGB and Disk.SizeGB.
+	Snapshot string `json:"snapshot,omitempty"`
+	// CPU is the number of vCPUs; MemoryGB the memory in GB.
+	CPU      int `json:"cpu,omitempty"`
+	MemoryGB int `json:"memoryGb,omitempty"`
+	// Docker installs and starts a Docker daemon in the sandbox before the
+	// runner, for jobs that use containers.
+	Docker bool `json:"docker,omitempty"`
+	// Volumes are Daytona volumes mounted into the sandbox.
+	Volumes []DaytonaVolume `json:"volumes,omitempty"`
+	// NetworkAllowList and DomainAllowList restrict the sandbox's egress to
+	// these CIDRs and domains (comma-separated), on top of what the runner
+	// itself needs to reach.
+	NetworkAllowList string `json:"networkAllowList,omitempty"`
+	DomainAllowList  string `json:"domainAllowList,omitempty"`
+}
+
+// DaytonaVolume mounts a volume at a path.
+type DaytonaVolume struct {
+	// Volume is the volume's ID or name.
+	Volume    string `json:"volume"`
+	MountPath string `json:"mountPath"`
+	Subpath   string `json:"subpath,omitempty"`
 }
 
 // Disk is the root volume. Type is a provider volume type (gp3, pd-ssd).

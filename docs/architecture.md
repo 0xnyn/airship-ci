@@ -2,7 +2,8 @@
 
 Airship runs GitHub Actions jobs on ephemeral machines in the customer's
 cloud account: EC2 instances on AWS, Compute Engine instances on Google
-Cloud. It holds the customer's credentials (sealed), reads `.cirun.yml`
+Cloud, sandboxes in a Daytona organization. It holds the customer's
+credentials (sealed), reads `.cirun.yml`
 from activated repositories, and launches, watches and terminates
 instances itself. This is Cirun's model; the first version of this project
 ran an agent in the customer's account instead, and the differences below
@@ -36,9 +37,11 @@ All Go code lives in `apps/api`.
   runner state goes through it.
 - `internal/cloud` is the provider interface; `cloud/aws` is EC2 and S3;
   `cloud/gcp` is Compute Engine (with `gcp/gcptest`, a fake Compute API
-  the real SDK is pointed at in tests); `cloud/bootscript` renders the
-  Linux and Windows boot scripts; `cloud/fake` is what fleet tests launch
-  on.
+  the real SDK is pointed at in tests); `cloud/daytona` is Daytona
+  sandboxes, driven through Daytona's generated Go clients (with
+  `daytona/daytonatest`, a fake of its API and of the toolbox API inside a
+  sandbox); `cloud/bootscript` renders the Linux, Windows and Daytona boot
+  scripts; `cloud/fake` is what fleet tests launch on.
 - `internal/runnerconfig` parses `.cirun.yml`, `.cirun.global.yml` and
   `.access.yml` (pure, no I/O).
 - `internal/secrets` seals cloud credentials under `CREDENTIALS_KEY`, each
@@ -83,7 +86,11 @@ once:
 2. **A launch is idempotent per runner.** AWS gets a `ClientToken` and GCP
    a `requestId` derived from the runner ID, and GCP machines are named
    after the runner and looked up by name before every insert. A retried
-   call returns the first machine; it never makes a second one.
+   call returns the first machine; it never makes a second one. Daytona
+   sandboxes are named after the runner too (a name is unique in the
+   organization) and looked up before every create, and the steps that
+   follow creation there (write the script, start it, label the sandbox)
+   each check for their own earlier success before acting.
 3. **One machine serves at most one job, and a machine Airship did not
    make is never touched.** Instances carry the installation as a tag or
    label; `List` filters by it, and `Terminate` reads the instance and
@@ -111,7 +118,10 @@ once:
 5. **Ambiguity is resolved by observation, not assumption.** A transport
    error after the request was sent, a lost poll or a timed-out operation
    is settled by looking the machine up; only when even that fails is the
-   launch `launch_unconfirmed`. Such a runner keeps its registration and
+   launch `launch_unconfirmed`. The Daytona provider never reports an
+   unconfirmed launch: a sandbox nobody started a runner in is worth
+   nothing, so a launch it cannot finish deletes what it made and fails as
+   retryable instead. Such a runner keeps its registration and
    is revived when its machine is listed, exactly as a `lease_expired`
    one, while its job is retried on a new runner (the revival cancels the
    retry while it is still pending; if both come up, one idles out).
@@ -139,7 +149,11 @@ once:
    than deleted (Compute Engine has no delete-on-shutdown), so it stops
    costing compute at once but keeps its disk until the reconciler deletes
    it; Airship does not give the machine a service account that could
-   delete itself. The maximum lifetime (`RUNNER_MAX_LIFETIME`, 8 hours)
+   delete itself. A Daytona sandbox has no power button: its script stops
+   the sandbox's daemon (PID 1) on every exit path, the sandbox is created
+   to delete itself when stopped, and it carries a TTL fifteen minutes past
+   the maximum lifetime, so Daytona removes a sandbox whose script never
+   ran at all. The maximum lifetime (`RUNNER_MAX_LIFETIME`, 8 hours)
    is the one bound that can cut a legitimate job short: GitHub's default
    job timeout is 6 hours, so the default leaves room, but a workflow
    whose `timeout-minutes` exceeds the lifetime needs it raised. A pool
@@ -202,6 +216,26 @@ once:
   `diskType` written as a zonal path keeps only the type's name, since the
   runner's zone is chosen at launch. Deleting a machine deletes its disks
   (`autoDelete`).
+- **Launching on Daytona.** A sandbox runs nothing at boot (Daytona's
+  daemon is PID 1 and waits for commands), so the control plane boots the
+  runner itself, in idempotent steps: look the sandbox up by the runner's
+  name; create it if absent (labels for the installation, runner and
+  repository; `target` the region; built from `FROM <image>` with the
+  shape's CPU, memory and disk, or from the named snapshot; auto-stop off,
+  delete-on-stop on, TTL past the lifetime; GPU type and spot, volumes and
+  allow lists as the definition says), settling a conflict, a 5xx or a
+  lost answer by looking the name up again and refusing a sandbox placed in
+  another region; wait for it to be `started` (a failed image build is
+  permanent, an error, a deletion or a timeout retryable); create the
+  `airship-runner` process session (a session that exists is fine, and the
+  session is never deleted, since deleting one kills its processes); write
+  the boot script to `/tmp` over the toolbox API; start it in the session
+  unless the session already runs that command; and last set the
+  `airship-boot=started` label. The script itself takes a lock directory
+  before arming its exit trap, so a second start backs out without stopping
+  the sandbox under the first. Any failure after creation deletes the
+  sandbox (best effort) and fails the launch; nothing from this provider is
+  ambiguous. The instance ID is the sandbox ID.
 - **Inventory.** The reconciler lists instances per (credential, region)
   by the `airship:installation` tag (AWS) or `airship-installation` label
   (GCP, one list per zone of the region, failing if any of those zones
@@ -216,7 +250,16 @@ once:
   missing from a failed list is never presumed gone. On GCP a region
   stored for a runner carries the project when `extra_config.project_id`
   overrides the credential's (`us-central1@my-project`), so each project
-  is its own scope.
+  is its own scope. On Daytona the scan lists the organization's sandboxes
+  by the installation label, page by page, keeps those whose `target` is
+  the region, and reports a `stopped`, `error`, `build_failed`, `archived`
+  or `paused` sandbox as stopped (nothing runs in it and nothing will).
+  A sandbox without the boot label has no runner: younger than ten minutes
+  it is a launch still at work and is left alone; older it is a leak and
+  is reported as stopped, which has the scan delete it, rather than being
+  revived into an empty sandbox. Daytona's list is eventually consistent
+  (a new sandbox appears a few seconds after its creation), which the
+  two-minute instance grace absorbs.
 - **Termination.** A finished runner's instance is terminated at once when
   the completed webhook arrives, and again by the reconciler if the cloud
   still lists it. Deleting from GitHub happens 2 minutes later, only if
@@ -258,11 +301,15 @@ once:
 
 ## Security model
 
-- **Credentials.** Access keys are verified with STS (and service account
-  keys with `projects.get`) before they are stored, sealed with
+- **Credentials.** Access keys are verified with STS (service account
+  keys with `projects.get`, Daytona API keys by reading the key's own
+  record, which must belong to an organization, be unexpired and carry the
+  sandbox write and delete permissions, and the organization's regions,
+  which must include the default) before they are stored, sealed with
   AES-256-GCM under `CREDENTIALS_KEY`, opened only for the duration of a
   cloud call, and never returned by any endpoint. The GCP identity shown
-  is the service account's email; the project is the account ID. A sealed
+  is the service account's email; the project is the account ID. The
+  Daytona identity is the organization ID and the key's name. A sealed
   blob is bound to its row (installation and cloud, or runner), so it
   cannot be moved and opened elsewhere. Disconnecting a cloud, or
   replacing its key with one for another account, is refused while
@@ -273,8 +320,12 @@ once:
   errors never echo the value that failed, and upstream failures are
   reported without GitHub's or the database's error text.
 - **Tenancy.** Every query is scoped by GitHub installation ID; instances
-  are tagged (AWS) or labelled (GCP) and listed by it, and a terminate
-  refuses an instance not marked for the installation.
+  are tagged (AWS) or labelled (GCP, Daytona) and listed by it, and a
+  terminate refuses an instance not marked for the installation. Two
+  installations sharing one Daytona organization rest on that label alone,
+  and a sandbox's toolbox is open to anyone holding an API key of the
+  organization: a Daytona organization per installation is the stronger
+  boundary.
 - **Dashboard sessions.** GitHub OAuth, HttpOnly `SameSite=Lax` cookies,
   an Origin check on every write. Organization owners are admins, members
   read-only, nobody else gets in; roles are re-checked hourly. While
@@ -293,14 +344,26 @@ once:
   activated repository can pick machines for that branch's jobs, as with
   any workflow; `max_runners` bounds what that can cost.
 - **Images.** Any AMI or Compute Engine image the account can launch is
-  allowed, as on Cirun. The default is Canonical's current Ubuntu 22.04
-  (the `ubuntu-2204-lts` family on GCP). An image whose architecture is
-  known and differs from the machine's is refused before the launch.
+  allowed, as on Cirun, and on Daytona any container image Daytona can
+  pull, with a tag or digest (`latest` is refused, so a definition names
+  what it runs), or any snapshot of the organization. The default is
+  Canonical's current Ubuntu 22.04 (the `ubuntu-2204-lts` family on GCP,
+  `ubuntu:22.04` on Daytona). An image whose architecture is known and
+  differs from the machine's is refused before the launch.
 - **GCP machines** get no service account unless `serviceAccounts` sets
   one, and the service account key Airship holds is never on the machine.
   The JIT config travels in instance metadata, readable by anyone in the
   project with `compute.instances.get` until the runner registers, as the
   AWS user data is; `provision_via: pull_from_api` avoids it.
+- **Daytona sandboxes** are containers Daytona runs as privileged (so a
+  Docker daemon can run inside when `docker: true`), with the toolbox
+  API as the only way in; Airship never opens a shell, it writes one file
+  and starts one command. The boot script, JIT config included, is written
+  to the sandbox over that API rather than placed in metadata, and sits in
+  `/tmp` for the sandbox's life; the config is single use and spent the
+  moment the runner registers. The customer's API key never enters the
+  sandbox. Egress is restricted only when a definition sets the allow
+  lists; Daytona's own network rules apply otherwise.
 
 ## Differences from Cirun
 
@@ -312,9 +375,17 @@ caching with one namespace per account bucket.
 
 Different, on purpose:
 
-- **Clouds.** AWS and GCP. `azure`, `do`, `openstack`, `oracle`, `vast_ai`
-  and `on_prem` are refused with "not supported yet" rather than ignored.
-  Each is a provider implementation; none can be trusted unrun.
+- **Clouds.** AWS, GCP and Daytona. `azure`, `do`, `openstack`, `oracle`,
+  `vast_ai` and `on_prem` are refused with "not supported yet" rather than
+  ignored. Each is a provider implementation; none can be trusted unrun.
+- **Daytona** is an addition; Cirun has no Daytona cloud, so its fields
+  were given meanings rather than copied: `instance_type` is a sandbox
+  shape (`2vcpu-4gb`) or a snapshot name, `machine_image` a container
+  image, `region` a Daytona region ID, `gpu` one of Daytona's GPU types,
+  `preemptible` spot GPU capacity. `extra_config` gains `disk`, `docker`,
+  `volumes`, `network_allow_list` and `domain_allow_list`; `provision_via`
+  and the Windows keys are refused there, since a sandbox runs nothing at
+  boot and runs Linux containers only.
 - **GCP `existingDisk`** is attached with `autoDelete: false`, so the
   machine's deletion never takes the customer's disk with it, and a zonal
   disk pins the launch to its zone. Compute Engine serializes `READ_WRITE`
@@ -325,8 +396,8 @@ Different, on purpose:
   documents; a second network in the same region gets a NAT of its own
   rather than an error, and a router with Airship's name that is on
   another network is reported, never reused.
-- **GCP caching.** `cache: true` on a GCP runner launches without the
-  cache proxy (and records a warning). This matches Cirun, whose caching
+- **GCP and Daytona caching.** `cache: true` on a GCP or Daytona runner
+  launches without the cache proxy (and records a warning). This matches Cirun, whose caching
   docs say auto mode is "Currently Linux runners on AWS only"; a Cloud
   Storage backing would be an addition, not parity.
 - **Product name.** Runners are named `airship-...`, instances are tagged
@@ -399,6 +470,48 @@ Different, on purpose:
   `AIRSHIP_LIVE_GCP_LOCATION` are set; it costs one machine's minutes.
   Until it has run, the GCP provider should be treated as unexercised
   against Google, however thorough the fake is.
+- **Daytona: run against Daytona, with a real job.** The provider is
+  driven through Daytona's generated Go clients (`api-client-go` and
+  `toolbox-api-client-go`, v0.226.1) against `daytona/daytonatest` in CI:
+  name conflicts and lost create answers, image build failures, sandboxes
+  that never start, toolbox and label failures with cleanup, pagination,
+  state mapping, ownership checks on delete. It has also run against a
+  real organization (`app.daytona.io`, API v0.226.1) twice on 2026-10-27.
+  The opt-in `TestAgainstLiveDaytona` verified the key and refused an
+  unknown region, launched a `2vcpu-4gb` sandbox built from `ubuntu:22.04`
+  (created, started, script written and running, labelled, in 5 s),
+  found a repeated launch returned the same sandbox, listed it after 4 s
+  (the list is eventually consistent), refused a terminate by another
+  installation, and watched the script's exit path for real: the runner
+  could not register (the test's JIT config is not GitHub's), the script
+  stopped PID 1, and Daytona deleted the sandbox 75 s after launch. A
+  throwaway harness then launched a sandbox through `Provider.Launch`
+  with a JIT config minted by `generate-jitconfig` on a private
+  repository and `docker: true`: the sandbox was created, built, started,
+  written to, started and labelled in 42 s, a second `Launch` of the same
+  runner returned the same sandbox without starting a second runner, the
+  runner (2.338.2) was online on GitHub 85 s after the launch began, a
+  `workflow_dispatch` job ran on it with every step green (`uname`,
+  `actions/checkout@v4`, `docker run --rm alpine:3.20` against the Docker
+  28.3.3 daemon the script started inside the sandbox, `sudo`), the
+  runner deregistered itself after its one job, the script stopped the
+  sandbox, and Daytona had deleted it 2 m 8 s after launch; the
+  organization listed no sandbox afterwards. Inside the sandbox PID 1 is
+  `daytona`, and `nproc` and `free` report the host (48 CPUs, 377 GB),
+  not the shape: CPU and memory are cgroup limits. Two more real jobs
+  followed: one on a sandbox launched from Daytona's `daytona-medium`
+  snapshot in 3 s (running as its `daytona` user, so the script's `sudo`
+  re-execution ran for real; `cpu.max` showed the two CPUs), and one on a
+  sandbox with a Daytona volume named by its name, mounted at
+  `/mnt/probe` as a writable `mountpoint-s3` FUSE filesystem. The other
+  fields were sent and refused: a domain allow list (this organization's
+  tier forbids sandbox-level lists, 400), a GPU with and without spot (no
+  GPU credits, 400), and the dedicated region `us-west-4` (no image
+  builds there, 403; a snapshot not published there, 400); each was
+  classified permanent, and the runnerconfig now refuses both allow lists
+  at once, IPv6 CIDRs and over-long lists, as Daytona documents.
+  **Not run:** a GPU sandbox that actually started, and a sandbox on a
+  dedicated region.
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in

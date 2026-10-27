@@ -49,9 +49,13 @@ const (
 // oracle, vast_ai, on_prem) are recognized so the error says they are not
 // supported here rather than "unknown cloud".
 const (
-	CloudAWS = "aws"
-	CloudGCP = "gcp"
+	CloudAWS     = "aws"
+	CloudGCP     = "gcp"
+	CloudDaytona = "daytona"
 )
+
+// Clouds lists the supported clouds, for messages.
+var Clouds = []string{CloudAWS, CloudGCP, CloudDaytona}
 
 var otherClouds = []string{"azure", "do", "digitalocean", "openstack", "oracle", "vast_ai", "on_prem"}
 
@@ -135,8 +139,10 @@ type Runner struct {
 	SecurityGroupIDs []string
 	InstanceProfile  string
 	// GCP holds Compute Engine settings; nil on other clouds.
-	GCP  *GCP
-	Idle *Idle
+	GCP *GCP
+	// Daytona holds sandbox settings; nil on other clouds.
+	Daytona *Daytona
+	Idle    *Idle
 }
 
 // Windows settings from extra_config.
@@ -159,6 +165,11 @@ type Variant struct {
 	Spot bool
 	Arch string
 	Disk Disk
+	// Daytona: a sandbox built from Image has CPU vCPUs and MemoryGB of
+	// memory (instance_type: 2vcpu-4gb); one from a snapshot names it.
+	CPU      int
+	MemoryGB int
+	Snapshot string
 }
 
 // Disk is the root volume. Zero means the cloud's default.
@@ -288,9 +299,10 @@ type rawRunner struct {
 	GPU          yaml.Node `yaml:"gpu"`
 }
 
-// rawExtra is Cirun's extra_config for AWS and GCP. A key of the other
-// cloud is refused by name; keys from Cirun's other clouds are rejected as
-// unknown fields, which names the key in the error.
+// rawExtra is Cirun's extra_config for AWS and GCP, plus Airship's keys for
+// Daytona. A key of another cloud is refused by name; keys from Cirun's
+// other clouds are rejected as unknown fields, which names the key in the
+// error.
 type rawExtra struct {
 	EnvVars      map[string]string `yaml:"env_vars"`
 	Cache        bool              `yaml:"cache"`
@@ -312,6 +324,12 @@ type rawExtra struct {
 	ServiceAccounts   []rawGCPServiceAccount `yaml:"serviceAccounts"`
 	EnablePublicIP    *bool                  `yaml:"enable_public_ip"`
 	Scheduling        *rawGCPScheduling      `yaml:"scheduling"`
+	// Daytona
+	Disk             int                `yaml:"disk"`
+	Volumes          []rawDaytonaVolume `yaml:"volumes"`
+	Docker           bool               `yaml:"docker"`
+	NetworkAllowList string             `yaml:"network_allow_list"`
+	DomainAllowList  string             `yaml:"domain_allow_list"`
 }
 
 type rawDisk struct {
@@ -382,14 +400,14 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 	}
 
 	switch cloud := strings.ToLower(strings.TrimSpace(r.Cloud)); {
-	case cloud == CloudAWS, cloud == CloudGCP:
+	case slices.Contains(Clouds, cloud):
 		out.Cloud = cloud
 	case cloud == "":
-		return Runner{}, failf(".cloud", "cloud is required: aws or gcp")
+		return Runner{}, failf(".cloud", "cloud is required: aws, gcp or daytona")
 	case slices.Contains(otherClouds, cloud):
-		return Runner{}, failf(".cloud", "cloud %q is not supported yet; only aws and gcp are", r.Cloud)
+		return Runner{}, failf(".cloud", "cloud %q is not supported yet; only aws, gcp and daytona are", r.Cloud)
 	default:
-		return Runner{}, failf(".cloud", "cloud %q is unknown; use aws or gcp", r.Cloud)
+		return Runner{}, failf(".cloud", "cloud %q is unknown; use aws, gcp or daytona", r.Cloud)
 	}
 	if r.GPU.Kind != 0 {
 		// Cirun treats the value as a flag: any GPU name turns it on, and
@@ -405,12 +423,20 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 		case "false", "no", "off", "0", "null", "~", "none":
 		default:
 			out.GPU = true
-			if out.Cloud == CloudGCP {
+			switch out.Cloud {
+			case CloudGCP:
 				// Compute Engine attaches the accelerator by this name.
 				if !gcpGPUPattern.MatchString(name) {
 					return Runner{}, failf(".gpu", "%q is not a Compute Engine GPU name, such as nvidia-tesla-t4 or nvidia-l4", r.GPU.Value)
 				}
 				out.GPUType = name
+			case CloudDaytona:
+				// Daytona offers a few GPU types by name.
+				gpu, ok := daytonaGPU(name)
+				if !ok {
+					return Runner{}, failf(".gpu", "%q is not a Daytona GPU type; one of %s", r.GPU.Value, strings.Join(daytonaGPUTypes, ", "))
+				}
+				out.GPUType = gpu
 			}
 		}
 	}
@@ -433,6 +459,11 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 	out.Variants = variants
 	if ferr := out.GCP.checkGCP(out.GPU, variants); ferr != nil {
 		return Runner{}, ferr
+	}
+	if out.Cloud == CloudDaytona {
+		if ferr := checkDaytona(&out, variants, r.ExtraConfig != nil && r.ExtraConfig.Disk != 0); ferr != nil {
+			return Runner{}, ferr
+		}
 	}
 
 	if r.Idle != nil {
@@ -477,8 +508,11 @@ func validateLabels(labels []string) ([]string, *fieldError) {
 // returns the root disk, which every variant shares.
 func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 	disk := Disk{SizeGB: DefaultDiskGB, Type: DefaultDiskType}
-	if out.Cloud == CloudGCP {
+	switch out.Cloud {
+	case CloudGCP:
 		disk.Type = "" // the provider's default, pd-balanced
+	case CloudDaytona:
+		disk = Disk{SizeGB: DaytonaDefaultDiskGB} // a sandbox has one disk, of one kind
 	}
 	if e == nil {
 		return disk, nil
@@ -486,9 +520,14 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 	if ferr := e.checkCloud(out.Cloud); ferr != nil {
 		return Disk{}, ferr
 	}
-	if out.Cloud == CloudGCP {
-		var ferr *fieldError
+	var ferr *fieldError
+	switch out.Cloud {
+	case CloudGCP:
 		if disk, ferr = e.applyGCP(out, disk); ferr != nil {
+			return Disk{}, ferr
+		}
+	case CloudDaytona:
+		if disk, ferr = e.applyDaytona(out, disk); ferr != nil {
 			return Disk{}, ferr
 		}
 	}
@@ -666,11 +705,16 @@ func expandVariants(cloud string, r rawRunner, disk Disk) ([]Variant, *fieldErro
 		default:
 			return nil, failf(".preemptible"+index, "preemptible must be true or false")
 		}
-		if cloud == CloudGCP {
+		switch cloud {
+		case CloudGCP:
 			if ferr := validateGCPVariant(&v, index); ferr != nil {
 				return nil, ferr
 			}
-		} else {
+		case CloudDaytona:
+			if ferr := validateDaytonaVariant(&v, index); ferr != nil {
+				return nil, ferr
+			}
+		default:
 			if v.Region != "" && !regionPattern.MatchString(v.Region) {
 				return nil, failf(".region"+index, "%q is not an AWS region (such as us-east-1)", v.Region)
 			}
@@ -690,12 +734,16 @@ func expandVariants(cloud string, r rawRunner, disk Disk) ([]Variant, *fieldErro
 
 // ArchForInstanceType infers the CPU architecture of an instance type:
 // Graviton and Apple silicon families on AWS, Axion and Altra on GCP.
+// Daytona sandboxes are x64.
 func ArchForInstanceType(cloud, instanceType string) string {
-	if cloud == CloudGCP {
+	switch cloud {
+	case CloudGCP:
 		if gcpArmFamilies[gcpFamily(instanceType)] {
 			return "arm64"
 		}
 
+		return "x64"
+	case CloudDaytona:
 		return "x64"
 	}
 	family, _, _ := strings.Cut(instanceType, ".")
@@ -706,10 +754,14 @@ func ArchForInstanceType(cloud, instanceType string) string {
 	return "x64"
 }
 
-// HasGPU reports whether an instance family carries an accelerator.
+// HasGPU reports whether an instance family carries an accelerator. On
+// Daytona only the gpu: field does.
 func HasGPU(cloud, instanceType string) bool {
-	if cloud == CloudGCP {
+	switch cloud {
+	case CloudGCP:
 		return gcpGPUFamilies[gcpFamily(instanceType)]
+	case CloudDaytona:
+		return false
 	}
 	family, _, _ := strings.Cut(instanceType, ".")
 

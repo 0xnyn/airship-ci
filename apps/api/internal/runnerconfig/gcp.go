@@ -108,7 +108,8 @@ const (
 )
 
 // awsOnlyKeys and gcpOnlyKeys name the extra_config keys each cloud
-// understands, so a key from the other cloud is refused by name.
+// understands (daytonaOnlyKeys is in daytona.go), so a key from another
+// cloud is refused by name.
 var (
 	awsOnlyKeys = []string{"BlockDeviceMappings", "SubnetId", "SecurityGroupIds", "IamInstanceProfile"}
 	gcpOnlyKeys = []string{"baseDisk", "additionalDisk", "existingDisk", "project_id", "networkInterfaces", "serviceAccounts", "enable_public_ip", "scheduling"}
@@ -171,18 +172,30 @@ func (e *rawExtra) keysSet() []string {
 	add("serviceAccounts", len(e.ServiceAccounts) > 0)
 	add("enable_public_ip", e.EnablePublicIP != nil)
 	add("scheduling", e.Scheduling != nil)
+	add("disk", e.Disk != 0)
+	add("volumes", len(e.Volumes) > 0)
+	add("docker", e.Docker)
+	add("network_allow_list", e.NetworkAllowList != "")
+	add("domain_allow_list", e.DomainAllowList != "")
 
 	return keys
 }
 
 // checkCloud refuses keys that belong to another cloud.
 func (e *rawExtra) checkCloud(cloud string) *fieldError {
+	owners := []struct {
+		cloud, name string
+		keys        []string
+	}{
+		{CloudAWS, "an AWS", awsOnlyKeys},
+		{CloudGCP, "a GCP", gcpOnlyKeys},
+		{CloudDaytona, "a Daytona", daytonaOnlyKeys},
+	}
 	for _, key := range e.keysSet() {
-		if cloud == CloudGCP && slices.Contains(awsOnlyKeys, key) {
-			return failf(".extra_config."+key, "%s is an AWS setting; this runner's cloud is gcp", key)
-		}
-		if cloud == CloudAWS && slices.Contains(gcpOnlyKeys, key) {
-			return failf(".extra_config."+key, "%s is a GCP setting; this runner's cloud is aws", key)
+		for _, owner := range owners {
+			if owner.cloud != cloud && slices.Contains(owner.keys, key) {
+				return failf(".extra_config."+key, "%s is %s setting; this runner's cloud is %s", key, owner.name, cloud)
+			}
 		}
 	}
 

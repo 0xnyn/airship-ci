@@ -43,6 +43,10 @@ github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XL
 github.com/danielgtaylor/huma/v2 v2.39.1 h1:0kwF4ltQoYZ+IU55VPy+BcGekzgF44R64daTGde1H+g=
 github.com/danielgtaylor/huma/v2 v2.39.1/go.mod h1:zcnQ38duIJ3VUHwFaBoZ6x8T+KN/mr33oyqxcj0HTug=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/daytona/clients/api-client-go v0.226.1 h1:sYTUN0bbUb7yOta8lNlYo36poVq+T2d4DrsnOzH1L6g=
+github.com/daytona/clients/api-client-go v0.226.1/go.mod h1:US+IQTDTZam9c4UpPMB3WDYYMIyWSKlgfDZzwWffY94=
+github.com/daytona/clients/toolbox-api-client-go v0.226.1 h1:PJBRuBlMcHkoUrg4VZ9WU61ZSISdnOuNE6/Q5zhlgqw=
+github.com/daytona/clients/toolbox-api-client-go v0.226.1/go.mod h1:lwZA3j823fNNiAgTSMThjZkYWegIigoFIREAtdo7o3E=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=

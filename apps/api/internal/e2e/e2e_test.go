@@ -59,7 +59,7 @@ func newEnv(t *testing.T) *env {
 	aws := fake.New(cloud.AWS)
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "http://api.test"
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: fake.New(cloud.GCP)}, keyring, cfg, logger)
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: fake.New(cloud.GCP), cloud.Daytona: fake.New(cloud.Daytona)}, keyring, cfg, logger)
 
 	app := gh.App(t)
 	oauth := github.NewOAuth(github.OAuthConfig{ClientID: fakegithub.ClientID, ClientSecret: "secret", WebURL: gh.URL, APIURL: gh.URL})
@@ -383,6 +383,48 @@ func TestConnectGCP(t *testing.T) {
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusNotFound)
 	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
 		t.Fatalf("clouds after disconnecting gcp = %v", items)
+	}
+}
+
+func TestConnectDaytona(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	const key = "dtn_8f3a9c2e7b1d4f6a8c0e2b4d6f8a1c3e5b7d9f1a"
+	// Not a key, a bad URL, a bad region: nothing stored.
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/daytona", map[string]any{"apiKey": "short"}, http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/daytona", map[string]any{"apiKey": key, "apiUrl": "ftp://daytona.local"}, http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/daytona", map[string]any{"apiKey": key, "defaultRegion": "US East"}, http.StatusUnprocessableEntity)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("rejected credentials were stored: %v", items)
+	}
+
+	got := e.call(http.MethodPut, "/v1/orgs/acme/clouds/daytona", map[string]any{"apiKey": key, "defaultRegion": "eu"}, http.StatusOK)
+	if got["cloud"] != "daytona" || got["identity"] != "dtn***f1a" || got["defaultRegion"] != "eu" || got["status"] != "ok" {
+		t.Fatalf("connect daytona = %v", got)
+	}
+	raw := fmt.Sprint(e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK))
+	if bytes.Contains([]byte(raw), []byte(key)) {
+		t.Fatal("the API key was echoed")
+	}
+	var stored []byte
+	if err := e.pool.QueryRow(context.Background(), "select secret from cloud_credentials where cloud = 'daytona'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(stored, []byte(key)) {
+		t.Fatal("the key is stored in the clear")
+	}
+	// The default URL is the hosted service; a self-hosted one is kept.
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/daytona", map[string]any{"apiKey": key, "apiUrl": "https://daytona.internal.example/api"}, http.StatusOK)
+
+	e.connectAWS()
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 2 {
+		t.Fatalf("clouds = %v", items)
+	}
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/daytona", nil, http.StatusNoContent)
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/daytona", nil, http.StatusNotFound)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
+		t.Fatalf("clouds after disconnecting daytona = %v", items)
 	}
 }
 

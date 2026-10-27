@@ -56,3 +56,6 @@ export const awsRegions = [
   "ap-northeast-2",
   "sa-east-1",
 ] as const;
+
+/** Daytona regions offered as a default; any region of the organization works in `.cirun.yml`. */
+export const daytonaRegions = ["us", "eu"] as const;

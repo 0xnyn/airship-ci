@@ -26,7 +26,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
-import { awsRegions, gcpLocations } from "@/lib/labels";
+import { awsRegions, daytonaRegions, gcpLocations } from "@/lib/labels";
 import { CodeBlock } from "./copy-button";
 import { ErrorRow } from "./data-table";
 import { useOrg } from "./org-context";
@@ -37,6 +37,7 @@ import { RelativeTime } from "./time";
 const CLOUDS = "/v1/orgs/{org}/clouds";
 const DEFAULT_AWS_REGION = "eu-west-1";
 const DEFAULT_GCP_LOCATION = "us-central1-b";
+const DEFAULT_DAYTONA_REGION = "us";
 
 type CloudName = Schemas["Cloud"]["cloud"];
 
@@ -66,6 +67,23 @@ const cloudCopy: Record<
     location: "Default region",
     title: "Amazon Web Services",
   },
+  daytona: {
+    account: "Organization",
+    identity: "API key",
+    intro: (
+      <>
+        Create an organization API key with the sandbox permissions and paste it
+        here. Runners get a Daytona sandbox each, built from the container image
+        a <code className="font-mono">.cirun.yml</code> names (or started from
+        one of your snapshots), in the region it names or the default region
+        below. Daytona has no object storage, so{" "}
+        <code className="font-mono">cache: true</code> launches without the
+        cache proxy.
+      </>
+    ),
+    location: "Default region",
+    title: "Daytona",
+  },
   gcp: {
     account: "Project",
     identity: "Service account",
@@ -94,7 +112,7 @@ export function CloudPage() {
   return (
     <>
       <PageHeader
-        description="Airship launches every runner in your own cloud account with the credentials you connect here. They are stored encrypted and never shown again. Connect one cloud or both; each runner definition says which it launches in."
+        description="Airship launches every runner in your own cloud account with the credentials you connect here. They are stored encrypted and never shown again. Connect any of the clouds; each runner definition says which it launches in."
         title="Cloud credentials"
       />
       <CloudSection
@@ -109,8 +127,15 @@ export function CloudPage() {
         form={(existing) => <ConnectGCPForm existing={existing} />}
         name="gcp"
       />
+      <CloudSection
+        clouds={clouds}
+        existing={find("daytona")}
+        form={(existing) => <ConnectDaytonaForm existing={existing} />}
+        name="daytona"
+      />
       <AWSPolicy />
       <GCPRole />
+      <DaytonaKey />
     </>
   );
 }
@@ -441,6 +466,111 @@ function ConnectGCPForm({
   );
 }
 
+function ConnectDaytonaForm({
+  existing,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [apiUrl, setApiUrl] = useState("");
+  const [region, setRegion] = useState(
+    existing?.defaultRegion ?? DEFAULT_DAYTONA_REGION
+  );
+  const connect = $api.useMutation("put", "/v1/orgs/{org}/clouds/daytona", {
+    onSuccess: async (cloud) => {
+      setApiKey("");
+      toast.success(
+        `Connected Daytona organization ${cloud.accountId ?? ""}`.trim()
+      );
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title="Daytona" />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedUrl = apiUrl.trim();
+    connect.mutate({
+      body: {
+        apiKey: apiKey.trim(),
+        defaultRegion: region,
+        ...(trimmedUrl ? { apiUrl: trimmedUrl } : {}),
+      },
+      params: { path: { org: org.login } },
+    });
+  };
+
+  return (
+    <form
+      aria-label={existing ? "Replace Daytona credentials" : "Connect Daytona"}
+      className="grid gap-4 border-t pt-4"
+      onSubmit={submit}
+    >
+      <ReplaceNote existing={existing} />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor="daytona-api-key">API key</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id="daytona-api-key"
+            minLength={16}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder="dtn_…"
+            required
+            spellCheck={false}
+            type="password"
+            value={apiKey}
+          />
+          <FieldDescription>
+            An organization key with write:sandboxes and delete:sandboxes.
+          </FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="daytona-api-url">API URL</FieldLabel>
+          <Input
+            autoComplete="off"
+            className="font-mono"
+            id="daytona-api-url"
+            onChange={(event) => setApiUrl(event.target.value)}
+            placeholder="https://app.daytona.io/api"
+            spellCheck={false}
+            type="url"
+            value={apiUrl}
+          />
+          <FieldDescription>
+            Leave empty for the hosted service; set it for your own Daytona.
+          </FieldDescription>
+        </Field>
+        <LocationSelect
+          id="daytona-region"
+          label="Default region"
+          onChange={setRegion}
+          options={daytonaRegions}
+          value={region}
+        />
+      </div>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, "Could not connect Daytona")}
+        </FieldError>
+      ) : null}
+      <div>
+        <Button disabled={connect.isPending} type="submit">
+          {connect.isPending ? "Verifying…" : "Save"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function Disconnect({ cloud }: { cloud: Schemas["Cloud"] }) {
   const { org } = useOrg();
   const queryClient = useQueryClient();
@@ -541,6 +671,26 @@ gcloud iam service-accounts keys create service-account.json \\
         need a GPU quota in the zone, which new projects have at zero.
       </p>
       <CodeBlock label="Copy gcloud commands" value={commands} />
+    </section>
+  );
+}
+
+function DaytonaKey() {
+  return (
+    <section aria-labelledby="daytona-key" className="grid gap-3">
+      <h2 className="font-medium text-sm" id="daytona-key">
+        Creating the Daytona API key
+      </h2>
+      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
+        In the Daytona dashboard, open your organization&apos;s API keys and
+        create one with the Sandboxes write and delete permissions (Volumes read
+        too, if definitions mount volumes). Each runner is a sandbox with
+        auto-stop off, delete-on-stop on and a time to live just past the
+        runner&apos;s maximum lifetime; Airship starts the runner through the
+        toolbox API and the sandbox stops itself when the job is done. Keys with
+        an expiry stop working on that date, and the next launch fails until a
+        new key is pasted here.
+      </p>
     </section>
   );
 }

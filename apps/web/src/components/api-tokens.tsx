@@ -82,6 +82,8 @@ function Usage() {
     "cirun repo add OWNER/REPO",
     "cirun cloud connect aws --access-key AKIA... --secret-key ...",
     "cirun cloud connect gcp --key-file service-account.json",
+    `curl -X POST ${ENV.NEXT_PUBLIC_API_URL}/api/v1/cloud-connect -H "Authorization: Bearer asa_..." \\`,
+    `  -H "Content-Type: application/json" -d '{"cloud": "daytona", "credentials": {"api_key": "dtn_..."}}'`,
   ].join("\n");
   const curl = [
     `curl ${ENV.NEXT_PUBLIC_API_URL}/api/v1/repo \\`,

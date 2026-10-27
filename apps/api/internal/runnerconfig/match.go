@@ -154,7 +154,7 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 		}
 		for _, v := range c.Runner.Variants {
 			labels := registeredLabels(c.Runner.Cloud, v.Arch, c.Runner.GPU || HasGPU(c.Runner.Cloud, v.InstanceType), defined, asked)
-			if !coversAll(withOSAliases(labels, v.Image), other) {
+			if !coversAll(withOSAliases(labels, c.Runner.Cloud, v.Image), other) {
 				continue
 			}
 			if slices.ContainsFunc(out, func(a Attempt) bool { return a.Runner.Name == c.Runner.Name && a.Variant == v }) {
@@ -188,16 +188,16 @@ func registeredLabels(cloud string, arch string, gpu bool, defined, asked []stri
 // withAliases adds the OS labels a runner may add itself, for a machine
 // whose image is not known.
 func withAliases(labels []string) []string {
-	return withOSAliases(labels, "unknown")
+	return withOSAliases(labels, "", "unknown")
 }
 
 // withOSAliases adds the OS label the runner adds itself. A known Ubuntu
 // image (an alias, none, which means the default, or a Compute Engine
 // ubuntu-* family) is Linux and a windows-* image is Windows; a custom
-// AMI could be either until it boots.
-func withOSAliases(labels []string, image string) []string {
+// AMI could be either until it boots. Every Daytona sandbox is Linux.
+func withOSAliases(labels []string, cloud, image string) []string {
 	switch {
-	case image == "" || imageAliasPattern.MatchString(image) || strings.HasPrefix(image, "ubuntu-"):
+	case cloud == CloudDaytona, image == "" || imageAliasPattern.MatchString(image) || strings.HasPrefix(image, "ubuntu-"):
 		return append(slices.Clone(labels), "linux")
 	case isWindowsImageName(image):
 		return append(slices.Clone(labels), "windows")

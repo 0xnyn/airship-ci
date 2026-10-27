@@ -219,3 +219,39 @@ func (p *Provider) Grants() int {
 
 	return p.grants
 }
+
+// ComputeOnly is a Provider without object storage, as a cloud with no
+// cloud.Cacher: the fleet must launch cache: true runners on it with a
+// warning rather than a cache proxy.
+type ComputeOnly struct{ p *Provider }
+
+// WithoutCache hides p's cache support behind the cloud.Provider interface.
+func WithoutCache(p *Provider) *ComputeOnly { return &ComputeOnly{p: p} }
+
+// Name implements cloud.Provider.
+func (c *ComputeOnly) Name() string { return c.p.Name() }
+
+// Verify implements cloud.Provider.
+func (c *ComputeOnly) Verify(ctx context.Context, secret []byte, region string) (cloud.Identity, error) {
+	return c.p.Verify(ctx, secret, region)
+}
+
+// Launch implements cloud.Provider.
+func (c *ComputeOnly) Launch(ctx context.Context, secret []byte, launch cloud.Launch) (string, error) {
+	return c.p.Launch(ctx, secret, launch)
+}
+
+// Terminate implements cloud.Provider.
+func (c *ComputeOnly) Terminate(ctx context.Context, secret []byte, region, instanceID string, installationID int64) error {
+	return c.p.Terminate(ctx, secret, region, instanceID, installationID)
+}
+
+// List implements cloud.Provider.
+func (c *ComputeOnly) List(ctx context.Context, secret []byte, region string, installationID int64) ([]cloud.Instance, error) {
+	return c.p.List(ctx, secret, region, installationID)
+}
+
+var (
+	_ cloud.Provider = (*ComputeOnly)(nil)
+	_ cloud.Cacher   = (*Provider)(nil)
+)

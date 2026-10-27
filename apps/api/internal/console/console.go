@@ -99,6 +99,7 @@ func Register(api huma.API, cfg Config) {
 	huma.Register(api, op("listClouds", http.MethodGet, "/v1/orgs/{org}/clouds", "List connected clouds", "Cloud", 0), h.listClouds)
 	huma.Register(api, op("connectAws", http.MethodPut, "/v1/orgs/{org}/clouds/aws", "Connect AWS", "Cloud", 0), h.connectAWS)
 	huma.Register(api, op("connectGcp", http.MethodPut, "/v1/orgs/{org}/clouds/gcp", "Connect Google Cloud", "Cloud", 0), h.connectGCP)
+	huma.Register(api, op("connectDaytona", http.MethodPut, "/v1/orgs/{org}/clouds/daytona", "Connect Daytona", "Cloud", 0), h.connectDaytona)
 	huma.Register(api, op("disconnectCloud", http.MethodDelete, "/v1/orgs/{org}/clouds/{cloud}", "Disconnect a cloud", "Cloud", http.StatusNoContent), h.disconnectCloud)
 
 	huma.Register(api, op("listRepositories", http.MethodGet, "/v1/orgs/{org}/repositories", "List repositories and their runner config", "Repositories", 0), h.listRepositories)

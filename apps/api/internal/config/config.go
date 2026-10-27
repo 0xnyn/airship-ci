@@ -43,6 +43,9 @@ type Config struct {
 	AWSEndpoint string `env:"AWS_ENDPOINT"`
 	// GCPEndpoint points the Compute Engine provider at a stand-in API.
 	GCPEndpoint string `env:"GCP_ENDPOINT"`
+	// DaytonaEndpoint points the Daytona provider at a stand-in API, in
+	// place of the URL each credential carries.
+	DaytonaEndpoint string `env:"DAYTONA_ENDPOINT"`
 
 	// RunnerVersion is the actions/runner release agents install. GitHub
 	// stops sending jobs to runners more than 30 days behind a release.

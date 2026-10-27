@@ -251,7 +251,7 @@
         "additionalProperties": false,
         "properties": {
           "accountId": {
-            "description": "Cloud account ID",
+            "description": "Cloud account ID (AWS account, GCP project, Daytona organization)",
             "type": [
               "string",
               "null"
@@ -261,7 +261,8 @@
             "description": "Cloud name",
             "enum": [
               "aws",
-              "gcp"
+              "gcp",
+              "daytona"
             ],
             "type": "string"
           },
@@ -271,7 +272,7 @@
             "type": "string"
           },
           "defaultRegion": {
-            "description": "Region (or GCP zone) used when a config names none",
+            "description": "Region (or GCP zone, or Daytona region) used when a config names none",
             "type": "string"
           },
           "error": {
@@ -282,11 +283,11 @@
             ]
           },
           "identity": {
-            "description": "Public half of the credential (AWS access key ID, GCP service account email)",
+            "description": "Public half of the credential (AWS access key ID, GCP service account email, masked Daytona API key)",
             "type": "string"
           },
           "principal": {
-            "description": "Who the credential is, such as an IAM ARN",
+            "description": "Who the credential is, such as an IAM ARN or an API key's name",
             "type": [
               "string",
               "null"
@@ -335,7 +336,8 @@
             "description": "Cloud name",
             "enum": [
               "aws",
-              "gcp"
+              "gcp",
+              "daytona"
             ],
             "type": "string"
           },
@@ -343,7 +345,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region)",
+            "description": "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for daytona: api_key and optionally api_url and region",
             "maxProperties": 20,
             "type": "object"
           }
@@ -526,6 +528,34 @@
         "required": [
           "accessKeyId",
           "secretAccessKey"
+        ],
+        "type": "object"
+      },
+      "ConnectDaytona": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "Organization API key (write:sandboxes and delete:sandboxes)",
+            "maxLength": 512,
+            "minLength": 16,
+            "type": "string"
+          },
+          "apiUrl": {
+            "description": "API URL, for a self-hosted Daytona; the hosted service by default",
+            "format": "uri",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "defaultRegion": {
+            "default": "us",
+            "description": "Region used when a config names none",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiKey"
         ],
         "type": "object"
       },
@@ -1671,7 +1701,8 @@
             "description": "Cloud it launched in",
             "enum": [
               "aws",
-              "gcp"
+              "gcp",
+              "daytona"
             ],
             "type": "string"
           },
@@ -2942,6 +2973,59 @@
         ]
       }
     },
+    "/v1/orgs/{org}/clouds/daytona": {
+      "put": {
+        "operationId": "connectDaytona",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectDaytona"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Daytona",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
     "/v1/orgs/{org}/clouds/gcp": {
       "put": {
         "operationId": "connectGcp",
@@ -3018,7 +3102,8 @@
               "description": "Cloud name",
               "enum": [
                 "aws",
-                "gcp"
+                "gcp",
+                "daytona"
               ],
               "type": "string"
             }

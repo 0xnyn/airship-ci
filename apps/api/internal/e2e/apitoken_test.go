@@ -156,6 +156,14 @@ func TestCirunCompatibleAPI(t *testing.T) {
 	if gcp["cloud"] != "gcp" || gcp["defaultRegion"] != "europe-west4-b" || gcp["identity"] != "airship@acme-ci-123456.iam.gserviceaccount.com" {
 		t.Fatalf("gcp cloud-connect = %v", gcp)
 	}
+	// Daytona is Airship's own: api_key, and optionally api_url and region.
+	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "daytona", "credentials": map[string]string{"region": "us"}}, http.StatusUnprocessableEntity)
+	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "daytona", "credentials": map[string]string{"api_key": "dtn_0123456789abcdef0123456789abcdef", "region": "Not A Region"}}, http.StatusUnprocessableEntity)
+	daytona := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "daytona", "credentials": map[string]string{"api_key": "dtn_0123456789abcdef0123456789abcdef"}}, http.StatusOK)
+	if daytona["cloud"] != "daytona" || daytona["defaultRegion"] != "us" || daytona["identity"] != "dtn***def" {
+		t.Fatalf("daytona cloud-connect = %v", daytona)
+	}
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/daytona", nil, http.StatusNoContent)
 	e.script(token, http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusUnauthorized) // tokens cannot reach the dashboard API
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusNoContent)
 	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "aws", "credentials": map[string]string{"access_key": "x"}}, http.StatusUnprocessableEntity)

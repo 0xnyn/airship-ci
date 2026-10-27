@@ -19,6 +19,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/config"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
@@ -99,8 +100,9 @@ func run(ctx context.Context) error {
 		gh = fleet.AppGitHub{App: app}
 	}
 	clouds := cloud.Registry{
-		cloud.AWS: awscloud.New(awscloud.Options{Endpoint: cfg.AWSEndpoint}),
-		cloud.GCP: gcpcloud.New(gcpcloud.Options{Endpoint: cfg.GCPEndpoint}),
+		cloud.AWS:     awscloud.New(awscloud.Options{Endpoint: cfg.AWSEndpoint}),
+		cloud.GCP:     gcpcloud.New(gcpcloud.Options{Endpoint: cfg.GCPEndpoint}),
+		cloud.Daytona: daytonacloud.New(daytonacloud.Options{Endpoint: cfg.DaytonaEndpoint}),
 	}
 	scheduler := fleet.New(pool, gh, clouds, keyring, fleetCfg, logger)
 

@@ -121,6 +121,8 @@ func identityHint(cloudName string, secret []byte) string {
 		hint, err = awsSecret(secret)
 	case cloud.GCP:
 		hint, err = gcpSecret(secret)
+	case cloud.Daytona:
+		hint, err = daytonaSecret(secret)
 	default:
 		return "connected"
 	}

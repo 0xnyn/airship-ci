@@ -33,6 +33,11 @@ type Spec struct {
 	// SecurityGroupIDs and InstanceProfile override the cloud's defaults.
 	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
 	InstanceProfile  string   `json:"instanceProfile,omitempty"`
+	// Zone pins a GCP launch to one zone; GPUType names the accelerator a
+	// GCP machine gets; GCP carries the rest of its extra_config.
+	Zone    string            `json:"zone,omitempty"`
+	GPUType string            `json:"gpuType,omitempty"`
+	GCP     *cloud.GCPOptions `json:"gcp,omitempty"`
 }
 
 func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
@@ -51,7 +56,36 @@ func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
 		// Copied so a later change to the parsed file cannot alias a stored spec.
 		SecurityGroupIDs: append([]string(nil), r.SecurityGroupIDs...),
 		InstanceProfile:  r.InstanceProfile,
+		Zone:             v.Zone,
+		GPUType:          r.GPUType,
+		GCP:              gcpOptions(r.GCP),
 	}
+}
+
+// gcpOptions copies a definition's GCP settings into the provider's type.
+func gcpOptions(g *runnerconfig.GCP) *cloud.GCPOptions {
+	if g == nil {
+		return nil
+	}
+	out := &cloud.GCPOptions{Project: g.Project, NoPublicIP: g.NoPublicIP, OnHostMaintenance: g.OnHostMaintenance}
+	if g.AdditionalDisk != nil {
+		out.AdditionalDisk = &cloud.GCPDisk{SizeGB: g.AdditionalDisk.SizeGB, Type: g.AdditionalDisk.Type}
+	}
+	if g.ExistingDisk != nil {
+		out.ExistingDisk = &cloud.GCPExistingDisk{Source: g.ExistingDisk.Source, DeviceName: g.ExistingDisk.DeviceName, Mode: g.ExistingDisk.Mode, Interface: g.ExistingDisk.Interface}
+	}
+	for _, nic := range g.NetworkInterfaces {
+		converted := cloud.GCPNetworkInterface{Network: nic.Network, Subnetwork: nic.Subnetwork, NicType: nic.NicType, StackType: nic.StackType}
+		for _, ac := range nic.AccessConfigs {
+			converted.AccessConfigs = append(converted.AccessConfigs, cloud.GCPAccessConfig{Type: ac.Type, Name: ac.Name, NetworkTier: ac.NetworkTier})
+		}
+		out.NetworkInterfaces = append(out.NetworkInterfaces, converted)
+	}
+	for _, sa := range g.ServiceAccounts {
+		out.ServiceAccounts = append(out.ServiceAccounts, cloud.GCPServiceAccount{Email: sa.Email, Scopes: append([]string(nil), sa.Scopes...)})
+	}
+
+	return out
 }
 
 // machine is the provider's view of a spec.
@@ -59,6 +93,7 @@ func (s Spec) machine() cloud.Machine {
 	return cloud.Machine{
 		InstanceType: s.InstanceType, Image: s.Image, Arch: s.Arch, Spot: s.Spot, Disk: s.Disk,
 		SubnetID: s.SubnetID, SecurityGroupIDs: s.SecurityGroupIDs, InstanceProfile: s.InstanceProfile,
+		Zone: s.Zone, GPUType: s.GPUType, GCP: s.GCP,
 	}
 }
 

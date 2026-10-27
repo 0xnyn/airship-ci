@@ -236,6 +236,16 @@ func (s *Service) handOff(ctx context.Context, q *db.Queries, job db.Job, runner
 	if err := q.ClearRunnerTrigger(ctx, runner.ID); err != nil {
 		return fmt.Errorf("clear runner trigger: %w", err)
 	}
+	// The robbed job may already have a replacement (the stolen runner's
+	// lease expired or its launch went unconfirmed, and a retry was
+	// queued); then job's spare is simply surplus and idles out.
+	live, err := q.JobHasLiveRunner(ctx, &robbed.ID)
+	if err != nil {
+		return fmt.Errorf("check robbed job: %w", err)
+	}
+	if live {
+		return nil
+	}
 	if _, err := q.MoveLiveRunners(ctx, db.MoveLiveRunnersParams{FromJobID: &job.ID, ToJobID: &robbed.ID}); err != nil {
 		return fmt.Errorf("hand off runner: %w", err)
 	}

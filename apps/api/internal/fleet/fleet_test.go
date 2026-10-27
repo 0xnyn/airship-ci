@@ -14,6 +14,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud/fake"
+	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
@@ -57,6 +58,7 @@ type harness struct {
 	gh      *fakegithub.Server
 	svc     *fleet.Service
 	aws     *fake.Provider
+	gcp     *fake.Provider
 	nextJob int64
 	lastJob github.WorkflowJob
 }
@@ -77,13 +79,14 @@ func newHarness(t *testing.T) *harness {
 	key, _ := secrets.ParseKey(secrets.NewKey())
 	keyring, _ := secrets.New(key)
 	aws := fake.New(cloud.AWS)
+	gcp := fake.New(cloud.GCP)
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "https://api.test"
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, cfg, slog.New(slog.DiscardHandler))
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: gcp}, keyring, cfg, slog.New(slog.DiscardHandler))
 	if _, err := svc.SaveInstallation(ctx, inst); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, nextJob: 100}
+	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, gcp: gcp, nextJob: 100}
 	h.connect()
 	h.activate(false)
 	h.setRun("push", repoID, "alice")
@@ -96,6 +99,21 @@ func (h *harness) connect() {
 	h.t.Helper()
 	secret, _ := awscloud.EncodeSecret(awscloud.Secret{AccessKeyID: "AKIATEST", SecretAccessKey: "secret"})
 	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.AWS, secret, region, nil); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// connectGCP connects the fake GCP provider with a service account key for
+// project; location is the credential's default zone or region.
+func (h *harness) connectGCP(project, location string) {
+	h.t.Helper()
+	h.gcp.AccountID = project
+	secret, err := gcpcloud.EncodeSecret([]byte(`{"type":"service_account","project_id":"` + project + `","private_key_id":"k1",` +
+		`"private_key":"-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n","client_email":"airship@` + project + `.iam.gserviceaccount.com","client_id":"1"}`))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.GCP, secret, location, nil); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -640,19 +658,71 @@ func TestLeaseExpiryRetriesAndALateListingRevives(t *testing.T) {
 	h.reconcile()
 	wantStates(t, h, "finished:lease_expired", "pending")
 
-	// The machine was created after all: the cloud lists it.
+	// The machine was created after all: the cloud lists it, and GitHub
+	// still has its registration.
 	runners := h.runners()
 	if _, err := h.aws.Launch(h.ctx, nil, cloud.Launch{RunnerID: runners[0].ID.String(), RunnerName: runners[0].Name, InstallationID: installationID, Region: region}); err != nil {
 		t.Fatal(err)
 	}
-	h.exec("update runners set github_runner_id = 1 where id = $1", runners[0].ID)
-	h.reconcile()
+	h.exec("update runners set github_runner_id = $2 where id = $1", runners[0].ID, h.gh.AddRunner(repoName, runners[0].Name))
+	h.gh.FailNext("GET runner", http.StatusInternalServerError, http.StatusInternalServerError, http.StatusInternalServerError)
+	h.reconcile() // GitHub could not be asked: the machine is real, so the runner is revived regardless
 	runners = h.runners()
 	if runners[0].State != "running" || runners[0].TriggerJobID != nil {
 		t.Fatalf("late listing did not revive the runner: %v", states(runners))
 	}
 	if runners[1].State != "finished" {
 		t.Fatalf("retry runner for the same job not cancelled: %v", states(runners))
+	}
+
+	// The same, but the registration is gone (removed by a deregister pass
+	// that died before recording it): a machine that can never take a job
+	// is not revived, it is destroyed, and the retry keeps the job.
+	g := newHarness(t)
+	g.queue()
+	g.exec("update runners set state = 'launching', launching_at = now(), lease_expires_at = now() - interval '1 second'")
+	g.reconcile()
+	runners = g.runners()
+	if _, err := g.aws.Launch(g.ctx, nil, cloud.Launch{RunnerID: runners[0].ID.String(), RunnerName: runners[0].Name, InstallationID: installationID, Region: region}); err != nil {
+		t.Fatal(err)
+	}
+	g.exec("update runners set github_runner_id = 999 where id = $1", runners[0].ID)
+	g.reconcile()
+	wantStates(t, g, "finished:lease_expired", "pending")
+	var deregistered, terminated bool
+	if err := g.pool.QueryRow(g.ctx, "select deregistered_at is not null, terminate_requested_at is not null from runners where id = $1", runners[0].ID).Scan(&deregistered, &terminated); err != nil || !deregistered || !terminated {
+		t.Fatalf("unregistered machine: deregistered %v, terminate requested %v, %v", deregistered, terminated, err)
+	}
+}
+
+// A job cancelled (or started elsewhere) while its runner is being
+// registered gets no machine: the launcher checks the job once more
+// before calling the cloud, and removes the registration it just made.
+func TestJobThatMovedOnDuringRegistrationIsNotLaunched(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	job := h.queue()
+	var hookErr error
+	h.gh.BeforeRoute(func(route string) {
+		if route != "POST generate-jitconfig" {
+			return
+		}
+		h.gh.BeforeRoute(nil)
+		now := time.Now()
+		done := job
+		done.Status, done.CompletedAt, done.Conclusion = "completed", &now, ptr("cancelled")
+		hookErr = h.svc.HandleWorkflowJob(h.ctx, github.WorkflowJobEvent{
+			Action: "completed", WorkflowJob: done,
+			Repository:   github.Repository{ID: repoID, FullName: repoName, Private: true},
+			Installation: &github.InstallationRef{ID: installationID},
+		})
+	})
+	if launched := h.launch(); len(launched) != 0 || hookErr != nil {
+		t.Fatalf("launched %d machines for a job cancelled mid-registration (%v)", len(launched), hookErr)
+	}
+	wantStates(t, h, "finished:cancelled")
+	if n := len(h.gh.Runners()); n != 0 {
+		t.Fatalf("%d registrations left behind", n)
 	}
 }
 

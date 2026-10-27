@@ -78,8 +78,104 @@ runners:
 `, "unknown field instance_tpye"},
 		"unsupported cloud": {`
 runners:
-  - {name: a, cloud: gcp, instance_type: n1-standard-1, labels: [cirun-a]}
-`, `cloud "gcp" is not supported`},
+  - {name: a, cloud: azure, instance_type: Standard_D2s_v3, labels: [cirun-a]}
+`, `cloud "azure" is not supported`},
+		"gcp zone": {`
+runners:
+  - {name: a, cloud: gcp, instance_type: n1-standard-1, region: us-east-1, labels: [cirun-a]}
+`, `is not a GCP zone or region`},
+		"gcp machine type": {`
+runners:
+  - {name: a, cloud: gcp, instance_type: c7i.large, labels: [cirun-a]}
+`, `is not a Compute Engine machine type`},
+		"gcp image": {`
+runners:
+  - {name: a, cloud: gcp, instance_type: n1-standard-1, machine_image: "My Image", labels: [cirun-a]}
+`, `must be an image or family name`},
+		"gcp gpu name": {`
+runners:
+  - {name: a, cloud: gcp, instance_type: n1-standard-1, gpu: "Tesla T4", labels: [cirun-a]}
+`, `is not a Compute Engine GPU name`},
+		"aws key on gcp": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n1-standard-1
+    labels: [cirun-a]
+    extra_config: {SubnetId: subnet-0123456789abcdef0}
+`, "SubnetId is an AWS setting"},
+		"existing disk source": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n1-standard-1
+    labels: [cirun-a]
+    extra_config: {existingDisk: {deviceName: data, diskSizeGb: 122}}
+`, "source must be a disk reference"},
+		"existing disk zone conflict": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n1-standard-1
+    region: us-central1-a
+    labels: [cirun-a]
+    extra_config: {existingDisk: {source: projects/my-project/zones/us-central1-b/disks/data}}
+`, "existingDisk is in zone us-central1-b"},
+		"existing disk region conflict": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n1-standard-1
+    region: europe-west4
+    labels: [cirun-a]
+    extra_config: {existingDisk: {source: regions/us-central1/disks/data}}
+`, "existingDisk is in region us-central1"},
+		"existing disk mode": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n1-standard-1
+    labels: [cirun-a]
+    extra_config: {existingDisk: {source: zones/us-central1-b/disks/data, mode: READ_MANY}}
+`, "mode must be READ_WRITE or READ_ONLY"},
+		"migrate with spot": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n2-standard-4
+    preemptible: true
+    labels: [cirun-a]
+    extra_config: {scheduling: {onHostMaintenance: MIGRATE}}
+`, "MIGRATE is not allowed on preemptible"},
+		"migrate with gpu": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: a2-highgpu-1g
+    labels: [cirun-a]
+    extra_config: {scheduling: {onHostMaintenance: MIGRATE}}
+`, "MIGRATE is not allowed on a2-highgpu-1g"},
+		"public ip conflict": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n2-standard-4
+    labels: [cirun-a]
+    extra_config:
+      enable_public_ip: false
+      networkInterfaces:
+        - network: default
+          accessConfigs: [{type: ONE_TO_ONE_NAT}]
+`, "conflicts with enable_public_ip: false"},
+		"bad service account": {`
+runners:
+  - name: a
+    cloud: gcp
+    instance_type: n2-standard-4
+    labels: [cirun-a]
+    extra_config:
+      serviceAccounts: [{email: someone@example.com}]
+`, "email must be a service account address"},
 		"label prefix": {`
 runners:
   - {name: a, cloud: aws, instance_type: c7i.large, labels: [airship-a]}
@@ -130,7 +226,7 @@ runners:
     instance_type: c7i.large
     labels: [cirun-a]
     extra_config: {baseDisk: {diskSizeGb: 10}}
-`, "unknown field baseDisk"},
+`, "baseDisk is a GCP setting"},
 		"bad provision_via": {`
 runners:
   - name: a
@@ -403,9 +499,141 @@ func TestArchForInstanceType(t *testing.T) {
 		"p5en.48xlarge": "x64", "gr6.4xlarge": "x64", "c7i-flex.large": "x64", "inf2.xlarge": "x64",
 	}
 	for instance, want := range cases {
-		if got := ArchForInstanceType(instance); got != want {
+		if got := ArchForInstanceType(CloudAWS, instance); got != want {
 			t.Errorf("%s: %s, want %s", instance, got, want)
 		}
+	}
+	gcp := map[string]string{"t2a-standard-4": "arm64", "c4a-standard-8": "arm64", "n2-standard-4": "x64", "a2-highgpu-1g": "x64", "e2-medium": "x64"}
+	for instance, want := range gcp {
+		if got := ArchForInstanceType(CloudGCP, instance); got != want {
+			t.Errorf("gcp %s: %s, want %s", instance, got, want)
+		}
+	}
+	for instance, want := range map[string]bool{"a2-highgpu-1g": true, "g2-standard-4": true, "a3-highgpu-8g": true, "n1-standard-4": false, "g5.xlarge": false} {
+		if got := HasGPU(CloudGCP, instance); got != want {
+			t.Errorf("HasGPU(gcp, %s) = %v", instance, got)
+		}
+	}
+}
+
+// A GCP definition keeps Cirun's shape: region is a zone, gpu names the
+// accelerator, and extra_config carries Compute Engine settings.
+func TestGCPRunner(t *testing.T) {
+	f := mustParse(t, `
+runners:
+  - name: gpu
+    cloud: gcp
+    instance_type: [n1-standard-4, t2a-standard-4]
+    machine_image: ["my-project:ci-image", ubuntu2204]
+    region: [us-central1-b, us-central1]
+    preemptible: [true, false]
+    gpu: nvidia-tesla-t4
+    labels: [cirun-gpu]
+    extra_config:
+      cache: true
+      baseDisk: {diskSizeGb: 101, diskType: pd-ssd}
+      additionalDisk: {diskSizeGb: 42, diskType: "projects/my-project/zones/us-central1-b/diskTypes/pd-balanced"}
+      project_id: my-project
+      enable_public_ip: false
+      networkInterfaces:
+        - nicType: GVNIC
+          network: ci
+          subnetwork: "projects/my-project/regions/us-central1/subnetworks/ci"
+          stackType: IPV4_ONLY
+      serviceAccounts:
+        - email: runner@my-project.iam.gserviceaccount.com
+          scopes: ["https://www.googleapis.com/auth/cloud-platform"]
+      scheduling: {onHostMaintenance: TERMINATE}
+      existingDisk:
+        deviceName: ccache
+        diskSizeGb: 122
+        source: "projects/my-project/zones/us-central1-b/disks/ccache"
+        type: PERSISTENT
+        mode: READ_WRITE
+        interface: SCSI
+`)
+	r := f.Runners[0]
+	if r.Cloud != CloudGCP || !r.GPU || r.GPUType != "nvidia-tesla-t4" || !r.Cache {
+		t.Fatalf("runner = %+v", r)
+	}
+	if len(r.Variants) != 2 {
+		t.Fatalf("variants = %+v", r.Variants)
+	}
+	first, second := r.Variants[0], r.Variants[1]
+	if first.Region != "us-central1" || first.Zone != "us-central1-b" || first.InstanceType != "n1-standard-4" || first.Image != "my-project:ci-image" || !first.Spot || first.Arch != "x64" {
+		t.Errorf("first variant = %+v", first)
+	}
+	if second.Region != "us-central1" || second.Zone != "" || second.Image != "ubuntu2204" || second.Spot || second.Arch != "arm64" {
+		t.Errorf("second variant = %+v", second)
+	}
+	if first.Disk.SizeGB != 101 || first.Disk.Type != "pd-ssd" {
+		t.Errorf("disk = %+v", first.Disk)
+	}
+	g := r.GCP
+	if g == nil || g.Project != "my-project" || !g.NoPublicIP || g.OnHostMaintenance != "TERMINATE" {
+		t.Fatalf("gcp = %+v", g)
+	}
+	if g.AdditionalDisk == nil || g.AdditionalDisk.SizeGB != 42 || !strings.HasSuffix(g.AdditionalDisk.Type, "/diskTypes/pd-balanced") {
+		t.Errorf("additional disk = %+v", g.AdditionalDisk)
+	}
+	if len(g.NetworkInterfaces) != 1 || g.NetworkInterfaces[0].Network != "global/networks/ci" || g.NetworkInterfaces[0].NicType != "GVNIC" || g.NetworkInterfaces[0].StackType != "IPV4_ONLY" {
+		t.Errorf("network interfaces = %+v", g.NetworkInterfaces)
+	}
+	if len(g.ServiceAccounts) != 1 || g.ServiceAccounts[0].Email != "runner@my-project.iam.gserviceaccount.com" || len(g.ServiceAccounts[0].Scopes) != 1 {
+		t.Errorf("service accounts = %+v", g.ServiceAccounts)
+	}
+	if d := g.ExistingDisk; d == nil || d.Zone != "us-central1-b" || d.Region != "us-central1" || d.DeviceName != "ccache" || d.Mode != "READ_WRITE" || d.Interface != "SCSI" || !strings.HasSuffix(d.Source, "/disks/ccache") {
+		t.Errorf("existing disk = %+v", g.ExistingDisk)
+	}
+
+	plain := mustParse(t, `
+runners:
+  - {name: a, cloud: gcp, instance_type: e2-medium, labels: [cirun-a]}
+`).Runners[0]
+	v := plain.Variants[0]
+	if v.Region != "" || v.Zone != "" || v.Disk.SizeGB != DefaultDiskGB || v.Disk.Type != "" || plain.GCP != nil || plain.GPUType != "" {
+		t.Errorf("plain gcp runner = %+v, variant %+v", plain, v)
+	}
+	for _, image := range []string{"ubuntu-2404-lts-amd64", "projects/my-project/global/machineImages/golden", "https://www.googleapis.com/compute/beta/projects/my-project/global/machineImages/golden", "debian-12"} {
+		mustParse(t, "runners:\n  - {name: a, cloud: gcp, instance_type: e2-medium, machine_image: "+image+", labels: [cirun-a]}\n")
+	}
+}
+
+// A GCP runner matches jobs the same way, with gcp as its cloud label and
+// the OS taken from the image name when it is a public family.
+func TestGCPLabels(t *testing.T) {
+	f := mustParse(t, `
+runners:
+  - {name: linux, cloud: gcp, instance_type: n2-standard-4, machine_image: ubuntu-2404-lts-amd64, labels: [cirun-linux]}
+  - {name: win, cloud: gcp, instance_type: n2-standard-4, machine_image: windows-2022, labels: [cirun-win]}
+  - {name: gpu, cloud: gcp, instance_type: g2-standard-4, labels: [cirun-gpu]}
+`)
+	var candidates []Candidate
+	for _, r := range f.Runners {
+		candidates = append(candidates, Candidate{Source: SourceRepository, Runner: r})
+	}
+	match := func(labels ...string) string {
+		attempts := Plan(labels, candidates)
+		if len(attempts) == 0 {
+			return ""
+		}
+
+		return attempts[0].Runner.Name
+	}
+	if got := match("self-hosted", "linux", "cirun-linux"); got != "linux" {
+		t.Errorf("linux match = %q", got)
+	}
+	if got := match("windows", "cirun-linux"); got != "" {
+		t.Errorf("an ubuntu family matched a windows job: %q", got)
+	}
+	if got := match("windows", "cirun-win"); got != "win" {
+		t.Errorf("windows match = %q", got)
+	}
+	if got := match("linux", "cirun-win"); got != "" {
+		t.Errorf("a windows image matched a linux job: %q", got)
+	}
+	if got := match("gpu", "gcp", "x64", "cirun-gpu"); got != "gpu" {
+		t.Errorf("gpu match = %q", got)
 	}
 }
 

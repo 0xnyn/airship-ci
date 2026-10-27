@@ -172,7 +172,7 @@ type Runner struct {
 	Repository   string     `doc:"Repository the runner is registered to"       json:"repository"`
 	Definition   string     `doc:"Runner name from the config file"             json:"definition"`
 	Source       string     `doc:"Which file defined the runner"                enum:"repository,organization" json:"source"`
-	Cloud        string     `doc:"Cloud it launched in"                         enum:"aws" json:"cloud"`
+	Cloud        string     `doc:"Cloud it launched in"                         enum:"aws,gcp" json:"cloud"`
 	Region       string     `doc:"Region it launched in"                        json:"region"`
 	InstanceType string     `doc:"Machine type it launched as"                  json:"instanceType"`
 	Spot         bool       `doc:"Whether it uses spot capacity"                json:"spot"`

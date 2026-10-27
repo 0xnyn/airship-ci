@@ -114,11 +114,19 @@ func (s *Service) DisconnectCloud(ctx context.Context, installationID int64, clo
 
 // identityHint is the public half of a secret, shown in the dashboard.
 func identityHint(cloudName string, secret []byte) string {
-	if cloudName == cloud.AWS {
-		if parsed, err := awsSecret(secret); err == nil {
-			return parsed
-		}
+	var hint string
+	var err error
+	switch cloudName {
+	case cloud.AWS:
+		hint, err = awsSecret(secret)
+	case cloud.GCP:
+		hint, err = gcpSecret(secret)
+	default:
+		return "connected"
+	}
+	if err != nil {
+		return "connected"
 	}
 
-	return "connected"
+	return hint
 }

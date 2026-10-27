@@ -81,6 +81,7 @@ function Usage() {
     "export CIRUN_API_KEY=asa_...",
     "cirun repo add OWNER/REPO",
     "cirun cloud connect aws --access-key AKIA... --secret-key ...",
+    "cirun cloud connect gcp --key-file service-account.json",
   ].join("\n");
   const curl = [
     `curl ${ENV.NEXT_PUBLIC_API_URL}/api/v1/repo \\`,

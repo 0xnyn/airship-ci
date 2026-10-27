@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,16 +20,17 @@ import (
 )
 
 type fakeEC2 struct {
-	mu        sync.Mutex
-	runs      []*ec2.RunInstancesInput
-	failures  []error // consumed by RunInstances in order
-	listed    *ec2.DescribeInstancesInput
-	instances []ec2types.Instance
-	images    map[string]ec2types.Image
-	imageCall int
-	groups    int
-	subnets   []ec2types.Subnet
-	noDefault bool
+	mu         sync.Mutex
+	runs       []*ec2.RunInstancesInput
+	failures   []error // consumed by RunInstances in order
+	listed     *ec2.DescribeInstancesInput
+	instances  []ec2types.Instance
+	images     map[string]ec2types.Image
+	imageCall  int
+	groups     int
+	subnets    []ec2types.Subnet
+	noDefault  bool
+	terminated bool
 }
 
 func (f *fakeEC2) RunInstances(_ context.Context, in *ec2.RunInstancesInput, _ ...func(*ec2.Options)) (*ec2.RunInstancesOutput, error) {
@@ -46,13 +48,51 @@ func (f *fakeEC2) RunInstances(_ context.Context, in *ec2.RunInstancesInput, _ .
 	return &ec2.RunInstancesOutput{Instances: []ec2types.Instance{{InstanceId: awssdk.String("i-123")}}}, nil
 }
 
+// DescribeInstances behaves as EC2 does: an explicit ID that does not exist
+// is an error, and tag filters narrow the result.
 func (f *fakeEC2) DescribeInstances(_ context.Context, in *ec2.DescribeInstancesInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.listed = in
+	var matched []ec2types.Instance
+	for _, instance := range f.instances {
+		if len(in.InstanceIds) > 0 && !slices.Contains(in.InstanceIds, awssdk.ToString(instance.InstanceId)) {
+			continue
+		}
+		ok := true
+		for _, filter := range in.Filters {
+			if key, isTag := strings.CutPrefix(awssdk.ToString(filter.Name), "tag:"); isTag && !slices.Contains(filter.Values, tagValue(instance.Tags, key)) {
+				ok = false
+			}
+			if awssdk.ToString(filter.Name) == "client-token" && !slices.Contains(filter.Values, awssdk.ToString(instance.ClientToken)) {
+				ok = false
+			}
+		}
+		if ok {
+			matched = append(matched, instance)
+		}
+	}
+	if len(in.InstanceIds) > 0 && len(matched) == 0 {
+		for _, id := range in.InstanceIds {
+			if !slices.ContainsFunc(f.instances, func(i ec2types.Instance) bool { return awssdk.ToString(i.InstanceId) == id }) {
+				return nil, &smithy.GenericAPIError{Code: "InvalidInstanceID.NotFound"}
+			}
+		}
+	}
 
-	return &ec2.DescribeInstancesOutput{Reservations: []ec2types.Reservation{{Instances: f.instances}}}, nil
+	return &ec2.DescribeInstancesOutput{Reservations: []ec2types.Reservation{{Instances: matched}}}, nil
 }
 
-func (f *fakeEC2) TerminateInstances(context.Context, *ec2.TerminateInstancesInput, ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error) {
+func (f *fakeEC2) TerminateInstances(_ context.Context, in *ec2.TerminateInstancesInput, _ ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.terminated = true
+	for _, instance := range f.instances {
+		if awssdk.ToString(instance.InstanceId) == in.InstanceIds[0] {
+			return &ec2.TerminateInstancesOutput{}, nil
+		}
+	}
+
 	return nil, &smithy.GenericAPIError{Code: "InvalidInstanceID.NotFound"}
 }
 
@@ -316,6 +356,9 @@ func TestLaunchErrorsAreClassified(t *testing.T) {
 
 // A call that never reached EC2 says nothing about the machine, so it is
 // retried rather than moving the job to its next fallback.
+// A RunInstances call that gets no answer may have made an instance. The
+// client token finds it when it did; when nothing is found the launch is
+// ambiguous and retryable, for the inventory scan to settle.
 func TestTransportErrorsAreRetryable(t *testing.T) {
 	t.Parallel()
 	for name, failure := range map[string]error{
@@ -323,23 +366,42 @@ func TestTransportErrorsAreRetryable(t *testing.T) {
 		"operation": &smithy.OperationError{ServiceID: "EC2", OperationName: "RunInstances", Err: errors.New("dial tcp: i/o timeout")},
 	} {
 		_, err := newProvider(&fakeEC2{failures: []error{failure, failure}}).Launch(context.Background(), testSecret, testLaunch())
-		if err == nil || !cloud.IsRetryable(err) {
-			t.Errorf("%s: err = %v, want retryable", name, err)
+		if err == nil || !cloud.IsRetryable(err) || !cloud.IsAmbiguous(err) {
+			t.Errorf("%s: err = %v, want retryable and ambiguous", name, err)
 		}
+	}
+
+	// The request did reach EC2: the instance carrying the call's client
+	// token is the launch's answer, and no second RunInstances is made.
+	launch := testLaunch()
+	client := &fakeEC2{
+		failures: []error{context.DeadlineExceeded},
+		instances: []ec2types.Instance{
+			{InstanceId: awssdk.String("i-other"), ClientToken: awssdk.String("someone-else"), State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning}},
+			{InstanceId: awssdk.String("i-mine"), ClientToken: awssdk.String(fmt.Sprintf("%s-0-%t", launch.RunnerID, launch.Machine.Spot)), State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning}},
+		},
+	}
+	id, err := newProvider(client).Launch(context.Background(), testSecret, launch)
+	if err != nil || id != "i-mine" {
+		t.Fatalf("launch after a lost answer = %q, %v; want the instance found by client token", id, err)
+	}
+	if len(client.runs) != 1 {
+		t.Fatalf("RunInstances called %d times, want 1", len(client.runs))
 	}
 }
 
 func TestListFiltersByInstallationAndMarksShuttingDown(t *testing.T) {
 	t.Parallel()
 	ec2Client := &fakeEC2{instances: []ec2types.Instance{
-		{InstanceId: awssdk.String("i-1"), State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning}, Tags: []ec2types.Tag{{Key: awssdk.String(TagRunner), Value: awssdk.String("r1")}}},
-		{InstanceId: awssdk.String("i-2"), State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameShuttingDown}},
+		{InstanceId: awssdk.String("i-1"), State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning}, Tags: []ec2types.Tag{{Key: awssdk.String(TagRunner), Value: awssdk.String("r1")}, {Key: awssdk.String(TagInstallation), Value: awssdk.String("42")}}},
+		{InstanceId: awssdk.String("i-2"), State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameShuttingDown}, Tags: []ec2types.Tag{{Key: awssdk.String(TagInstallation), Value: awssdk.String("42")}}},
+		{InstanceId: awssdk.String("i-3"), State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning}, Tags: []ec2types.Tag{{Key: awssdk.String(TagInstallation), Value: awssdk.String("7")}}},
 	}}
 	list, err := newProvider(ec2Client).List(context.Background(), testSecret, "us-east-1", 42)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list[0].RunnerID != "r1" || list[0].Stopping || !list[1].Stopping {
+	if len(list) != 2 || list[0].RunnerID != "r1" || list[0].Stopping || !list[1].Stopping {
 		t.Fatalf("list = %+v", list)
 	}
 	if v := ec2Client.listed.Filters[0].Values; awssdk.ToString(ec2Client.listed.Filters[0].Name) != "tag:"+TagInstallation || v[0] != "42" {
@@ -349,8 +411,30 @@ func TestListFiltersByInstallationAndMarksShuttingDown(t *testing.T) {
 
 func TestTerminateIgnoresMissingInstances(t *testing.T) {
 	t.Parallel()
-	if err := newProvider(&fakeEC2{}).Terminate(context.Background(), testSecret, "us-east-1", "i-gone"); err != nil {
+	if err := newProvider(&fakeEC2{}).Terminate(context.Background(), testSecret, "us-east-1", "i-gone", 42); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Terminate describes the instance filtered by the installation's tag and
+// refuses when the filter matches nothing: the instance is not ours.
+func TestTerminateChecksOwnership(t *testing.T) {
+	t.Parallel()
+	owned := []ec2types.Instance{{InstanceId: awssdk.String("i-1"), Tags: []ec2types.Tag{{Key: awssdk.String(TagInstallation), Value: awssdk.String("42")}}}}
+	ec2Client := &fakeEC2{instances: owned}
+	if err := newProvider(ec2Client).Terminate(context.Background(), testSecret, "us-east-1", "i-1", 42); err != nil {
+		t.Fatal(err)
+	}
+	filter := ec2Client.listed.Filters[0]
+	if awssdk.ToString(filter.Name) != "tag:"+TagInstallation || filter.Values[0] != "42" || ec2Client.listed.InstanceIds[0] != "i-1" {
+		t.Fatalf("describe was not scoped to the installation: %+v", ec2Client.listed)
+	}
+	if !ec2Client.terminated {
+		t.Fatal("owned instance was not terminated")
+	}
+	other := &fakeEC2{instances: owned}
+	if err := newProvider(other).Terminate(context.Background(), testSecret, "us-east-1", "i-1", 7); err == nil || other.terminated {
+		t.Fatalf("an instance outside the installation's tag was terminated: err = %v", err)
 	}
 }
 

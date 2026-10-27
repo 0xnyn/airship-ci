@@ -119,6 +119,15 @@ trap 'shutdown -P now' EXIT
 # Hard deadline: power off even if the control plane is unreachable.
 shutdown -P +{{.DeadlineMinutes}} || true
 
+# Clouds that run the startup script on every boot must not register the
+# runner twice: its registration was single use and its job is over. A
+# rebooted machine powers off (the trap above) instead.
+mkdir -p /var/lib/airship
+if [ -e /var/lib/airship/booted ]; then
+  exit 0
+fi
+touch /var/lib/airship/booted
+
 RUNNER_VERSION='{{.RunnerVersion}}'
 RUNNER_ARCH='{{.Arch}}'
 RUNNER_DIR=/opt/actions-runner
@@ -256,8 +265,7 @@ func Linux(boot cloud.Boot, arch string) (string, error) {
 // downloaded, given its .env, and either run in place or, for interactive
 // runners, registered as a logon task for a local account the machine then
 // logs in as.
-var windowsTemplate = template.Must(template.New("windows").Parse(`<powershell>
-$ErrorActionPreference = "Stop"
+var windowsTemplate = template.Must(template.New("windows").Parse(`$ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $PSNativeCommandUseErrorActionPreference = $false
 # Any failure below powers the machine off (and so terminates it).
@@ -266,7 +274,20 @@ trap { shutdown.exe /s /t 0 /c "Airship runner setup failed"; break }
 shutdown.exe /s /t {{.DeadlineSeconds}} /c "Airship runner deadline"
 
 $dir = "{{.Path}}"
+# Clouds that run the startup script on every boot must not install and
+# register the runner twice: its registration was single use.
+$marker = Join-Path $dir ".airship-booted"
+if (Test-Path $marker) {
+{{- if .Interactive}}
+  # The reboot below brought us here; the logon task runs the runner.
+  exit
+{{- else}}
+  shutdown.exe /s /t 0 /c "Airship runner already ran"
+  exit
+{{- end}}
+}
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
+New-Item -ItemType File -Force -Path $marker | Out-Null
 $zip = Join-Path $env:TEMP "actions-runner.zip"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Invoke-WebRequest -Uri "https://github.com/actions/runner/releases/download/v{{.RunnerVersion}}/actions-runner-win-{{.Arch}}-{{.RunnerVersion}}.zip" -OutFile $zip
@@ -311,7 +332,6 @@ try {
   shutdown.exe /s /t 0
 }
 {{- end}}
-</powershell>
 `))
 
 type windowsParams struct {
@@ -326,10 +346,23 @@ type windowsParams struct {
 	Password        string
 }
 
-// Windows renders the boot script for a Windows image. password is the
-// local account's password for interactive runners; it must be
-// alphanumeric and is ignored otherwise.
+// Windows renders the boot script for a Windows image on EC2, wrapped in
+// the <powershell> element EC2Launch expects. See WindowsScript.
 func Windows(boot cloud.Boot, arch, password string) (string, error) {
+	script, err := WindowsScript(boot, arch, password)
+	if err != nil {
+		return "", err
+	}
+
+	return "<powershell>\n" + script + "</powershell>\n", nil
+}
+
+// WindowsScript renders the bare PowerShell boot script for a Windows
+// image, for clouds that take a script as is (Compute Engine's
+// windows-startup-script-ps1). password is the local account's password
+// for interactive runners; it must be alphanumeric and is ignored
+// otherwise.
+func WindowsScript(boot cloud.Boot, arch, password string) (string, error) {
 	if err := check(boot, arch); err != nil {
 		return "", err
 	}

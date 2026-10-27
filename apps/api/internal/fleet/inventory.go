@@ -10,6 +10,7 @@ import (
 
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
+	"github.com/wizenheimer/airship/apps/api/internal/github"
 
 	"github.com/google/uuid"
 )
@@ -109,7 +110,7 @@ func (s *Service) scanScope(ctx context.Context, credentialID uuid.UUID, region 
 		if instance.Stopping {
 			continue
 		}
-		if err := provider.Terminate(ctx, secret, region, instance.InstanceID); err != nil {
+		if err := provider.Terminate(ctx, secret, region, instance.InstanceID, cred.InstallationID); err != nil {
 			s.log.WarnContext(ctx, "terminate instance", slog.String("instance", instance.InstanceID), slog.Any("error", err))
 
 			continue
@@ -144,18 +145,47 @@ func (s *Service) scanScope(ctx context.Context, credentialID uuid.UUID, region 
 	return nil
 }
 
-// reviveRunners brings back runners whose lease expired but whose instance
-// did launch. When the lease expired a retry runner was queued for the same
-// job; if it has not been claimed yet it is cancelled, so the installation
-// does not run more machines than max_runners. (If the revived runner then
-// takes some other job, the stale job refresh queues a runner for this one.)
+// reviveRunners brings back runners whose lease expired or whose launch
+// went unconfirmed but whose instance did launch. GitHub is asked first
+// whether the registration still exists: a machine without one can never
+// take a job, so it is left finished (and its instance terminated), and
+// the retry runner its job already has is kept. If GitHub cannot answer
+// the runner is revived anyway, as before the check: the machine is real,
+// and a wrong revival only idles out. When the lease expired a retry
+// runner was queued for the same job; if it has not been claimed yet it
+// is cancelled, so the installation does not run more machines than
+// max_runners. (If the revived runner then takes some other job, the
+// stale job refresh queues a runner for this one.)
 func (s *Service) reviveRunners(ctx context.Context, credentialID uuid.UUID, ids []uuid.UUID) error {
-	revived, err := s.q.ReviveRunners(ctx, db.ReviveRunnersParams{CredentialID: &credentialID, RunnerIds: ids})
+	candidates, err := s.q.ListRevivableRunners(ctx, db.ListRevivableRunnersParams{CredentialID: &credentialID, RunnerIds: ids})
+	if err != nil {
+		return fmt.Errorf("list revivable runners: %w", err)
+	}
+	var confirmed []uuid.UUID
+	for _, runner := range candidates {
+		registered, err := s.registrationExists(ctx, runner)
+		switch {
+		case err != nil:
+			s.log.WarnContext(ctx, "cannot check registration of a listed runner; reviving it", slog.String("runner", runner.ID.String()), slog.Any("error", err))
+			confirmed = append(confirmed, runner.ID)
+		case registered:
+			confirmed = append(confirmed, runner.ID)
+		default:
+			s.log.InfoContext(ctx, "runner listed after it was given up, but its registration is gone; not revived", slog.String("runner", runner.ID.String()))
+			if err := s.q.MarkRunnerDeregistered(ctx, runner.ID); err != nil {
+				return fmt.Errorf("mark deregistered: %w", err)
+			}
+		}
+	}
+	if len(confirmed) == 0 {
+		return nil
+	}
+	revived, err := s.q.ReviveRunners(ctx, db.ReviveRunnersParams{CredentialID: &credentialID, RunnerIds: confirmed})
 	if err != nil {
 		return fmt.Errorf("revive runners: %w", err)
 	}
 	for _, runner := range revived {
-		s.log.InfoContext(ctx, "runner listed after its lease expired, revived", slog.String("runner", runner.ID.String()))
+		s.log.InfoContext(ctx, "runner listed after it was given up, revived", slog.String("runner", runner.ID.String()))
 		if runner.OldTriggerJobID == nil {
 			continue
 		}
@@ -165,6 +195,27 @@ func (s *Service) reviveRunners(ctx context.Context, credentialID uuid.UUID, ids
 	}
 
 	return nil
+}
+
+// registrationExists asks GitHub whether a runner's registration is still
+// there. A runner that never got one has nothing to revive.
+func (s *Service) registrationExists(ctx context.Context, runner db.Runner) (bool, error) {
+	if runner.GithubRunnerID == nil {
+		return false, nil
+	}
+	reg, err := s.registrationFor(ctx, runner, false)
+	if err != nil {
+		return false, nil //nolint:nilerr // a malformed scope is permanent: nothing to revive
+	}
+	_, err = reg.get(ctx, *runner.GithubRunnerID)
+	if github.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get runner: %w", err)
+	}
+
+	return true, nil
 }
 
 // terminateFinished asks the cloud to destroy the instances of finished
@@ -201,7 +252,7 @@ func (s *Service) terminateRunner(ctx context.Context, runner db.Runner) {
 
 		return
 	}
-	if err := provider.Terminate(ctx, secret, runner.Region, *runner.InstanceID); err != nil {
+	if err := provider.Terminate(ctx, secret, runner.Region, *runner.InstanceID, runner.InstallationID); err != nil {
 		log.WarnContext(ctx, "terminate instance", slog.Any("error", err))
 
 		return

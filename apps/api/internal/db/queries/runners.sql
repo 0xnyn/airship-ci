@@ -16,7 +16,7 @@ returning *;
 -- name: CountFailedRunnersForJob :one
 -- Failed attempts at serving one job, to cap retries.
 select count(*) from runners
-where trigger_job_id = $1 and finish_reason in ('launch_failed', 'lease_expired', 'lost');
+where trigger_job_id = $1 and finish_reason in ('launch_failed', 'launch_unconfirmed', 'lease_expired', 'lost');
 
 -- name: JobHasLiveRunner :one
 select exists(select 1 from runners where trigger_job_id = $1 and state <> 'finished');
@@ -89,14 +89,19 @@ returning *;
 
 -- name: FinishRunner :one
 -- Moves a runner to finished if it is still in one of from_states. Runners
--- that never got an instance are marked gone at the same time.
+-- that never got an instance are marked gone at the same time, unless
+-- instance_unknown says the cloud may have made one anyway (the launch's
+-- answer was lost); the inventory scan then settles it.
 update runners
 set state = 'finished',
     finish_reason = sqlc.arg(reason)::text,
     error = coalesce(sqlc.narg(error), error),
     finished_at = now(),
     lease_expires_at = null,
-    instance_gone_at = case when instance_id is null then now() else instance_gone_at end,
+    instance_gone_at = case
+        when instance_id is null and not sqlc.arg(instance_unknown)::boolean then now()
+        else instance_gone_at
+    end,
     deregistered_at = case
         when github_runner_id is null or sqlc.arg(deregistered)::boolean then coalesce(deregistered_at, now())
         else deregistered_at
@@ -112,9 +117,26 @@ where trigger_job_id = $1 and state = 'pending'
 returning *;
 
 -- name: MarkRunnerBusy :one
+-- GitHub reporting a job on a runner is proof its machine exists and is
+-- registered, so a runner Airship had given up on without seeing its
+-- machine go (lease_expired, launch_unconfirmed, or lost from a listing)
+-- is revived here as well, without waiting for the inventory scan. Its
+-- job trigger is dropped as in ReviveRunners: the retry runner queued for
+-- that job may be live, and a job has at most one live runner. GitHub's
+-- word is taken even for a runner whose registration Airship believes it
+-- deleted: the delete is refused for a busy runner, but a job assigned in
+-- the instant between the read and the delete is a job running on a
+-- live machine, and reviving the runner is what keeps the scan from
+-- destroying it. A late delivery, the other way such a report arises,
+-- costs only a busy row the scan or the completed event settles.
 update runners
-set state = 'busy', busy_at = coalesce(busy_at, now())
-where id = $1 and state in ('launching', 'running')
+set state = 'busy', busy_at = coalesce(busy_at, now()),
+    running_at = coalesce(running_at, now()),
+    finish_reason = null, finished_at = null, instance_gone_at = null,
+    trigger_job_id = case when state = 'finished' then null else trigger_job_id end
+where id = $1
+    and (state in ('launching', 'running')
+        or (state = 'finished' and finish_reason in ('lease_expired', 'launch_unconfirmed', 'lost')))
 returning *;
 
 -- name: ListInventoryScopes :many
@@ -124,19 +146,30 @@ select distinct credential_id, region
 from runners
 where credential_id is not null and instance_gone_at is null and state <> 'pending';
 
+-- name: ListRevivableRunners :many
+-- The runners among runner_ids that ReviveRunners would revive, for the
+-- reconciler to check their registration with GitHub first.
+select * from runners
+where id = any(sqlc.arg(runner_ids)::uuid[])
+    and credential_id = sqlc.arg(credential_id)
+    and state = 'finished'
+    and finish_reason in ('lease_expired', 'launch_unconfirmed')
+    and deregistered_at is null;
+
 -- name: ReviveRunners :many
--- A runner whose lease expired but whose instance the cloud now lists did
--- launch, and may already be running a job, so it is revived rather than
--- terminated, as long as GitHub still has it registered. It returns the
--- job it was started for, so the retry runner queued for that job can be
--- cancelled and the installation stays within max_runners.
+-- A runner whose lease expired, or whose launch got no answer, but whose
+-- instance the cloud now lists did launch, and may already be running a
+-- job, so it is revived rather than terminated, as long as GitHub still
+-- has it registered. It returns the job it was started for, so the retry
+-- runner queued for that job can be cancelled and the installation stays
+-- within max_runners.
 with revived as (
     select runners.id, runners.trigger_job_id as old_trigger_job_id
     from runners
     where runners.id = any(sqlc.arg(runner_ids)::uuid[])
         and runners.credential_id = sqlc.arg(credential_id)
         and runners.state = 'finished'
-        and runners.finish_reason = 'lease_expired'
+        and runners.finish_reason in ('lease_expired', 'launch_unconfirmed')
         and runners.deregistered_at is null
     for update
 )

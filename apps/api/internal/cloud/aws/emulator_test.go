@@ -106,10 +106,13 @@ func TestAgainstEmulator(t *testing.T) {
 		t.Errorf("installation tag = %q", tag)
 	}
 
-	if err := p.Terminate(ctx, secret, "us-east-1", first); err != nil {
+	if err := p.Terminate(ctx, secret, "us-east-1", first, installation+1); err == nil {
+		t.Fatal("another installation terminated our instance")
+	}
+	if err := p.Terminate(ctx, secret, "us-east-1", first, installation); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Terminate(ctx, secret, "us-east-1", "i-0000000000000dead"); err != nil {
+	if err := p.Terminate(ctx, secret, "us-east-1", "i-0000000000000dead", installation); err != nil {
 		t.Fatalf("terminating a missing instance: %v", err)
 	}
 	listed, err = p.List(ctx, secret, "us-east-1", installation)

@@ -77,7 +77,9 @@ type Querier interface {
 	// the reconciler terminates the instances.
 	FinishInstallationRunners(ctx context.Context, installationID int64) ([]Runner, error)
 	// Moves a runner to finished if it is still in one of from_states. Runners
-	// that never got an instance are marked gone at the same time.
+	// that never got an instance are marked gone at the same time, unless
+	// instance_unknown says the cloud may have made one anyway (the launch's
+	// answer was lost); the inventory scan then settles it.
 	FinishRunner(ctx context.Context, arg FinishRunnerParams) (Runner, error)
 	GetCloudCredential(ctx context.Context, arg GetCloudCredentialParams) (CloudCredential, error)
 	GetCloudCredentialByID(ctx context.Context, id uuid.UUID) (CloudCredential, error)
@@ -124,6 +126,9 @@ type Querier interface {
 	ListOrganizationIdlePools(ctx context.Context, installationID int64) ([]IdlePool, error)
 	ListRepositories(ctx context.Context, installationID int64) ([]Repository, error)
 	ListRepositoryIdlePools(ctx context.Context, repositoryID *int64) ([]IdlePool, error)
+	// The runners among runner_ids that ReviveRunners would revive, for the
+	// reconciler to check their registration with GitHub first.
+	ListRevivableRunners(ctx context.Context, arg ListRevivableRunnersParams) ([]Runner, error)
 	ListRunners(ctx context.Context, arg ListRunnersParams) ([]Runner, error)
 	ListRunnersToDeregister(ctx context.Context, arg ListRunnersToDeregisterParams) ([]Runner, error)
 	// Finished runners whose instance may still be running: never asked to
@@ -170,6 +175,18 @@ type Querier interface {
 	// Clearing config_checked_at puts the repository first in line for the
 	// next refresh pass.
 	MarkRepositoryConfigStale(ctx context.Context, id int64) (int64, error)
+	// GitHub reporting a job on a runner is proof its machine exists and is
+	// registered, so a runner Airship had given up on without seeing its
+	// machine go (lease_expired, launch_unconfirmed, or lost from a listing)
+	// is revived here as well, without waiting for the inventory scan. Its
+	// job trigger is dropped as in ReviveRunners: the retry runner queued for
+	// that job may be live, and a job has at most one live runner. GitHub's
+	// word is taken even for a runner whose registration Airship believes it
+	// deleted: the delete is refused for a busy runner, but a job assigned in
+	// the instant between the read and the delete is a job running on a
+	// live machine, and reviving the runner is what keeps the scan from
+	// destroying it. A late delivery, the other way such a report arises,
+	// costs only a busy row the scan or the completed event settles.
 	MarkRunnerBusy(ctx context.Context, id uuid.UUID) (Runner, error)
 	MarkRunnerDeregistered(ctx context.Context, id uuid.UUID) error
 	// Hands out the boot script once per runner, while it is still booting,
@@ -195,11 +212,12 @@ type Querier interface {
 	// GitHub gave the job a different runner, so pool runners reserved for it
 	// go back to waiting in their pool.
 	ReturnPoolRunners(ctx context.Context, arg ReturnPoolRunnersParams) (int64, error)
-	// A runner whose lease expired but whose instance the cloud now lists did
-	// launch, and may already be running a job, so it is revived rather than
-	// terminated, as long as GitHub still has it registered. It returns the
-	// job it was started for, so the retry runner queued for that job can be
-	// cancelled and the installation stays within max_runners.
+	// A runner whose lease expired, or whose launch got no answer, but whose
+	// instance the cloud now lists did launch, and may already be running a
+	// job, so it is revived rather than terminated, as long as GitHub still
+	// has it registered. It returns the job it was started for, so the retry
+	// runner queued for that job can be cancelled and the installation stays
+	// within max_runners.
 	ReviveRunners(ctx context.Context, arg ReviveRunnersParams) ([]ReviveRunnersRow, error)
 	SetCloudCredentialDefaultRegion(ctx context.Context, arg SetCloudCredentialDefaultRegionParams) (CloudCredential, error)
 	SetCloudCredentialStatus(ctx context.Context, arg SetCloudCredentialStatusParams) error

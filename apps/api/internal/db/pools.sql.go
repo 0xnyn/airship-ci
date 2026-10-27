@@ -63,7 +63,7 @@ func (q *Queries) CountInstallationPoolRunners(ctx context.Context, installation
 
 const countRecentPoolFailures = `-- name: CountRecentPoolFailures :one
 select count(*) from runners
-where pool_id = $1 and finish_reason in ('launch_failed', 'lease_expired', 'lost')
+where pool_id = $1 and finish_reason in ('launch_failed', 'launch_unconfirmed', 'lease_expired', 'lost')
     and finished_at > $2::timestamptz
 `
 

@@ -273,7 +273,7 @@ type ConfigProblem struct {
 // ConfigRunner summarizes one runner definition.
 type ConfigRunner struct {
 	Name     string   `doc:"Runner name"                                  json:"name"`
-	Cloud    string   `doc:"Where it launches"                            enum:"aws" json:"cloud"`
+	Cloud    string   `doc:"Where it launches"                            enum:"aws,gcp" json:"cloud"`
 	Labels   []string `doc:"runs-on labels it serves"                     json:"labels"`
 	Machines []string `doc:"Machine shapes to try, in fallback order"     json:"machines"`
 	Idle     string   `doc:"Idle pool summary, if it has one"             json:"idle,omitempty"`

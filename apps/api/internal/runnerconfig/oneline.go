@@ -80,7 +80,7 @@ func oneLineEC2(rest string) (Variant, bool) {
 		}
 	}
 	out.InstanceType = family + "." + size
-	out.Arch = ArchForInstanceType(out.InstanceType)
+	out.Arch = ArchForInstanceType(CloudAWS, out.InstanceType)
 
 	return out, true
 }

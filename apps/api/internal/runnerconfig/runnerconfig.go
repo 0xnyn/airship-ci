@@ -45,14 +45,15 @@ const (
 	MaxFileBytes = 64 << 10
 )
 
-// Clouds a runner can name. Cirun's other clouds (gcp, azure, do,
-// openstack, oracle, vast_ai, on_prem) are recognized so the error says
-// they are not supported here rather than "unknown cloud".
+// Clouds a runner can name. Cirun's other clouds (azure, do, openstack,
+// oracle, vast_ai, on_prem) are recognized so the error says they are not
+// supported here rather than "unknown cloud".
 const (
 	CloudAWS = "aws"
+	CloudGCP = "gcp"
 )
 
-var otherClouds = []string{"gcp", "azure", "do", "digitalocean", "openstack", "oracle", "vast_ai", "on_prem"}
+var otherClouds = []string{"azure", "do", "digitalocean", "openstack", "oracle", "vast_ai", "on_prem"}
 
 // Provisioning modes.
 const (
@@ -119,6 +120,10 @@ type Runner struct {
 	Env map[string]string
 	// GPU asks for NVIDIA drivers on the machine (Cirun's gpu: field).
 	GPU bool
+	// GPUType is the accelerator the gpu: field named, for clouds that
+	// attach accelerators by name (GCP: nvidia-tesla-t4). Empty on AWS,
+	// where the instance type decides.
+	GPUType string
 	// Cache turns on transparent actions/cache acceleration.
 	Cache bool
 	// ProvisionVia is "" (boot script in user data) or ProvisionPullFromAPI.
@@ -129,7 +134,9 @@ type Runner struct {
 	SubnetID         string
 	SecurityGroupIDs []string
 	InstanceProfile  string
-	Idle             *Idle
+	// GCP holds Compute Engine settings; nil on other clouds.
+	GCP  *GCP
+	Idle *Idle
 }
 
 // Windows settings from extra_config.
@@ -142,13 +149,16 @@ type Windows struct {
 // Variant is one machine shape a runner may launch as.
 type Variant struct {
 	InstanceType string
-	// Image is an AMI ID, an alias such as ubuntu2204, or empty for the
-	// cloud's default Ubuntu.
+	// Image is an AMI ID or Compute Engine image reference, an alias such
+	// as ubuntu2204, or empty for the cloud's default Ubuntu.
 	Image  string
 	Region string
-	Spot   bool
-	Arch   string
-	Disk   Disk
+	// Zone pins a GCP launch to one zone (region: us-central1-b); Region is
+	// then that zone's region. Empty lets the provider pick a zone.
+	Zone string
+	Spot bool
+	Arch string
+	Disk Disk
 }
 
 // Disk is the root volume. Zero means the cloud's default.
@@ -278,19 +288,30 @@ type rawRunner struct {
 	GPU          yaml.Node `yaml:"gpu"`
 }
 
-// rawExtra is Cirun's extra_config for AWS. Keys from its other clouds
-// are rejected as unknown fields, which names the key in the error.
+// rawExtra is Cirun's extra_config for AWS and GCP. A key of the other
+// cloud is refused by name; keys from Cirun's other clouds are rejected as
+// unknown fields, which names the key in the error.
 type rawExtra struct {
-	BlockDeviceMappings []rawDisk         `yaml:"BlockDeviceMappings"`
-	EnvVars             map[string]string `yaml:"env_vars"`
-	Cache               bool              `yaml:"cache"`
-	ProvisionVia        string            `yaml:"provision_via"`
-	RunAs               string            `yaml:"run_as"`
-	RunnerUser          string            `yaml:"runner_user"`
-	RunnerPath          string            `yaml:"runner_path"`
-	SubnetID            string            `yaml:"SubnetId"`
-	SecurityGroupIDs    []string          `yaml:"SecurityGroupIds"`
-	IamInstanceProfile  string            `yaml:"IamInstanceProfile"`
+	EnvVars      map[string]string `yaml:"env_vars"`
+	Cache        bool              `yaml:"cache"`
+	ProvisionVia string            `yaml:"provision_via"`
+	RunAs        string            `yaml:"run_as"`
+	RunnerUser   string            `yaml:"runner_user"`
+	RunnerPath   string            `yaml:"runner_path"`
+	// AWS
+	BlockDeviceMappings []rawDisk `yaml:"BlockDeviceMappings"`
+	SubnetID            string    `yaml:"SubnetId"`
+	SecurityGroupIDs    []string  `yaml:"SecurityGroupIds"`
+	IamInstanceProfile  string    `yaml:"IamInstanceProfile"`
+	// GCP
+	BaseDisk          *rawGCPDisk            `yaml:"baseDisk"`
+	AdditionalDisk    *rawGCPDisk            `yaml:"additionalDisk"`
+	ExistingDisk      *rawGCPExistingDisk    `yaml:"existingDisk"`
+	ProjectID         string                 `yaml:"project_id"`
+	NetworkInterfaces []rawGCPInterface      `yaml:"networkInterfaces"`
+	ServiceAccounts   []rawGCPServiceAccount `yaml:"serviceAccounts"`
+	EnablePublicIP    *bool                  `yaml:"enable_public_ip"`
+	Scheduling        *rawGCPScheduling      `yaml:"scheduling"`
 }
 
 type rawDisk struct {
@@ -361,14 +382,14 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 	}
 
 	switch cloud := strings.ToLower(strings.TrimSpace(r.Cloud)); {
-	case cloud == CloudAWS:
-		out.Cloud = CloudAWS
+	case cloud == CloudAWS, cloud == CloudGCP:
+		out.Cloud = cloud
 	case cloud == "":
-		return Runner{}, failf(".cloud", "cloud is required: aws")
+		return Runner{}, failf(".cloud", "cloud is required: aws or gcp")
 	case slices.Contains(otherClouds, cloud):
-		return Runner{}, failf(".cloud", "cloud %q is not supported yet; only aws is", r.Cloud)
+		return Runner{}, failf(".cloud", "cloud %q is not supported yet; only aws and gcp are", r.Cloud)
 	default:
-		return Runner{}, failf(".cloud", "cloud %q is unknown; use aws", r.Cloud)
+		return Runner{}, failf(".cloud", "cloud %q is unknown; use aws or gcp", r.Cloud)
 	}
 	if r.GPU.Kind != 0 {
 		// Cirun treats the value as a flag: any GPU name turns it on, and
@@ -376,7 +397,7 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 		if r.GPU.Kind != yaml.ScalarNode {
 			return Runner{}, failf(".gpu", "gpu must be a GPU name, such as nvidia-tesla-t4")
 		}
-		switch strings.ToLower(strings.TrimSpace(r.GPU.Value)) {
+		switch name := strings.ToLower(strings.TrimSpace(r.GPU.Value)); name {
 		case "":
 			if r.GPU.Tag != "!!null" {
 				return Runner{}, failf(".gpu", "gpu must be a GPU name, such as nvidia-tesla-t4")
@@ -384,6 +405,13 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 		case "false", "no", "off", "0", "null", "~", "none":
 		default:
 			out.GPU = true
+			if out.Cloud == CloudGCP {
+				// Compute Engine attaches the accelerator by this name.
+				if !gcpGPUPattern.MatchString(name) {
+					return Runner{}, failf(".gpu", "%q is not a Compute Engine GPU name, such as nvidia-tesla-t4 or nvidia-l4", r.GPU.Value)
+				}
+				out.GPUType = name
+			}
 		}
 	}
 
@@ -398,11 +426,14 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 		return Runner{}, ferr
 	}
 
-	variants, ferr := expandVariants(r, disk)
+	variants, ferr := expandVariants(out.Cloud, r, disk)
 	if ferr != nil {
 		return Runner{}, ferr
 	}
 	out.Variants = variants
+	if ferr := out.GCP.checkGCP(out.GPU, variants); ferr != nil {
+		return Runner{}, ferr
+	}
 
 	if r.Idle != nil {
 		idle, ferr := r.Idle.validate()
@@ -446,8 +477,20 @@ func validateLabels(labels []string) ([]string, *fieldError) {
 // returns the root disk, which every variant shares.
 func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 	disk := Disk{SizeGB: DefaultDiskGB, Type: DefaultDiskType}
+	if out.Cloud == CloudGCP {
+		disk.Type = "" // the provider's default, pd-balanced
+	}
 	if e == nil {
 		return disk, nil
+	}
+	if ferr := e.checkCloud(out.Cloud); ferr != nil {
+		return Disk{}, ferr
+	}
+	if out.Cloud == CloudGCP {
+		var ferr *fieldError
+		if disk, ferr = e.applyGCP(out, disk); ferr != nil {
+			return Disk{}, ferr
+		}
 	}
 
 	if len(e.BlockDeviceMappings) > 1 {
@@ -571,7 +614,7 @@ func validateEnv(vars map[string]string) (map[string]string, *fieldError) {
 
 // expandVariants zips the list fields into machine shapes. Every list must
 // be as long as the longest one, or a single value used for every shape.
-func expandVariants(r rawRunner, disk Disk) ([]Variant, *fieldError) {
+func expandVariants(cloud string, r rawRunner, disk Disk) ([]Variant, *fieldError) {
 	if len(r.InstanceType) == 0 {
 		return nil, failf(".instance_type", "instance_type is required")
 	}
@@ -623,24 +666,38 @@ func expandVariants(r rawRunner, disk Disk) ([]Variant, *fieldError) {
 		default:
 			return nil, failf(".preemptible"+index, "preemptible must be true or false")
 		}
-		if v.Region != "" && !regionPattern.MatchString(v.Region) {
-			return nil, failf(".region"+index, "%q is not an AWS region (such as us-east-1)", v.Region)
+		if cloud == CloudGCP {
+			if ferr := validateGCPVariant(&v, index); ferr != nil {
+				return nil, ferr
+			}
+		} else {
+			if v.Region != "" && !regionPattern.MatchString(v.Region) {
+				return nil, failf(".region"+index, "%q is not an AWS region (such as us-east-1)", v.Region)
+			}
+			if !instancePattern.MatchString(v.InstanceType) || !instanceTypePattern.MatchString(v.InstanceType) {
+				return nil, failf(".instance_type"+index, "%q is not an EC2 instance type (such as c7i.xlarge)", v.InstanceType)
+			}
+			if v.Image != "" && !amiPattern.MatchString(v.Image) && !imageAliasPattern.MatchString(v.Image) {
+				return nil, failf(".machine_image"+index, "%q must be an AMI ID (ami-...), ubuntu2204 or ubuntu2404", v.Image)
+			}
 		}
-		if !instancePattern.MatchString(v.InstanceType) || !instanceTypePattern.MatchString(v.InstanceType) {
-			return nil, failf(".instance_type"+index, "%q is not an EC2 instance type (such as c7i.xlarge)", v.InstanceType)
-		}
-		if v.Image != "" && !amiPattern.MatchString(v.Image) && !imageAliasPattern.MatchString(v.Image) {
-			return nil, failf(".machine_image"+index, "%q must be an AMI ID (ami-...), ubuntu2204 or ubuntu2404", v.Image)
-		}
-		v.Arch = ArchForInstanceType(v.InstanceType)
+		v.Arch = ArchForInstanceType(cloud, v.InstanceType)
 		out = append(out, v)
 	}
 
 	return out, nil
 }
 
-// ArchForInstanceType infers the CPU architecture of an EC2 instance type.
-func ArchForInstanceType(instanceType string) string {
+// ArchForInstanceType infers the CPU architecture of an instance type:
+// Graviton and Apple silicon families on AWS, Axion and Altra on GCP.
+func ArchForInstanceType(cloud, instanceType string) string {
+	if cloud == CloudGCP {
+		if gcpArmFamilies[gcpFamily(instanceType)] {
+			return "arm64"
+		}
+
+		return "x64"
+	}
 	family, _, _ := strings.Cut(instanceType, ".")
 	if gravitonPattern.MatchString(family) {
 		return "arm64"
@@ -649,8 +706,11 @@ func ArchForInstanceType(instanceType string) string {
 	return "x64"
 }
 
-// HasGPU reports whether an EC2 instance family carries an accelerator.
-func HasGPU(instanceType string) bool {
+// HasGPU reports whether an instance family carries an accelerator.
+func HasGPU(cloud, instanceType string) bool {
+	if cloud == CloudGCP {
+		return gcpGPUFamilies[gcpFamily(instanceType)]
+	}
 	family, _, _ := strings.Cut(instanceType, ".")
 
 	return gpuFamilyPattern.MatchString(family)

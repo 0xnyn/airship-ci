@@ -146,6 +146,18 @@ func TestCirunCompatibleAPI(t *testing.T) {
 		t.Fatalf("cloud-connect = %v", connected)
 	}
 	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "gcp", "credentials": map[string]string{}}, http.StatusUnprocessableEntity)
+	// `cirun cloud connect gcp` sends the key file's fields, plus a region.
+	gcp := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "gcp", "credentials": map[string]string{
+		"type": "service_account", "project_id": "acme-ci-123456", "private_key_id": "k1", "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n",
+		"client_email": "airship@acme-ci-123456.iam.gserviceaccount.com", "client_id": "1", "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+		"token_uri": "https://oauth2.googleapis.com/token", "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+		"client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/airship", "universe_domain": "googleapis.com", "region": "europe-west4-b",
+	}}, http.StatusOK)
+	if gcp["cloud"] != "gcp" || gcp["defaultRegion"] != "europe-west4-b" || gcp["identity"] != "airship@acme-ci-123456.iam.gserviceaccount.com" {
+		t.Fatalf("gcp cloud-connect = %v", gcp)
+	}
+	e.script(token, http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusUnauthorized) // tokens cannot reach the dashboard API
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusNoContent)
 	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "aws", "credentials": map[string]string{"access_key": "x"}}, http.StatusUnprocessableEntity)
 	if items := e.script(token, http.MethodGet, "/api/v1/cloud-connect", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
 		t.Fatalf("clouds after connecting = %v", items)

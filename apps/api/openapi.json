@@ -260,7 +260,8 @@
           "cloud": {
             "description": "Cloud name",
             "enum": [
-              "aws"
+              "aws",
+              "gcp"
             ],
             "type": "string"
           },
@@ -270,7 +271,7 @@
             "type": "string"
           },
           "defaultRegion": {
-            "description": "Region used when a config names none",
+            "description": "Region (or GCP zone) used when a config names none",
             "type": "string"
           },
           "error": {
@@ -281,7 +282,7 @@
             ]
           },
           "identity": {
-            "description": "Public half of the credential (access key ID)",
+            "description": "Public half of the credential (AWS access key ID, GCP service account email)",
             "type": "string"
           },
           "principal": {
@@ -333,7 +334,8 @@
           "cloud": {
             "description": "Cloud name",
             "enum": [
-              "aws"
+              "aws",
+              "gcp"
             ],
             "type": "string"
           },
@@ -341,8 +343,8 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Credentials; for aws: access_key, secret_key and optionally region",
-            "maxProperties": 10,
+            "description": "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region)",
+            "maxProperties": 20,
             "type": "object"
           }
         },
@@ -394,7 +396,8 @@
           "cloud": {
             "description": "Where it launches",
             "enum": [
-              "aws"
+              "aws",
+              "gcp"
             ],
             "type": "string"
           },
@@ -523,6 +526,28 @@
         "required": [
           "accessKeyId",
           "secretAccessKey"
+        ],
+        "type": "object"
+      },
+      "ConnectGCP": {
+        "additionalProperties": false,
+        "properties": {
+          "defaultRegion": {
+            "default": "us-central1",
+            "description": "Zone (us-central1-b) or region (us-central1) used when a config names none",
+            "maxLength": 64,
+            "pattern": "^[a-z]+-[a-z]+[0-9]+(-[a-z])?$",
+            "type": "string"
+          },
+          "serviceAccountKey": {
+            "description": "The service account key file's JSON, as downloaded from Google Cloud",
+            "maxLength": 16384,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": [
+          "serviceAccountKey"
         ],
         "type": "object"
       },
@@ -1645,7 +1670,8 @@
           "cloud": {
             "description": "Cloud it launched in",
             "enum": [
-              "aws"
+              "aws",
+              "gcp"
             ],
             "type": "string"
           },
@@ -2916,6 +2942,59 @@
         ]
       }
     },
+    "/v1/orgs/{org}/clouds/gcp": {
+      "put": {
+        "operationId": "connectGcp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectGCP"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Google Cloud",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
     "/v1/orgs/{org}/clouds/{cloud}": {
       "delete": {
         "operationId": "disconnectCloud",
@@ -2938,7 +3017,8 @@
             "schema": {
               "description": "Cloud name",
               "enum": [
-                "aws"
+                "aws",
+                "gcp"
               ],
               "type": "string"
             }

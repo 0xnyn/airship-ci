@@ -2,7 +2,7 @@
 
 Runners are defined in `.cirun.yml` at the root of each activated
 repository. The format is Cirun's; the fields below are the ones Airship
-acts on for AWS. Anything else is an error that names the field.
+acts on for AWS and GCP. Anything else is an error that names the field.
 
 ```yaml
 runners:
@@ -29,6 +29,21 @@ runners:
 ```
 
 ```yaml
+runners:
+  - name: gpu
+    cloud: gcp
+    instance_type: n1-standard-4
+    machine_image: ubuntu-2204-lts                         # a family, project:image, or a URL
+    region: us-central1-b                                  # a zone, or a region to pick any zone
+    gpu: nvidia-tesla-t4
+    preemptible: true
+    labels: [cirun-gpu]
+    extra_config:
+      baseDisk: {diskSizeGb: 100}
+      enable_public_ip: false
+```
+
+```yaml
 # .github/workflows/ci.yml
 jobs:
   test:
@@ -38,7 +53,7 @@ jobs:
 ## Turning it on
 
 1. Install the GitHub App on the repository.
-2. Connect AWS under **Cloud**.
+2. Connect AWS or Google Cloud under **Cloud**.
 3. Activate the repository under **Repositories**. A config file never
    launches anything in a repository nobody activated.
 4. Commit `.cirun.yml` and use one of its labels in `runs-on`.
@@ -51,20 +66,21 @@ no API calls.
 | Field | Required | Notes |
 | --- | --- | --- |
 | `name` | yes | Unique in the file. Letters, digits, `.`, `_`, `-`. |
-| `cloud` | yes | `aws`. Cirun's other clouds are refused with "not supported yet". |
-| `instance_type` | yes | EC2 instance type, or a list. |
-| `machine_image` | no | AMI ID, `ubuntu2204` or `ubuntu2404` (Canonical's newest for the architecture), or a list. Default `ubuntu2204`. A Windows AMI gets a Windows boot script. |
-| `region` | no | AWS region, or a list. Default: the connected cloud's default region. |
+| `cloud` | yes | `aws` or `gcp`. Cirun's other clouds are refused with "not supported yet". |
+| `instance_type` | yes | EC2 instance type (`c7i.xlarge`) or Compute Engine machine type (`n2-standard-4`), or a list. |
+| `machine_image` | no | AWS: AMI ID, `ubuntu2204` or `ubuntu2404` (Canonical's newest for the architecture). GCP: an image or family name (`ubuntu-2204-lts`, looked up in your project and then in Google's public project for that prefix), `project:image`, `projects/P/global/images/N`, `projects/P/global/machineImages/N` or either one's URL, plus the two aliases. Or a list. Default `ubuntu2204`. A Windows image gets a Windows boot script. |
+| `region` | no | AWS region; GCP zone (`us-central1-b`) or region (`us-central1`, any zone with capacity). Or a list. Default: the connected cloud's default. |
 | `preemptible` | no | Spot capacity, or a list. Default `false`. |
 | `labels` | yes | `runs-on` labels this runner serves. Each must start with `cirun-`. |
-| `gpu` | no | Any GPU name. Installs the NVIDIA driver on Ubuntu images that lack one and adds the `gpu` label. Not needed for NVIDIA's AMIs. `false`, `no` or `null` turns it off. |
+| `gpu` | no | A GPU name. Installs the NVIDIA driver on Ubuntu images that lack one and adds the `gpu` label. On GCP the name is the accelerator attached (`nvidia-tesla-t4`, `nvidia-l4`), one per machine, unless the machine type has its own (`a2`, `a3`, `g2`). Not needed for NVIDIA's images. `false`, `no` or `null` turns it off. |
 | `extra_config` | no | See below. |
 | `idle` | no | Idle runners; see below. |
 
 The architecture comes from the instance type: Graviton families (`c7g`,
-`m8g`, `t4g`, ...) are `arm64`, everything else `x64`. Runners register
-with `self-hosted`, the architecture, `aws`, `cpu` or `gpu`, and their
-labels. The runner adds its own OS label.
+`m8g`, `t4g`, ...) and Arm machine families (`t2a`, `c4a`) are `arm64`,
+everything else `x64`. Runners register with `self-hosted`, the
+architecture, the cloud name, `cpu` or `gpu`, and their labels. The runner
+adds its own OS label.
 
 ### `extra_config`
 
@@ -72,14 +88,26 @@ labels. The runner adds its own OS label.
 | --- | --- |
 | `BlockDeviceMappings` | One entry for the root volume. `VolumeSize` (8-16384 GiB, default 75), `VolumeType` (gp2, gp3, io1, io2; default gp2, as Cirun), `Iops` (gp3: 3000-16000; io1 and io2: required; not for gp2), `Throughput` (gp3 only, 125-1000 MiB/s, at most a quarter MiB/s per IOPS, so `Throughput: 1000` needs `Iops: 4000`), `VolumeInitializationRate` (100-300 MiB/s, snapshot-backed AMIs). Combinations EC2 would refuse are config errors rather than failed launches. `DeviceName` is accepted and ignored: the AMI's root device is always the one sized. Volumes are always encrypted. |
 | `env_vars` | Up to 50 variables for every job. Not secret. Names starting with `GITHUB_`, `RUNNER_` or `ACTIONS_` are refused. |
-| `cache` | `true` runs the cache proxy on the machine; see [caching.md](caching.md). |
+| `cache` | `true` runs the cache proxy on the machine; see [caching.md](caching.md). Linux runners on AWS only, as on Cirun (its auto mode is "Currently Linux runners on AWS only"); on GCP the runner launches without it and the activity log records a `cache.unavailable` warning. |
 | `provision_via` | `pull_from_api`: the instance gets no user data; your image fetches the boot script from `GET /api/runner-provision?runner_name=<Name tag>` with an API token, once. |
 | `run_as` | `interactive`: on Windows, a local account logs in automatically and runs the runner in its desktop session. |
 | `runner_user` | Windows account for `run_as: interactive` (default `runner`). |
 | `runner_path` | Windows install path (default `C:\actions-runner`). |
-| `SubnetId` | Launch in this subnet instead of the default VPC's. |
-| `SecurityGroupIds` | Up to 5 groups instead of the `airship-runners` group. |
-| `IamInstanceProfile` | Name or ARN. Every job on the runner can use it. |
+| `SubnetId` | AWS. Launch in this subnet instead of the default VPC's. |
+| `SecurityGroupIds` | AWS. Up to 5 groups instead of the `airship-runners` group. |
+| `IamInstanceProfile` | AWS. Name or ARN. Every job on the runner can use it. |
+| `baseDisk` | GCP. `diskSizeGb` (10-65536, default 75) and `diskType` (`pd-balanced` by default, `pd-ssd`, or a `zones/.../diskTypes/...` path) of the boot disk. |
+| `additionalDisk` | GCP. `diskSizeGb` and `diskType` of an empty second disk, attached raw; the job formats and mounts it. A `diskType` written as a zonal path (`projects/P/zones/Z/diskTypes/pd-balanced`) is read for its type only; the disk is created in whichever zone the runner launches in. |
+| `existingDisk` | GCP. Attach a disk you already have: `source` (`projects/P/zones/Z/disks/N`, or `regions/R/disks/N` for a regional disk), optional `deviceName`, `mode` (`READ_WRITE`, the default, or `READ_ONLY`), `interface` (`SCSI`, `NVME`); `type` and `diskSizeGb` are accepted as Cirun's examples write them. The disk is never deleted with the machine. A zonal disk pins the runner to its zone, so a `region` that says otherwise is a config error. A `READ_WRITE` disk fits one machine at a time: while another runner holds it, launches fail as retryable and the job waits for its turn. |
+| `project_id` | GCP. Launch in this project instead of the service account's. The account needs Compute Admin there too. |
+| `networkInterfaces` | GCP. Up to 8 of `network`, `subnetwork`, `nicType` (`GVNIC`, `VIRTIO_NET`, `IDPF`), `stackType` and one `accessConfigs` entry, as Compute Engine spells them. Without it the default network with an external address. |
+| `serviceAccounts` | GCP. One `email` with `scopes`. Every job on the runner can use it. |
+| `enable_public_ip` | GCP. `false` launches without an external address; the first such launch in a region creates a Cloud Router and NAT on the runner's network (`airship-nat` on the default network, `airship-nat-<network>` on another, found through the `subnetwork` when only that is named), which every later runner there shares. |
+| `scheduling` | GCP. `onHostMaintenance: MIGRATE` keeps a runner alive through host maintenance (the default for machines that can); `TERMINATE` is the default for GPUs and spot. `MIGRATE` with `preemptible` or a GPU is a config error, as Compute Engine would refuse it. |
+
+Keys of the other cloud are refused by name (`baseDisk is a GCP setting;
+this runner's cloud is aws`), so a definition copied between clouds fails
+on the first wrong key rather than silently ignoring it.
 
 ### Fallbacks
 
@@ -239,6 +267,7 @@ export CIRUN_API_ENDPOINT=https://api.example.com/api/v1
 export CIRUN_API_KEY=asa_...
 cirun repo add acme/api
 cirun cloud connect aws --access-key AKIA... --secret-key ...
+cirun cloud connect gcp --key-file service-account.json
 cirun access-control add-repo-to-resources --org acme --repo api --resources gpu-runner --teams ml
 ```
 
@@ -247,7 +276,7 @@ cirun access-control add-repo-to-resources --org acme --repo api --resources gpu
 | `GET /api/v1/repo` | List repositories |
 | `POST /api/v1/repo` `{"repository": "owner/name", "active": true}` | Activate or deactivate |
 | `GET /api/v1/cloud-connect` | List connected clouds |
-| `POST /api/v1/cloud-connect` `{"cloud": "aws", "credentials": {"access_key", "secret_key", "region"}}` | Connect |
+| `POST /api/v1/cloud-connect` `{"cloud": "aws", "credentials": {"access_key", "secret_key", "region"}}` or `{"cloud": "gcp", "credentials": {<the service account key file's fields>, "region"}}` | Connect |
 | `GET /api/v1/access-control` | Read `.access.yml` |
 | `PUT /api/v1/access-control` | Open a pull request changing `.access.yml` |
 | `GET /api/runner-provision?runner_name=` | Boot script for `provision_via: pull_from_api` |

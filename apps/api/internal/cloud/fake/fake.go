@@ -31,8 +31,13 @@ type Provider struct {
 	mu        sync.Mutex
 	instances map[string]*Instance
 	next      int
-	// FailLaunch, when set, decides launch failures.
+	// FailLaunch, when set, decides launch failures. An error that is
+	// cloud.IsAmbiguous still creates the machine, as a cloud whose answer
+	// was lost would have.
 	FailLaunch func(cloud.Launch) error
+	// Owner is the installation every Terminate must name; 0 disables the
+	// check. Set it to assert ownership checks reach the provider.
+	Owner int64
 	// FailList makes List fail.
 	FailList bool
 	// BadSecret is a secret Verify rejects.
@@ -89,19 +94,24 @@ func (p *Provider) Launch(_ context.Context, _ []byte, launch cloud.Launch) (str
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.launches++
+	var failure error
 	if p.FailLaunch != nil {
-		if err := p.FailLaunch(launch); err != nil {
-			return "", err
+		failure = p.FailLaunch(launch)
+		if failure != nil && !cloud.IsAmbiguous(failure) {
+			return "", failure
 		}
 	}
 	for _, instance := range p.instances {
 		if instance.Launch.RunnerID == launch.RunnerID {
-			return instance.ID, nil // idempotent, like a ClientToken
+			return instance.ID, failure // idempotent, like a ClientToken
 		}
 	}
 	p.next++
 	id := fmt.Sprintf("i-fake%d", p.next)
 	p.instances[id] = &Instance{ID: id, Region: launch.Region, Launch: launch, seq: p.next}
+	if failure != nil {
+		return "", failure
+	}
 
 	return id, nil
 }
@@ -116,9 +126,15 @@ func (p *Provider) Stop(instanceID string) {
 }
 
 // Terminate implements cloud.Provider.
-func (p *Provider) Terminate(_ context.Context, _ []byte, _, instanceID string) error {
+func (p *Provider) Terminate(_ context.Context, _ []byte, _, instanceID string, installationID int64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.Owner != 0 && installationID != p.Owner {
+		return fmt.Errorf("instance %s is not owned by installation %d", instanceID, installationID)
+	}
+	if instance, ok := p.instances[instanceID]; ok && instance.Launch.InstallationID != installationID {
+		return fmt.Errorf("instance %s belongs to installation %d, not %d", instanceID, instance.Launch.InstallationID, installationID)
+	}
 	delete(p.instances, instanceID)
 
 	return nil
@@ -153,7 +169,9 @@ func (p *Provider) Launches() int {
 
 // Exit removes an instance as if it shut itself down.
 func (p *Provider) Exit(instanceID string) {
-	_ = p.Terminate(context.Background(), nil, "", instanceID)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.instances, instanceID)
 }
 
 // SetStopping marks an instance as shutting down.

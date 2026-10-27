@@ -1,11 +1,12 @@
 # Architecture
 
-Airship runs GitHub Actions jobs on ephemeral EC2 instances in the
-customer's AWS account. It holds the customer's access key (sealed), reads
-`.cirun.yml` from activated repositories, and launches, watches and
-terminates instances itself. This is Cirun's model; the first version of
-this project ran an agent in the customer's account instead, and the
-differences below are the result of moving to Cirun's.
+Airship runs GitHub Actions jobs on ephemeral machines in the customer's
+cloud account: EC2 instances on AWS, Compute Engine instances on Google
+Cloud. It holds the customer's credentials (sealed), reads `.cirun.yml`
+from activated repositories, and launches, watches and terminates
+instances itself. This is Cirun's model; the first version of this project
+ran an agent in the customer's account instead, and the differences below
+are the result of moving to Cirun's.
 
 ```
            webhooks (workflow_job, push, installation, installation_repositories, repository)
@@ -34,8 +35,10 @@ All Go code lives in `apps/api`.
 - `internal/fleet` owns the runner lifecycle. Everything that changes
   runner state goes through it.
 - `internal/cloud` is the provider interface; `cloud/aws` is EC2 and S3;
-  `cloud/bootscript` renders the Linux and Windows boot scripts;
-  `cloud/fake` is what tests launch on.
+  `cloud/gcp` is Compute Engine (with `gcp/gcptest`, a fake Compute API
+  the real SDK is pointed at in tests); `cloud/bootscript` renders the
+  Linux and Windows boot scripts; `cloud/fake` is what fleet tests launch
+  on.
 - `internal/runnerconfig` parses `.cirun.yml`, `.cirun.global.yml` and
   `.access.yml` (pure, no I/O).
 - `internal/secrets` seals cloud credentials under `CREDENTIALS_KEY`, each
@@ -55,14 +58,93 @@ pending ──claim──► launching ──RunInstances ok──► running �
 
 `finished` records why: `completed`, `cancelled` (the job finished before a
 runner was needed), `idle` (online 10 minutes without a job),
-`launch_failed`, `lease_expired` (a launcher claimed it and died),
-`lost` (its instance vanished and GitHub never said the job ended),
-`max_lifetime` (8 hours, or an idle pool runner replaced halfway through
-them), or `deleted` (the app was uninstalled).
+`launch_failed`, `launch_unconfirmed` (the cloud's answer to the launch
+was lost; the machine may exist), `lease_expired` (a launcher claimed it
+and died), `lost` (its instance vanished and GitHub never said the job
+ended), `max_lifetime` (8 hours, or an idle pool runner replaced halfway
+through them), or `deleted` (the app was uninstalled).
 
 Every transition is a conditional `UPDATE ... WHERE state = <expected>`, so
 concurrent webhooks, launcher passes and reconciler passes cannot apply a
 transition twice or undo each other.
+
+### Invariants
+
+The cloud calls are at-least-once and their answers can be lost, so the
+design rests on a few rules rather than on any call succeeding exactly
+once:
+
+1. **The database is the only state, and every runner row says what is
+   known about its machine.** `instance_id` is set once the cloud
+   confirmed a launch; `instance_gone_at` once the cloud listed the
+   region without it after a grace period. A runner whose machine is
+   unknown (`lease_expired`, `launch_unconfirmed`) has neither, and only
+   the inventory scan may decide.
+2. **A launch is idempotent per runner.** AWS gets a `ClientToken` and GCP
+   a `requestId` derived from the runner ID, and GCP machines are named
+   after the runner and looked up by name before every insert. A retried
+   call returns the first machine; it never makes a second one.
+3. **One machine serves at most one job, and a machine Airship did not
+   make is never touched.** Instances carry the installation as a tag or
+   label; `List` filters by it, and `Terminate` reads the instance and
+   refuses when the tag or label is not the installation's. The inventory
+   scan terminates what is listed for the installation but not known to
+   the table.
+4. **Registration precedes the machine, and is bounded.** The JIT config
+   is minted first and the GitHub runner ID stored before the cloud is
+   called, so a machine that boots can register and nothing can boot
+   without a stored registration to clean up. A registration whose
+   machine never came (or was never confirmed) is deleted from GitHub two
+   minutes after the runner finished, unless GitHub says it is busy, in
+   which case the machine exists after all and the runner is revived.
+   Revival goes the other way too: the scan revives a given-up runner
+   whose machine it lists only after GitHub confirms the registration
+   still exists; a machine whose registration is gone can never take a
+   job, so it is destroyed instead and the job keeps its retry. The
+   launcher also checks the job once more after registering and before
+   calling the cloud: a job cancelled or started elsewhere in that window
+   gets no machine, and the registration is removed at once.
+   The cloud call itself is bounded by the lease: the launcher cuts it
+   off 30 seconds before the lease expires, so a runner is never given
+   up while its launch is still in flight (the providers settle a cut-off
+   insert by looking the machine up).
+5. **Ambiguity is resolved by observation, not assumption.** A transport
+   error after the request was sent, a lost poll or a timed-out operation
+   is settled by looking the machine up; only when even that fails is the
+   launch `launch_unconfirmed`. Such a runner keeps its registration and
+   is revived when its machine is listed, exactly as a `lease_expired`
+   one, while its job is retried on a new runner (the revival cancels the
+   retry while it is still pending; if both come up, one idles out).
+   GitHub's word counts as an observation too: a `workflow_job`
+   `in_progress` naming a runner Airship gave up on without seeing its
+   machine go (`lease_expired`, `launch_unconfirmed`, `lost`) revives it
+   as `busy` on the spot, so a job running on such a machine is tracked
+   even while the scan cannot list the scope, and even when Airship
+   believes it already deleted the registration: GitHub refuses to delete
+   a busy runner, but a job assigned in the instant between Airship's
+   read and its delete is running on a live machine, and reviving the
+   runner is what keeps the scan from destroying it. The revived runner drops
+   its job trigger (a job has at most one live runner, and its retry may
+   be live); the job row links to it instead.
+6. **Nothing is retried that GitHub would not run again.** GitHub
+   re-queues a job only while no runner has picked it up (within 60
+   seconds of assignment), and a job whose runner dies mid-run fails and
+   is not retried. Airship therefore retries only jobs still `queued`;
+   a `lost` busy runner ends its job as GitHub reports it.
+7. **Every machine has its own deadline.** The boot script powers the
+   machine off when the runner exits and at the maximum lifetime, and
+   runs once per boot (a marker file makes a reboot shut down instead of
+   starting another runner), so a lost control plane leaves no machine
+   running forever. On GCP a powered-off machine is `TERMINATED` rather
+   than deleted (Compute Engine has no delete-on-shutdown), so it stops
+   costing compute at once but keeps its disk until the reconciler deletes
+   it; Airship does not give the machine a service account that could
+   delete itself. The maximum lifetime (`RUNNER_MAX_LIFETIME`, 8 hours)
+   is the one bound that can cut a legitimate job short: GitHub's default
+   job timeout is 6 hours, so the default leaves room, but a workflow
+   whose `timeout-minutes` exceeds the lifetime needs it raised. A pool
+   runner is retired after half the lifetime idle so that a job it takes
+   still has the other half.
 
 - **Planning.** When a job is first seen queued, its plan is stored: the
   attempts that could serve it, in fallback order. Each attempt is a
@@ -84,15 +166,57 @@ transition twice or undo each other.
   launches with `InstanceInitiatedShutdownBehavior=terminate`, IMDSv2
   required with hop limit 1, an encrypted root volume, no inbound security
   group rules, and a hard `shutdown` deadline; every exit path of the boot
-  script powers it off.
+  script powers it off. A transport error after the request was sent is
+  settled by describing the instance by client token; if that fails too
+  the launch is `launch_unconfirmed`.
+- **Launching on GCP.** The same launch becomes `instances.insert` with a
+  `requestId` derived from the runner ID, zone and attempt, after a lookup
+  of the instance by name (the runner's name). The provider waits for the
+  zone operation; a lost answer, failed poll or timed-out wait is settled
+  by looking the instance up. A `region:` that is a zone pins the launch;
+  a region tries its zones in an order derived from the runner ID and
+  moves on only for zone-specific failures (`ZONE_RESOURCE_POOL_EXHAUSTED`,
+  a machine type the zone lacks). Spot machines use `provisioningModel:
+  SPOT` with `instanceTerminationAction: DELETE`; everything launches with
+  `automaticRestart: false`, a vTPM and integrity monitoring when the image
+  is UEFI-compatible (Compute Engine refuses them on a BIOS image), labels
+  for the installation and runner, the boot script as `startup-script` (or
+  `windows-startup-script-ps1`) metadata, and the network tag
+  `airship-runner`. Startup scripts run on every boot, so the script
+  leaves a marker and a rebooted machine powers off instead of running a
+  second job. `enable_public_ip: false` creates one Cloud Router and NAT
+  per region and network with its own deterministic request ID:
+  `airship-nat` on the default network, as Cirun names it, and
+  `airship-nat-<network>` on any other, including the network of a
+  `subnetwork` named without its network (read from the subnetwork). A
+  router by that name that already exists is read back, also when it is
+  found only through the conflict a racing create reports, and accepted
+  only on the right network and with a NAT; otherwise the launch fails
+  naming it rather than booting a machine without egress. Every Compute
+  call is bounded, the per-zone instance list included, since the
+  reconciler's steps run in sequence and one hung call would stall them
+  all: the SDK's generated list methods send their requests without the
+  caller's context, so the provider gives the SDK an HTTP client with a
+  timeout of its own (above the two minutes an `operations.wait` may
+  block) and enforces the list deadline from outside it. A
+  `diskType` written as a zonal path keeps only the type's name, since the
+  runner's zone is chosen at launch. Deleting a machine deletes its disks
+  (`autoDelete`).
 - **Inventory.** The reconciler lists instances per (credential, region)
-  by the `airship:installation` tag and compares them with the runners
-  table: instances for finished or unknown runners are terminated, runners
-  whose instance disappeared are `lost` (and their job retried), a
-  stopped instance counts as disappeared and is terminated too, and a
-  runner whose lease expired but whose instance did launch is revived.
-  Listing errors leave state alone: an instance missing from a failed
-  list is never presumed gone.
+  by the `airship:installation` tag (AWS) or `airship-installation` label
+  (GCP, one list per zone of the region, failing if any of those zones
+  is unreachable; the aggregated list has no partial-success switch in
+  the SDK and would fail on an outage anywhere in the world) and compares
+  them with the runners table:
+  instances for finished or unknown runners are terminated, runners whose
+  instance disappeared are `lost` (and their job retried), a stopped
+  instance counts as disappeared and is terminated too, and a runner
+  whose lease expired or whose launch was unconfirmed but whose instance
+  did launch is revived. Listing errors leave state alone: an instance
+  missing from a failed list is never presumed gone. On GCP a region
+  stored for a runner carries the project when `extra_config.project_id`
+  overrides the credential's (`us-central1@my-project`), so each project
+  is its own scope.
 - **Termination.** A finished runner's instance is terminated at once when
   the completed webhook arrives, and again by the reconciler if the cloud
   still lists it. Deleting from GitHub happens 2 minutes later, only if
@@ -134,9 +258,11 @@ transition twice or undo each other.
 
 ## Security model
 
-- **Credentials.** Access keys are verified with STS before they are stored,
-  sealed with AES-256-GCM under `CREDENTIALS_KEY`, opened only for the
-  duration of a cloud call, and never returned by any endpoint. A sealed
+- **Credentials.** Access keys are verified with STS (and service account
+  keys with `projects.get`) before they are stored, sealed with
+  AES-256-GCM under `CREDENTIALS_KEY`, opened only for the duration of a
+  cloud call, and never returned by any endpoint. The GCP identity shown
+  is the service account's email; the project is the account ID. A sealed
   blob is bound to its row (installation and cloud, or runner), so it
   cannot be moved and opened elsewhere. Disconnecting a cloud, or
   replacing its key with one for another account, is refused while
@@ -147,7 +273,8 @@ transition twice or undo each other.
   errors never echo the value that failed, and upstream failures are
   reported without GitHub's or the database's error text.
 - **Tenancy.** Every query is scoped by GitHub installation ID; instances
-  are tagged and listed by it.
+  are tagged (AWS) or labelled (GCP) and listed by it, and a terminate
+  refuses an instance not marked for the installation.
 - **Dashboard sessions.** GitHub OAuth, HttpOnly `SameSite=Lax` cookies,
   an Origin check on every write. Organization owners are admins, members
   read-only, nobody else gets in; roles are re-checked hourly. While
@@ -165,8 +292,15 @@ transition twice or undo each other.
   is where fork pull requests are gated. Anyone who can push to an
   activated repository can pick machines for that branch's jobs, as with
   any workflow; `max_runners` bounds what that can cost.
-- **Images.** Any AMI the account can launch is allowed, as on Cirun. The
-  default is Canonical's current Ubuntu 22.04.
+- **Images.** Any AMI or Compute Engine image the account can launch is
+  allowed, as on Cirun. The default is Canonical's current Ubuntu 22.04
+  (the `ubuntu-2204-lts` family on GCP). An image whose architecture is
+  known and differs from the machine's is refused before the launch.
+- **GCP machines** get no service account unless `serviceAccounts` sets
+  one, and the service account key Airship holds is never on the machine.
+  The JIT config travels in instance metadata, readable by anyone in the
+  project with `compute.instances.get` until the runner registers, as the
+  AWS user data is; `provision_via: pull_from_api` avoids it.
 
 ## Differences from Cirun
 
@@ -178,9 +312,23 @@ caching with one namespace per account bucket.
 
 Different, on purpose:
 
-- **Clouds.** AWS only. `gcp`, `azure`, `do`, `openstack`, `oracle`,
-  `vast_ai` and `on_prem` are refused with "not supported yet" rather than
-  ignored. Each is a provider implementation; none can be trusted unrun.
+- **Clouds.** AWS and GCP. `azure`, `do`, `openstack`, `oracle`, `vast_ai`
+  and `on_prem` are refused with "not supported yet" rather than ignored.
+  Each is a provider implementation; none can be trusted unrun.
+- **GCP `existingDisk`** is attached with `autoDelete: false`, so the
+  machine's deletion never takes the customer's disk with it, and a zonal
+  disk pins the launch to its zone. Compute Engine serializes `READ_WRITE`
+  attachment itself (`RESOURCE_IN_USE_BY_ANOTHER_RESOURCE`), which Airship
+  treats as retryable: the job waits for the runner holding the disk.
+- **GCP `enable_public_ip: false`** creates the Cloud NAT on the network
+  the first interface names (or its subnetwork belongs to), as Cirun
+  documents; a second network in the same region gets a NAT of its own
+  rather than an error, and a router with Airship's name that is on
+  another network is reported, never reused.
+- **GCP caching.** `cache: true` on a GCP runner launches without the
+  cache proxy (and records a warning). This matches Cirun, whose caching
+  docs say auto mode is "Currently Linux runners on AWS only"; a Cloud
+  Storage backing would be an addition, not parity.
 - **Product name.** Runners are named `airship-...`, instances are tagged
   `airship:*`, the cache bucket is `airship-cache-*`, and the dashboard
   says Airship. Everything a workflow or `.cirun.yml` touches is Cirun's.
@@ -231,6 +379,26 @@ Different, on purpose:
   terminates one instance when `AIRSHIP_LIVE_AWS_*` credentials are set),
   and a Windows machine. The first real deployment exercises exactly the
   `RunInstances` call moto accepted and the scripts above.
+- **GCP: not run against Google.** The Compute Engine provider is driven
+  through the real `cloud.google.com/go/compute` client against
+  `gcp/gcptest`, a fake of the REST API written from Google's reference
+  (request IDs, zone operations, per-zone lists with unreachable zones,
+  `ZONE_RESOURCE_POOL_EXHAUSTED`, quota errors after accept, dropped
+  connections, hung operations, image families and machine images,
+  subnetworks, routers). The tests cover idempotent relaunch, zone
+  fallback, pinned zones, every error class, lost answers, ownership
+  checks on delete, region-scoped listing, NAT creation per network and
+  Shielded VM options following the image. No GCP project was
+  available, so the exact request bodies have not been accepted by
+  Google; the first real launch is the thing to watch, in particular the
+  `startup-script` size, the `guestAccelerators` type path for GPUs, the
+  `existingDisk` attachment and the Cloud Router insert. The opt-in
+  `TestAgainstLiveGCP` in `internal/cloud/gcp` launches one `e2-micro`,
+  checks idempotent relaunch, listing and the ownership refusal, and
+  deletes it when `AIRSHIP_LIVE_GCP_KEY_FILE` and
+  `AIRSHIP_LIVE_GCP_LOCATION` are set; it costs one machine's minutes.
+  Until it has run, the GCP provider should be treated as unexercised
+  against Google, however thorough the fake is.
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in

@@ -53,10 +53,14 @@ const (
 	ReasonCancelled    = "cancelled"
 	ReasonIdle         = "idle"
 	ReasonLaunchFailed = "launch_failed"
-	ReasonLeaseExpired = "lease_expired"
-	ReasonLost         = "lost"
-	ReasonMaxLifetime  = "max_lifetime"
-	ReasonDeleted      = "deleted"
+	// ReasonLaunchUnconfirmed: the cloud's answer to the launch was lost
+	// and the machine may exist. The inventory scan revives the runner if
+	// it lists the instance and marks it gone otherwise.
+	ReasonLaunchUnconfirmed = "launch_unconfirmed"
+	ReasonLeaseExpired      = "lease_expired"
+	ReasonLost              = "lost"
+	ReasonMaxLifetime       = "max_lifetime"
+	ReasonDeleted           = "deleted"
 )
 
 // GitHub is what the scheduler needs from GitHub, per installation.

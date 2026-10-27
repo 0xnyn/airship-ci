@@ -59,7 +59,7 @@ func newEnv(t *testing.T) *env {
 	aws := fake.New(cloud.AWS)
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "http://api.test"
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws}, keyring, cfg, logger)
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: fake.New(cloud.GCP)}, keyring, cfg, logger)
 
 	app := gh.App(t)
 	oauth := github.NewOAuth(github.OAuthConfig{ClientID: fakegithub.ClientID, ClientSecret: "secret", WebURL: gh.URL, APIURL: gh.URL})
@@ -332,6 +332,58 @@ func TestCloudCredentialsAreVerifiedAndNeverEchoed(t *testing.T) {
 	// Members can look but not change anything; owners can disconnect.
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/aws", nil, http.StatusNoContent)
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/aws", nil, http.StatusNotFound)
+}
+
+// Google Cloud is connected with a service account key file pasted whole;
+// the stored identity is the account's email and nothing of the key is
+// echoed or stored in the clear.
+func TestConnectGCP(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	const key = `{
+  "type": "service_account",
+  "project_id": "acme-ci-123456",
+  "private_key_id": "k1",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----\n",
+  "client_email": "airship@acme-ci-123456.iam.gserviceaccount.com",
+  "client_id": "1234567890",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "universe_domain": "googleapis.com"
+}`
+	// Not a service account key, or a key with a bad location: nothing stored.
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/gcp", map[string]any{"serviceAccountKey": `{"type":"authorized_user","client_id":"x"}`}, http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/gcp", map[string]any{"serviceAccountKey": key, "defaultRegion": "us-east-1"}, http.StatusUnprocessableEntity)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("rejected credentials were stored: %v", items)
+	}
+
+	got := e.call(http.MethodPut, "/v1/orgs/acme/clouds/gcp", map[string]any{"serviceAccountKey": key, "defaultRegion": "us-central1-b"}, http.StatusOK)
+	if got["cloud"] != "gcp" || got["identity"] != "airship@acme-ci-123456.iam.gserviceaccount.com" || got["defaultRegion"] != "us-central1-b" || got["status"] != "ok" {
+		t.Fatalf("connect gcp = %v", got)
+	}
+	raw := fmt.Sprint(e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK))
+	if bytes.Contains([]byte(raw), []byte("MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7")) {
+		t.Fatal("the private key was echoed")
+	}
+	var stored []byte
+	if err := e.pool.QueryRow(context.Background(), "select secret from cloud_credentials where cloud = 'gcp'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(stored, []byte("MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7")) || bytes.Contains(stored, []byte("acme-ci-123456")) {
+		t.Fatal("the key is stored in the clear")
+	}
+
+	// Both clouds can be connected at once; each is removed on its own.
+	e.connectAWS()
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 2 {
+		t.Fatalf("clouds = %v", items)
+	}
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusNoContent)
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusNotFound)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
+		t.Fatalf("clouds after disconnecting gcp = %v", items)
+	}
 }
 
 func TestSettingsAndMembers(t *testing.T) {

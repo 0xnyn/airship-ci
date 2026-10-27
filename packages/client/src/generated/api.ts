@@ -302,6 +302,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/clouds/gcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Google Cloud */
+        put: operations["connectGcp"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/clouds/{cloud}": {
         parameters: {
             query?: never;
@@ -618,17 +635,17 @@ export interface components {
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws";
+            cloud: "aws" | "gcp";
             /**
              * Format: date-time
              * @description When it was connected
              */
             connectedAt: string;
-            /** @description Region used when a config names none */
+            /** @description Region (or GCP zone) used when a config names none */
             defaultRegion: string;
             /** @description Why the credential stopped working */
             error: string | null;
-            /** @description Public half of the credential (access key ID) */
+            /** @description Public half of the credential (AWS access key ID, GCP service account email) */
             identity: string;
             /** @description Who the credential is, such as an IAM ARN */
             principal: string | null;
@@ -653,8 +670,8 @@ export interface components {
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws";
-            /** @description Credentials; for aws: access_key, secret_key and optionally region */
+            cloud: "aws" | "gcp";
+            /** @description Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region) */
             credentials: {
                 [key: string]: string;
             };
@@ -673,7 +690,7 @@ export interface components {
              * @description Where it launches
              * @enum {string}
              */
-            cloud: "aws";
+            cloud: "aws" | "gcp";
             /** @description Idle pool summary, if it has one */
             idle?: string;
             /** @description runs-on labels it serves */
@@ -712,6 +729,15 @@ export interface components {
             defaultRegion: string;
             /** @description IAM secret access key */
             secretAccessKey: string;
+        };
+        ConnectGCP: {
+            /**
+             * @description Zone (us-central1-b) or region (us-central1) used when a config names none
+             * @default us-central1
+             */
+            defaultRegion: string;
+            /** @description The service account key file's JSON, as downloaded from Google Cloud */
+            serviceAccountKey: string;
         };
         Cookie: {
             Domain: string;
@@ -1176,7 +1202,7 @@ export interface components {
              * @description Cloud it launched in
              * @enum {string}
              */
-            cloud: "aws";
+            cloud: "aws" | "gcp";
             /**
              * Format: date-time
              * @description When demand for it was created
@@ -1993,6 +2019,41 @@ export interface operations {
             };
         };
     };
+    connectGcp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectGCP"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     disconnectCloud: {
         parameters: {
             query?: never;
@@ -2000,7 +2061,7 @@ export interface operations {
             path: {
                 org: string;
                 /** @description Cloud name */
-                cloud: "aws";
+                cloud: "aws" | "gcp";
             };
             cookie?: never;
         };

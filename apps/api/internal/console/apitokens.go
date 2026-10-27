@@ -2,6 +2,7 @@ package console
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
@@ -226,10 +228,11 @@ func (h *handlers) apiListClouds(ctx context.Context, _ *struct{}) (*cloudListOu
 }
 
 // CloudConnect is Cirun's cloud-connect request: a cloud name and that
-// cloud's credentials, as `cirun cloud connect aws` sends them.
+// cloud's credentials, as `cirun cloud connect` sends them: for aws the
+// access key, for gcp the service account key file's fields.
 type CloudConnect struct {
-	Cloud       string            `doc:"Cloud name" enum:"aws" json:"cloud"`
-	Credentials map[string]string `doc:"Credentials; for aws: access_key, secret_key and optionally region" json:"credentials" maxProperties:"10"`
+	Cloud       string            `doc:"Cloud name" enum:"aws,gcp" json:"cloud"`
+	Credentials map[string]string `doc:"Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region)" json:"credentials" maxProperties:"20"`
 }
 
 type cloudConnectInput struct {
@@ -239,23 +242,55 @@ type cloudConnectInput struct {
 func (h *handlers) cirunCloudConnect(ctx context.Context, in *cloudConnectInput) (*cloudOutput, error) {
 	p := principal(ctx)
 	creds := in.Body.Credentials
-	secret, err := awscloud.EncodeSecret(awscloud.Secret{AccessKeyID: creds["access_key"], SecretAccessKey: creds["secret_key"]})
-	if err != nil {
-		return nil, huma.Error422UnprocessableEntity("credentials need access_key and secret_key")
-	}
 	region := creds["region"]
-	if region == "" {
-		region = DefaultRegion
+	var secret []byte
+	var err error
+	switch in.Body.Cloud {
+	case cloud.GCP:
+		if secret, err = gcpKeyFromFields(creds); err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials must be the service account key's fields: " + err.Error())
+		}
+		if region == "" {
+			region = gcpcloud.DefaultRegion
+		}
+		if _, _, ok := gcpcloud.SplitLocation(region); !ok {
+			return nil, huma.Error422UnprocessableEntity("region is not a GCP zone or region")
+		}
+	default:
+		secret, err = awscloud.EncodeSecret(awscloud.Secret{AccessKeyID: creds["access_key"], SecretAccessKey: creds["secret_key"]})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials need access_key and secret_key")
+		}
+		if region == "" {
+			region = DefaultRegion
+		}
+		if !regionPattern.MatchString(region) {
+			return nil, huma.Error422UnprocessableEntity("region is not an AWS region")
+		}
 	}
-	if !regionPattern.MatchString(region) {
-		return nil, huma.Error422UnprocessableEntity("region is not an AWS region")
-	}
-	row, err := h.connect(ctx, p.installation.ID, cloud.AWS, secret, region, p.token.CreatedBy)
+	row, err := h.connect(ctx, p.installation.ID, in.Body.Cloud, secret, region, p.token.CreatedBy)
 	if err != nil {
 		return nil, err
 	}
 
 	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
+// gcpKeyFromFields rebuilds a service account key file from the fields
+// cirun-py sends, leaving out the region it adds for its own use.
+func gcpKeyFromFields(fields map[string]string) ([]byte, error) {
+	key := make(map[string]string, len(fields))
+	for name, value := range fields {
+		if name != "region" && name != "zone" {
+			key[name] = value
+		}
+	}
+	raw, err := json.Marshal(key)
+	if err != nil {
+		return nil, fmt.Errorf("encode key: %w", err)
+	}
+
+	return gcpcloud.EncodeSecret(raw) //nolint:wrapcheck // the message names the missing field
 }
 
 var regionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)

@@ -41,6 +41,7 @@ type Server struct {
 	nextRunnerID  int64
 	jobs          map[int64]github.WorkflowJob
 	failures      map[string][]int
+	beforeRoute   func(route string)
 	deliveries    []github.HookDelivery
 	redelivered   []int64
 	calls         map[string]int
@@ -298,6 +299,26 @@ func (s *Server) SetRepoRole(repo, login, role, permission string) {
 
 // RetryAfterSeconds is what scripted 429 responses ask clients to wait.
 const RetryAfterSeconds = 60
+
+// BeforeRoute runs fn before every repository route is served, outside
+// the server's lock, so a test can act (send a webhook, say) at a precise
+// point of a call sequence. nil removes it.
+func (s *Server) BeforeRoute(fn func(route string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.beforeRoute = fn
+}
+
+// AddRunner registers a runner as generate-jitconfig would, for tests
+// that place a registration without going through the launcher.
+func (s *Server) AddRunner(repo, name string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextRunnerID++
+	s.runners[s.nextRunnerID] = &Runner{ID: s.nextRunnerID, Repo: repo, Name: name, Labels: []string{"self-hosted"}}
+
+	return s.nextRunnerID
+}
 
 // FailNext makes the next calls to a route ("POST generate-jitconfig",
 // "GET runner", "DELETE runner", "GET job", "GET membership") answer with
@@ -748,6 +769,12 @@ func (s *Server) serveRepo(w http.ResponseWriter, r *http.Request, repo string, 
 		return
 	}
 
+	s.mu.Lock()
+	before := s.beforeRoute
+	s.mu.Unlock()
+	if before != nil {
+		before(route)
+	}
 	s.mu.Lock()
 	s.calls[route]++
 	if queue := s.failures[route]; len(queue) > 0 {

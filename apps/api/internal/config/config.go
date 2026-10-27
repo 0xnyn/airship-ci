@@ -41,6 +41,8 @@ type Config struct {
 	CredentialsKey string `env:"CREDENTIALS_KEY,required,notEmpty"`
 	// AWSEndpoint points the AWS provider at an emulator (moto) in tests.
 	AWSEndpoint string `env:"AWS_ENDPOINT"`
+	// GCPEndpoint points the Compute Engine provider at a stand-in API.
+	GCPEndpoint string `env:"GCP_ENDPOINT"`
 
 	// RunnerVersion is the actions/runner release agents install. GitHub
 	// stops sending jobs to runners more than 30 days behind a release.

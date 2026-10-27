@@ -10,6 +10,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 
@@ -22,11 +23,11 @@ const DefaultRegion = "eu-west-1"
 
 // Cloud is a connected cloud account, without its secret.
 type Cloud struct {
-	Cloud         string     `doc:"Cloud name"                                   enum:"aws" json:"cloud"`
-	Identity      string     `doc:"Public half of the credential (access key ID)" json:"identity"`
+	Cloud         string     `doc:"Cloud name"                                                               enum:"aws,gcp" json:"cloud"`
+	Identity      string     `doc:"Public half of the credential (AWS access key ID, GCP service account email)" json:"identity"`
 	AccountID     *string    `doc:"Cloud account ID"                              json:"accountId"`
 	Principal     *string    `doc:"Who the credential is, such as an IAM ARN"     json:"principal"`
-	DefaultRegion string     `doc:"Region used when a config names none"          json:"defaultRegion"`
+	DefaultRegion string     `doc:"Region (or GCP zone) used when a config names none" json:"defaultRegion"`
 	Status        string     `doc:"Whether the credential works"                  enum:"ok,invalid" json:"status"`
 	Error         *string    `doc:"Why the credential stopped working"            json:"error"`
 	VerifiedAt    *time.Time `doc:"When it was last verified with the cloud"      json:"verifiedAt"`
@@ -106,6 +107,40 @@ func (h *handlers) connectAWS(ctx context.Context, in *connectAWSInput) (*cloudO
 	return &cloudOutput{Body: cloudFromDB(row)}, nil
 }
 
+// ConnectGCP is the request body for connecting a Google Cloud project: a
+// service account's JSON key, pasted whole, as Cirun asks for it.
+type ConnectGCP struct {
+	ServiceAccountKey string `doc:"The service account key file's JSON, as downloaded from Google Cloud" json:"serviceAccountKey" maxLength:"16384" minLength:"2"`
+	DefaultRegion     string `default:"us-central1" doc:"Zone (us-central1-b) or region (us-central1) used when a config names none" json:"defaultRegion,omitempty" maxLength:"64" pattern:"^[a-z]+-[a-z]+[0-9]+(-[a-z])?$"`
+}
+
+type connectGCPInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectGCP
+}
+
+func (h *handlers) connectGCP(ctx context.Context, in *connectGCPInput) (*cloudOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := auth.UserFrom(ctx)
+	region := in.Body.DefaultRegion
+	if region == "" {
+		region = gcpcloud.DefaultRegion
+	}
+	secret, err := gcpcloud.EncodeSecret([]byte(in.Body.ServiceAccountKey))
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+	row, err := h.connect(ctx, inst.ID, cloud.GCP, secret, region, &user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
 // connect verifies and stores credentials, turning the cloud's refusal
 // into a 422 the dashboard can show.
 func (h *handlers) connect(ctx context.Context, installationID int64, cloudName string, secret []byte, region string, by *uuidPtr) (db.CloudCredential, error) {
@@ -114,7 +149,7 @@ func (h *handlers) connect(ctx context.Context, installationID int64, cloudName 
 		return db.CloudCredential{}, huma.Error422UnprocessableEntity(err.Error())
 	}
 	if errors.Is(err, cloud.ErrUnsupportedCloud) {
-		return db.CloudCredential{}, huma.Error422UnprocessableEntity("only aws is supported")
+		return db.CloudCredential{}, huma.Error422UnprocessableEntity("only aws and gcp are supported")
 	}
 	if err != nil {
 		slog.WarnContext(ctx, "verify cloud credentials", slog.String("cloud", cloudName), slog.Any("error", err))
@@ -127,7 +162,7 @@ func (h *handlers) connect(ctx context.Context, installationID int64, cloudName 
 
 type cloudInput struct {
 	Org   string `maxLength:"100" minLength:"1" path:"org"`
-	Cloud string `doc:"Cloud name" enum:"aws" path:"cloud"`
+	Cloud string `doc:"Cloud name" enum:"aws,gcp" path:"cloud"`
 }
 
 func (h *handlers) disconnectCloud(ctx context.Context, in *cloudInput) (*struct{}, error) {

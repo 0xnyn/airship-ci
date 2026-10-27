@@ -40,7 +40,7 @@ func TestAgainstLiveAWS(t *testing.T) {
 	}
 	t.Logf("launched %s in %s", id, region)
 	defer func() {
-		if err := p.Terminate(context.WithoutCancel(ctx), secret, region, id); err != nil {
+		if err := p.Terminate(context.WithoutCancel(ctx), secret, region, id, launch.InstallationID); err != nil {
 			t.Errorf("terminate %s: %v (terminate it by hand)", id, err)
 		}
 	}()

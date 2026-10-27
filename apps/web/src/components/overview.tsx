@@ -188,10 +188,10 @@ function GettingStarted({
     },
     {
       description:
-        "Paste an IAM access key under Cloud. Runners launch as EC2 instances in that account.",
+        "Paste an AWS access key or a Google Cloud service account key under Cloud. Runners launch as machines in that account.",
       done: clouds.length > 0,
       href: `/${org.login}/cloud`,
-      title: "Connect AWS",
+      title: "Connect a cloud",
     },
     {
       description:

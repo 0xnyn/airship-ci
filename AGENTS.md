@@ -1,6 +1,6 @@
 # Airship
 
-Self-hosted GitHub Actions runners on the customer's AWS account, built to
+Self-hosted GitHub Actions runners on the customer's AWS or Google Cloud account, built to
 Cirun's model and file format (`.cirun.yml`, `cirun-` labels, the `.cirun`
 organization repository, cirun-py's API): a Go control plane that holds
 the customer's sealed access key and launches EC2 instances itself, a
@@ -18,7 +18,7 @@ generated from it and must never be edited by hand.
 
 | Path | What it is |
 | --- | --- |
-| `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2 |
+| `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client |
 | `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
 | `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
@@ -86,7 +86,9 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   (`internal/testsupport/fakegithub`) and a fake cloud (`internal/cloud/fake`);
   `internal/e2e` drives the whole HTTP surface. Races and lifecycle edge
   cases belong in `internal/fleet` tests. The EC2 provider also runs
-  against moto (`TestAgainstEmulator`, needs `AIRSHIP_AWS_ENDPOINT`).
+  against moto (`TestAgainstEmulator`, needs `AIRSHIP_AWS_ENDPOINT`); the
+  Compute Engine provider against `internal/cloud/gcp/gcptest`, a fake of the
+  REST API driven through the real SDK.
 - Every state change to `runners` is a conditional UPDATE on the expected
   state; never read-then-write. Capacity (`installations.max_runners`) is
   enforced under a row lock on the installation.
@@ -96,8 +98,8 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
 - Cloud credentials are sealed with `internal/secrets` and opened only for
   the duration of a provider call; never log or return them.
 - `internal/cloud` is the provider boundary: `fleet` must not import the
-  AWS SDK. A new cloud is a new `cloud.Provider` (and `cloud.Cacher` if it
-  has object storage).
+  cloud SDKs. A new cloud is a new `cloud.Provider` (and `cloud.Cacher` if
+  it has object storage).
 - Errors: return `huma.Error404NotFound(...)` and friends for client errors;
   wrap everything else with `fmt.Errorf("...: %w", err)`. Huma renders RFC 9457
   problem details, which the client exposes as `ApiError` / `error.detail`.

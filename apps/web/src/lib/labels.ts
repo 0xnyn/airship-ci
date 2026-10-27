@@ -15,6 +15,28 @@ export const sourceLabel: Record<string, string> = {
   repository: ".cirun.yml",
 };
 
+/** GCP zones offered as a default; any zone or region works in `.cirun.yml`. */
+export const gcpLocations = [
+  "us-central1-a",
+  "us-central1-b",
+  "us-east1-b",
+  "us-east4-a",
+  "us-west1-a",
+  "us-west2-a",
+  "northamerica-northeast1-a",
+  "southamerica-east1-a",
+  "europe-west1-b",
+  "europe-west2-a",
+  "europe-west3-a",
+  "europe-west4-a",
+  "europe-north1-a",
+  "asia-south1-a",
+  "asia-southeast1-a",
+  "asia-east1-a",
+  "asia-northeast1-a",
+  "australia-southeast1-a",
+] as const;
+
 /** AWS regions offered as a default; any region works in `.cirun.yml`. */
 export const awsRegions = [
   "us-east-1",

@@ -37,8 +37,8 @@ export function SignIn() {
           </span>
           <h1 className="font-medium text-xl tracking-tight">Sign in</h1>
           <p className="text-muted-foreground text-xs/relaxed">
-            Fresh GitHub Actions runners in your own AWS account, one per job,
-            configured by a .cirun.yml.
+            Fresh GitHub Actions runners in your own AWS or Google Cloud
+            account, one per job, configured by a .cirun.yml.
           </p>
         </div>
         {failure ? (

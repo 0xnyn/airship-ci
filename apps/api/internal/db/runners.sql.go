@@ -270,7 +270,7 @@ func (q *Queries) CountActiveRunnersForCredential(ctx context.Context, credentia
 
 const countFailedRunnersForJob = `-- name: CountFailedRunnersForJob :one
 select count(*) from runners
-where trigger_job_id = $1 and finish_reason in ('launch_failed', 'lease_expired', 'lost')
+where trigger_job_id = $1 and finish_reason in ('launch_failed', 'launch_unconfirmed', 'lease_expired', 'lost')
 `
 
 // Failed attempts at serving one job, to cap retries.
@@ -553,29 +553,36 @@ set state = 'finished',
     error = coalesce($2, error),
     finished_at = now(),
     lease_expires_at = null,
-    instance_gone_at = case when instance_id is null then now() else instance_gone_at end,
+    instance_gone_at = case
+        when instance_id is null and not $3::boolean then now()
+        else instance_gone_at
+    end,
     deregistered_at = case
-        when github_runner_id is null or $3::boolean then coalesce(deregistered_at, now())
+        when github_runner_id is null or $4::boolean then coalesce(deregistered_at, now())
         else deregistered_at
     end
-where id = $4 and state = any($5::text[])
+where id = $5 and state = any($6::text[])
 returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket, reserved_at
 `
 
 type FinishRunnerParams struct {
-	Reason       string
-	Error        *string
-	Deregistered bool
-	ID           uuid.UUID
-	FromStates   []string
+	Reason          string
+	Error           *string
+	InstanceUnknown bool
+	Deregistered    bool
+	ID              uuid.UUID
+	FromStates      []string
 }
 
 // Moves a runner to finished if it is still in one of from_states. Runners
-// that never got an instance are marked gone at the same time.
+// that never got an instance are marked gone at the same time, unless
+// instance_unknown says the cloud may have made one anyway (the launch's
+// answer was lost); the inventory scan then settles it.
 func (q *Queries) FinishRunner(ctx context.Context, arg FinishRunnerParams) (Runner, error) {
 	row := q.db.QueryRow(ctx, finishRunner,
 		arg.Reason,
 		arg.Error,
+		arg.InstanceUnknown,
 		arg.Deregistered,
 		arg.ID,
 		arg.FromStates,
@@ -1006,6 +1013,80 @@ func (q *Queries) ListLostBusyRunners(ctx context.Context, arg ListLostBusyRunne
 	return items, nil
 }
 
+const listRevivableRunners = `-- name: ListRevivableRunners :many
+select id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket, reserved_at from runners
+where id = any($1::uuid[])
+    and credential_id = $2
+    and state = 'finished'
+    and finish_reason in ('lease_expired', 'launch_unconfirmed')
+    and deregistered_at is null
+`
+
+type ListRevivableRunnersParams struct {
+	RunnerIds    []uuid.UUID
+	CredentialID *uuid.UUID
+}
+
+// The runners among runner_ids that ReviveRunners would revive, for the
+// reconciler to check their registration with GitHub first.
+func (q *Queries) ListRevivableRunners(ctx context.Context, arg ListRevivableRunnersParams) ([]Runner, error) {
+	rows, err := q.db.Query(ctx, listRevivableRunners, arg.RunnerIds, arg.CredentialID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Runner{}
+	for rows.Next() {
+		var i Runner
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstallationID,
+			&i.Definition,
+			&i.Source,
+			&i.Scope,
+			&i.Cloud,
+			&i.CredentialID,
+			&i.Region,
+			&i.Spec,
+			&i.Labels,
+			&i.Attempt,
+			&i.PoolID,
+			&i.RepositoryID,
+			&i.RepositoryFullName,
+			&i.TriggerJobID,
+			&i.Name,
+			&i.State,
+			&i.FinishReason,
+			&i.GithubRunnerID,
+			&i.InstanceID,
+			&i.Error,
+			&i.LeaseExpiresAt,
+			&i.NotBefore,
+			&i.CreatedAt,
+			&i.LaunchingAt,
+			&i.RunningAt,
+			&i.BusyAt,
+			&i.FinishedAt,
+			&i.InstanceSeenAt,
+			&i.InstanceGoneAt,
+			&i.TerminateRequestedAt,
+			&i.DeregisteredAt,
+			&i.ProvisionSecret,
+			&i.ProvisionedAt,
+			&i.CacheTokenHash,
+			&i.CacheBucket,
+			&i.ReservedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunners = `-- name: ListRunners :many
 select id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket, reserved_at from runners
 where runners.installation_id = $1
@@ -1336,11 +1417,28 @@ func (q *Queries) MarkInstancesGone(ctx context.Context, arg MarkInstancesGonePa
 
 const markRunnerBusy = `-- name: MarkRunnerBusy :one
 update runners
-set state = 'busy', busy_at = coalesce(busy_at, now())
-where id = $1 and state in ('launching', 'running')
+set state = 'busy', busy_at = coalesce(busy_at, now()),
+    running_at = coalesce(running_at, now()),
+    finish_reason = null, finished_at = null, instance_gone_at = null,
+    trigger_job_id = case when state = 'finished' then null else trigger_job_id end
+where id = $1
+    and (state in ('launching', 'running')
+        or (state = 'finished' and finish_reason in ('lease_expired', 'launch_unconfirmed', 'lost')))
 returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket, reserved_at
 `
 
+// GitHub reporting a job on a runner is proof its machine exists and is
+// registered, so a runner Airship had given up on without seeing its
+// machine go (lease_expired, launch_unconfirmed, or lost from a listing)
+// is revived here as well, without waiting for the inventory scan. Its
+// job trigger is dropped as in ReviveRunners: the retry runner queued for
+// that job may be live, and a job has at most one live runner. GitHub's
+// word is taken even for a runner whose registration Airship believes it
+// deleted: the delete is refused for a busy runner, but a job assigned in
+// the instant between the read and the delete is a job running on a
+// live machine, and reviving the runner is what keeps the scan from
+// destroying it. A late delivery, the other way such a report arises,
+// costs only a busy row the scan or the completed event settles.
 func (q *Queries) MarkRunnerBusy(ctx context.Context, id uuid.UUID) (Runner, error) {
 	row := q.db.QueryRow(ctx, markRunnerBusy, id)
 	var i Runner
@@ -1627,7 +1725,7 @@ with revived as (
     where runners.id = any($1::uuid[])
         and runners.credential_id = $2
         and runners.state = 'finished'
-        and runners.finish_reason = 'lease_expired'
+        and runners.finish_reason in ('lease_expired', 'launch_unconfirmed')
         and runners.deregistered_at is null
     for update
 )
@@ -1649,11 +1747,12 @@ type ReviveRunnersRow struct {
 	OldTriggerJobID *int64
 }
 
-// A runner whose lease expired but whose instance the cloud now lists did
-// launch, and may already be running a job, so it is revived rather than
-// terminated, as long as GitHub still has it registered. It returns the
-// job it was started for, so the retry runner queued for that job can be
-// cancelled and the installation stays within max_runners.
+// A runner whose lease expired, or whose launch got no answer, but whose
+// instance the cloud now lists did launch, and may already be running a
+// job, so it is revived rather than terminated, as long as GitHub still
+// has it registered. It returns the job it was started for, so the retry
+// runner queued for that job can be cancelled and the installation stays
+// within max_runners.
 func (q *Queries) ReviveRunners(ctx context.Context, arg ReviveRunnersParams) ([]ReviveRunnersRow, error) {
 	rows, err := q.db.Query(ctx, reviveRunners, arg.RunnerIds, arg.CredentialID)
 	if err != nil {

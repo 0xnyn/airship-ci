@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
 	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
@@ -191,8 +192,12 @@ func resolveClouds(wants []want, creds []db.CloudCredential) (Plan, string) {
 		if region == "" {
 			region = cred.DefaultRegion
 		}
+		spec := w.Spec
+		if w.Cloud == cloud.GCP {
+			region, spec = gcpScope(region, spec, cred)
+		}
 		plan = append(plan, Attempt{
-			Source: w.Source, Name: w.Name, Cloud: w.Cloud, CredentialID: cred.ID, Region: region, Spec: w.Spec, Labels: w.Labels,
+			Source: w.Source, Name: w.Name, Cloud: w.Cloud, CredentialID: cred.ID, Region: region, Spec: spec, Labels: w.Labels,
 		})
 	}
 	if len(plan) > 0 {

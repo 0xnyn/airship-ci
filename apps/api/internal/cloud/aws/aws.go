@@ -240,13 +240,29 @@ func (p *Provider) List(ctx context.Context, raw []byte, region string, installa
 	return out, nil
 }
 
-// Terminate implements cloud.Provider.
-func (p *Provider) Terminate(ctx context.Context, raw []byte, region, instanceID string) error {
+// Terminate implements cloud.Provider. The instance must carry the
+// installation's tag: an ID that was recorded wrongly, or reused by EC2
+// for another account's machine, is refused rather than destroyed.
+func (p *Provider) Terminate(ctx context.Context, raw []byte, region, instanceID string, installationID int64) error {
 	secret, err := ParseSecret(raw)
 	if err != nil {
 		return err
 	}
-	_, err = p.newClients(secret, region).EC2.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}})
+	client := p.newClients(secret, region).EC2
+	described, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+		Filters:     []ec2types.Filter{{Name: awssdk.String("tag:" + TagInstallation), Values: []string{strconv.FormatInt(installationID, 10)}}},
+	})
+	if errorCode(err) == "InvalidInstanceID.NotFound" {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("describe %s in %s: %w", instanceID, region, err)
+	}
+	if countInstances(described) == 0 {
+		return fmt.Errorf("instance %s in %s is not tagged for installation %d; not terminating it", instanceID, region, installationID)
+	}
+	_, err = client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}})
 	if errorCode(err) == "InvalidInstanceID.NotFound" {
 		return nil
 	}
@@ -255,6 +271,15 @@ func (p *Provider) Terminate(ctx context.Context, raw []byte, region, instanceID
 	}
 
 	return nil
+}
+
+func countInstances(out *ec2.DescribeInstancesOutput) int {
+	n := 0
+	for _, reservation := range out.Reservations {
+		n += len(reservation.Instances)
+	}
+
+	return n
 }
 
 // Launch implements cloud.Provider.
@@ -359,6 +384,17 @@ func (p *Provider) run(ctx context.Context, client EC2, launch cloud.Launch, ima
 
 	out, err := client.RunInstances(ctx, in)
 	if err != nil {
+		if isTransportError(err) {
+			// The request may have reached EC2. The client token finds the
+			// instance it made, if any; if even that cannot be learned the
+			// launch stays ambiguous and the inventory scan settles it.
+			if id, found := p.findByClientToken(ctx, client, awssdk.ToString(in.ClientToken)); found {
+				return id, nil
+			}
+
+			return "", &cloud.LaunchError{Err: fmt.Errorf("run %s in %s: %w", m.InstanceType, subnet, err), Retryable: true, Ambiguous: true}
+		}
+
 		return "", fmt.Errorf("run %s in %s: %w", m.InstanceType, subnet, err)
 	}
 	if len(out.Instances) != 1 {
@@ -366,6 +402,29 @@ func (p *Provider) run(ctx context.Context, client EC2, launch cloud.Launch, ima
 	}
 
 	return awssdk.ToString(out.Instances[0].InstanceId), nil
+}
+
+// findByClientToken looks for the instance a RunInstances call with token
+// created. found is false when there is none or EC2 could not be asked.
+func (p *Provider) findByClientToken(ctx context.Context, client EC2, token string) (string, bool) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), requestTimeout)
+	defer cancel()
+	out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{Name: awssdk.String("client-token"), Values: []string{token}},
+			{Name: awssdk.String("instance-state-name"), Values: []string{"pending", "running", "shutting-down", "stopping", "stopped"}},
+		},
+	})
+	if err != nil {
+		return "", false
+	}
+	for _, reservation := range out.Reservations {
+		for _, instance := range reservation.Instances {
+			return awssdk.ToString(instance.InstanceId), true
+		}
+	}
+
+	return "", false
 }
 
 // userData renders the boot script for the image's platform, base64

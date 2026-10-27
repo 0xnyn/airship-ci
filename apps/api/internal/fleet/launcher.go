@@ -12,6 +12,8 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
+
+	"github.com/google/uuid"
 )
 
 // RunLauncher launches pending runners until ctx is done: on every tick,
@@ -107,6 +109,10 @@ func (s *Service) claim(ctx context.Context, installationID int64, capacity int3
 	return batch, err
 }
 
+// launchLeaseMargin is how long before its lease expires a launch must have
+// its answer, leaving time to record the instance.
+const launchLeaseMargin = 30 * time.Second
+
 // launch registers one claimed runner with GitHub and starts its machine.
 // On failure the runner is put back in the queue (a transient GitHub
 // error), or finished and its job retried on the plan's next attempt.
@@ -156,6 +162,19 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 		return
 	}
 
+	// The registration took a round trip, during which the job may have
+	// been cancelled or started on another runner. A machine for it would
+	// only idle, so none is made. The trigger is re-read: a hand-off may
+	// have moved this runner to another job meanwhile.
+	movedOn, err := s.jobMovedOn(ctx, runner.ID)
+	if err != nil {
+		log.WarnContext(ctx, "check job before launch", slog.Any("error", err)) // launch anyway
+	} else if movedOn {
+		s.cancelLaunch(ctx, runner, reg, jit.Runner.ID)
+
+		return
+	}
+
 	boot := cloud.Boot{
 		JITConfig:          jit.EncodedConfig,
 		RunnerVersion:      s.cfg.RunnerVersion,
@@ -186,7 +205,18 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 			return
 		}
 	}
-	instanceID, err := provider.Launch(ctx, secret, cloud.Launch{
+	// The cloud call must answer before the lease runs out, or the
+	// reconciler gives the runner up as lease_expired while the launch is
+	// still in flight (and a machine it then makes is revived by the scan,
+	// after a retry was already queued). Cutting the call short is safe:
+	// the providers settle an interrupted insert by looking the machine up.
+	launchCtx := ctx
+	if runner.LeaseExpiresAt != nil {
+		var cancel context.CancelFunc
+		launchCtx, cancel = context.WithDeadline(ctx, runner.LeaseExpiresAt.Add(-launchLeaseMargin))
+		defer cancel()
+	}
+	instanceID, err := provider.Launch(launchCtx, secret, cloud.Launch{
 		RunnerID:       runner.ID.String(),
 		RunnerName:     runner.Name,
 		InstallationID: runner.InstallationID,
@@ -198,7 +228,12 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 	if err != nil {
 		retryable := cloud.IsRetryable(err)
 		log.WarnContext(ctx, "launch failed", slog.String("instance_type", spec.InstanceType), slog.String("region", runner.Region),
-			slog.Bool("retryable", retryable), slog.Any("error", err))
+			slog.Bool("retryable", retryable), slog.Bool("ambiguous", cloud.IsAmbiguous(err)), slog.Any("error", err))
+		if cloud.IsAmbiguous(err) {
+			s.unconfirmLaunch(ctx, runner, truncate(err.Error(), 2000))
+
+			return
+		}
 		s.failLaunch(ctx, runner, truncate(err.Error(), 2000), retryable)
 
 		return
@@ -214,6 +249,50 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 	s.record(ctx, runner.InstallationID, "runner.launched", levelInfo,
 		fmt.Sprintf("Launched %s (%s, %s) for %s", runner.Name, spec.InstanceType, runner.Region, runner.RepositoryFullName),
 		eventFields{repository: runner.RepositoryFullName, runnerID: &runner.ID, jobID: runner.TriggerJobID})
+}
+
+// jobMovedOn reports whether the job a launching runner is for is no
+// longer queued (cancelled, or started elsewhere).
+func (s *Service) jobMovedOn(ctx context.Context, runnerID uuid.UUID) (bool, error) {
+	current, err := s.q.GetRunner(ctx, runnerID)
+	if err != nil {
+		return false, fmt.Errorf("get runner: %w", err)
+	}
+	if current.TriggerJobID == nil {
+		return false, nil // a pool runner; it waits for any job
+	}
+	job, err := s.q.GetJob(ctx, *current.TriggerJobID)
+	if isNoRows(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get job: %w", err)
+	}
+
+	return job.Status != "queued", nil
+}
+
+// cancelLaunch finishes a launching runner whose job moved on before its
+// machine was made, and removes its registration; if GitHub cannot be
+// reached the reconciler removes it later.
+func (s *Service) cancelLaunch(ctx context.Context, runner db.Runner, reg registration, githubRunnerID int64) {
+	ctx = context.WithoutCancel(ctx)
+	deregistered := reg.remove(ctx, githubRunnerID) == nil
+	cancelled, err := s.q.FinishRunner(ctx, db.FinishRunnerParams{
+		ID:           runner.ID,
+		Reason:       ReasonCancelled,
+		Deregistered: deregistered,
+		FromStates:   []string{StateLaunching},
+	})
+	if isNoRows(err) {
+		return
+	}
+	if err != nil {
+		s.log.ErrorContext(ctx, "cancel launch", slog.String("runner", runner.ID.String()), slog.Any("error", err))
+
+		return
+	}
+	s.log.InfoContext(ctx, "launch cancelled: the job moved on", slog.String("runner", cancelled.ID.String()), slog.Bool("deregistered", deregistered))
 }
 
 // credentialFor opens the cloud credential a runner launches with.
@@ -262,6 +341,37 @@ func (s *Service) failLaunch(ctx context.Context, runner db.Runner, message stri
 		eventFields{repository: runner.RepositoryFullName, runnerID: &runner.ID, jobID: runner.TriggerJobID})
 	if err := s.retryJob(ctx, failed, retryable); err != nil {
 		s.log.ErrorContext(ctx, "retry job after failed launch", slog.String("runner", runner.ID.String()), slog.Any("error", err))
+	}
+}
+
+// unconfirmLaunch finishes a launching runner whose cloud call got no
+// answer. The machine may exist: the runner stays revivable (as after an
+// expired lease) until the inventory scan lists its instance or the grace
+// period passes, and its job is retried meanwhile. If both the machine
+// and the retry come up, the revival cancels the retry while it is still
+// pending; otherwise one of the two idles out.
+func (s *Service) unconfirmLaunch(ctx context.Context, runner db.Runner, message string) {
+	ctx = context.WithoutCancel(ctx)
+	unconfirmed, err := s.q.FinishRunner(ctx, db.FinishRunnerParams{
+		ID:              runner.ID,
+		Reason:          ReasonLaunchUnconfirmed,
+		Error:           &message,
+		FromStates:      []string{StateLaunching},
+		InstanceUnknown: true,
+	})
+	if isNoRows(err) {
+		return
+	}
+	if err != nil {
+		s.log.ErrorContext(ctx, "unconfirm runner", slog.String("runner", runner.ID.String()), slog.Any("error", err))
+
+		return
+	}
+	s.record(ctx, runner.InstallationID, "runner.launch_unconfirmed", levelWarning,
+		fmt.Sprintf("Launch of %s for %s got no answer from the cloud; the machine is settled by the next inventory scan: %s", runner.Name, runner.RepositoryFullName, message),
+		eventFields{repository: runner.RepositoryFullName, runnerID: &runner.ID, jobID: runner.TriggerJobID})
+	if err := s.retryJob(ctx, unconfirmed, true); err != nil {
+		s.log.ErrorContext(ctx, "retry job after unconfirmed launch", slog.String("runner", runner.ID.String()), slog.Any("error", err))
 	}
 }
 

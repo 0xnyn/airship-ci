@@ -14,10 +14,10 @@ import (
 	"time"
 )
 
-// Clouds the control plane can launch on. The AWS provider is the only one
-// today; the interface is what a second cloud implements.
+// Clouds the control plane can launch on, by their name in config files.
 const (
 	AWS = "aws"
+	GCP = "gcp"
 )
 
 // Identity is who a credential authenticates as, as the cloud reports it.
@@ -31,21 +31,31 @@ type Identity struct {
 // Machine is the shape of a runner machine.
 type Machine struct {
 	InstanceType string
-	// Image is a provider image reference (an AMI ID), an alias such as
-	// ubuntu2204, or empty for the provider's default Ubuntu.
+	// Image is a provider image reference (an AMI ID, a Compute Engine
+	// image family or image path), an alias such as ubuntu2204, or empty
+	// for the provider's default Ubuntu.
 	Image string
 	// Arch is x64 or arm64, inferred from the instance type.
 	Arch string
 	Spot bool
 	Disk Disk
-	// SubnetID, SecurityGroupIDs and InstanceProfile override the
+	// Zone pins the machine to one zone of the region. Empty lets the
+	// provider spread launches over the region's zones and move on when
+	// one is out of capacity.
+	Zone string
+	// GPUType is the accelerator a definition asked for (gpu: in the
+	// config), attached on clouds where a GPU is a separate resource.
+	GPUType string
+	// SubnetID, SecurityGroupIDs and InstanceProfile override the AWS
 	// provider's defaults (the default VPC, an egress-only group, no role).
 	SubnetID         string
 	SecurityGroupIDs []string
 	InstanceProfile  string
+	// GCP holds the Compute Engine settings from extra_config.
+	GCP *GCPOptions
 }
 
-// Disk is the root volume.
+// Disk is the root volume. Type is a provider volume type (gp3, pd-ssd).
 type Disk struct {
 	SizeGB     int
 	Type       string
@@ -53,6 +63,70 @@ type Disk struct {
 	Throughput int
 	// InitRate is EBS's VolumeInitializationRate in MiB/s (0: default).
 	InitRate int
+}
+
+// GCPOptions are the Compute Engine settings a definition may set in
+// extra_config, as Cirun names them.
+type GCPOptions struct {
+	// Project overrides the credential's project.
+	Project string `json:"project,omitempty"`
+	// AdditionalDisk attaches a second, empty persistent disk.
+	AdditionalDisk *GCPDisk `json:"additionalDisk,omitempty"`
+	// NetworkInterfaces replace the default interface on the default
+	// network with an external address.
+	NetworkInterfaces []GCPNetworkInterface `json:"networkInterfaces,omitempty"`
+	// ServiceAccounts are attached to the machine; none by default.
+	ServiceAccounts []GCPServiceAccount `json:"serviceAccounts,omitempty"`
+	// NoPublicIP launches without an external address and routes egress
+	// through a Cloud NAT the provider creates in the region.
+	NoPublicIP bool `json:"noPublicIp,omitempty"`
+	// OnHostMaintenance is MIGRATE or TERMINATE (empty: the provider's
+	// choice, TERMINATE for spot and GPU machines).
+	OnHostMaintenance string `json:"onHostMaintenance,omitempty"`
+	// ExistingDisk attaches a disk the customer already has. It is never
+	// deleted with the machine, and a zonal disk pins the launch to its
+	// zone.
+	ExistingDisk *GCPExistingDisk `json:"existingDisk,omitempty"`
+}
+
+// GCPExistingDisk is a persistent disk to attach by reference.
+type GCPExistingDisk struct {
+	// Source is projects/P/zones/Z/disks/N or projects/P/regions/R/disks/N
+	// (the project may be left out for the launch's project).
+	Source     string `json:"source"`
+	DeviceName string `json:"deviceName,omitempty"`
+	// Mode is READ_WRITE (default) or READ_ONLY; Interface SCSI or NVME.
+	Mode      string `json:"mode,omitempty"`
+	Interface string `json:"interface,omitempty"`
+}
+
+// GCPDisk is an extra persistent disk.
+type GCPDisk struct {
+	SizeGB int    `json:"sizeGb"`
+	Type   string `json:"type,omitempty"`
+}
+
+// GCPNetworkInterface is one network interface, as Compute Engine's API
+// names its fields.
+type GCPNetworkInterface struct {
+	Network       string            `json:"network,omitempty"`
+	Subnetwork    string            `json:"subnetwork,omitempty"`
+	NicType       string            `json:"nicType,omitempty"`
+	StackType     string            `json:"stackType,omitempty"`
+	AccessConfigs []GCPAccessConfig `json:"accessConfigs,omitempty"`
+}
+
+// GCPAccessConfig gives an interface an external address.
+type GCPAccessConfig struct {
+	Type        string `json:"type,omitempty"`
+	Name        string `json:"name,omitempty"`
+	NetworkTier string `json:"networkTier,omitempty"`
+}
+
+// GCPServiceAccount is a service account the machine runs as.
+type GCPServiceAccount struct {
+	Email  string   `json:"email"`
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 // CacheBoot tells a machine where to fetch its cache credentials from:
@@ -131,7 +205,9 @@ type Launch struct {
 	Boot           Boot
 }
 
-// Instance is a machine the provider launched for a runner.
+// Instance is a machine the provider launched for a runner. InstanceID is
+// whatever the provider needs to find it again (an EC2 instance ID, a
+// Compute Engine zone/name); the control plane only stores and echoes it.
 type Instance struct {
 	RunnerID   string
 	InstanceID string
@@ -144,17 +220,26 @@ type Instance struct {
 
 // Provider is one cloud. Implementations must only list and terminate
 // machines they tagged for the installation.
+//
+// Every call may be repeated: the control plane retries after crashes and
+// timeouts, and two replicas may act on the same runner. Launch must be
+// idempotent per runner, Terminate per instance, and List must describe
+// the whole region or fail.
 type Provider interface {
-	// Name is the cloud's name in config files ("aws").
+	// Name is the cloud's name in config files ("aws", "gcp").
 	Name() string
-	// Verify checks a secret works and reports who it is.
+	// Verify checks a secret works and reports who it is. region is the
+	// default location the credential was connected with.
 	Verify(ctx context.Context, secret []byte, region string) (Identity, error)
 	// Launch starts a machine and returns its instance ID. Launching the
-	// same runner twice must not create two machines.
+	// same runner twice must not create two machines. When the cloud may
+	// have created the machine but did not say so, the error is a
+	// LaunchError with Ambiguous set, and the next List settles it.
 	Launch(ctx context.Context, secret []byte, launch Launch) (string, error)
-	// Terminate destroys a machine. A machine that is already gone is not
-	// an error.
-	Terminate(ctx context.Context, secret []byte, region, instanceID string) error
+	// Terminate destroys a machine the provider launched for
+	// installationID, and refuses one it did not. A machine that is
+	// already gone is not an error.
+	Terminate(ctx context.Context, secret []byte, region, instanceID string, installationID int64) error
 	// List returns every live machine tagged for installationID in region.
 	// It must return an error rather than a partial list: an instance
 	// missing from a successful list is presumed gone.
@@ -179,9 +264,13 @@ var ErrUnsupportedCloud = errors.New("unsupported cloud")
 
 // LaunchError is a failed launch. Retryable failures (capacity, throttling)
 // let the scheduler try again; others move on to the next fallback.
+// Ambiguous failures are those where the cloud may have created the
+// machine anyway (a request that timed out after it was sent): the
+// scheduler must not treat the machine as absent until a List says so.
 type LaunchError struct {
 	Err       error
 	Retryable bool
+	Ambiguous bool
 }
 
 func (e *LaunchError) Error() string { return e.Err.Error() }
@@ -193,6 +282,14 @@ func IsRetryable(err error) bool {
 	var launchErr *LaunchError
 
 	return errors.As(err, &launchErr) && launchErr.Retryable
+}
+
+// IsAmbiguous reports whether a launch may have created a machine after
+// all.
+func IsAmbiguous(err error) bool {
+	var launchErr *LaunchError
+
+	return errors.As(err, &launchErr) && launchErr.Ambiguous
 }
 
 // ErrBadCredentials is returned when the cloud rejects the secret itself.

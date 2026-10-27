@@ -153,7 +153,7 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 			defined = nil
 		}
 		for _, v := range c.Runner.Variants {
-			labels := registeredLabels(c.Runner.Cloud, v.Arch, c.Runner.GPU || HasGPU(v.InstanceType), defined, asked)
+			labels := registeredLabels(c.Runner.Cloud, v.Arch, c.Runner.GPU || HasGPU(c.Runner.Cloud, v.InstanceType), defined, asked)
 			if !coversAll(withOSAliases(labels, v.Image), other) {
 				continue
 			}
@@ -192,14 +192,18 @@ func withAliases(labels []string) []string {
 }
 
 // withOSAliases adds the OS label the runner adds itself. A known Ubuntu
-// image (an alias, or none, which means the default) is Linux; a custom
+// image (an alias, none, which means the default, or a Compute Engine
+// ubuntu-* family) is Linux and a windows-* image is Windows; a custom
 // AMI could be either until it boots.
 func withOSAliases(labels []string, image string) []string {
-	if image == "" || imageAliasPattern.MatchString(image) {
+	switch {
+	case image == "" || imageAliasPattern.MatchString(image) || strings.HasPrefix(image, "ubuntu-"):
 		return append(slices.Clone(labels), "linux")
+	case isWindowsImageName(image):
+		return append(slices.Clone(labels), "windows")
+	default:
+		return append(slices.Clone(labels), "linux", "windows")
 	}
-
-	return append(slices.Clone(labels), "linux", "windows")
 }
 
 func coversAll(have, want []string) bool {
@@ -218,7 +222,7 @@ func coversAll(have, want []string) bool {
 func PoolAttempts(source Source, r Runner) []Attempt {
 	out := make([]Attempt, 0, len(r.Variants))
 	for _, v := range r.Variants {
-		out = append(out, Attempt{Source: source, Runner: r, Variant: v, Labels: registeredLabels(r.Cloud, v.Arch, r.GPU || HasGPU(v.InstanceType), r.Labels, nil)})
+		out = append(out, Attempt{Source: source, Runner: r, Variant: v, Labels: registeredLabels(r.Cloud, v.Arch, r.GPU || HasGPU(r.Cloud, v.InstanceType), r.Labels, nil)})
 	}
 
 	return out

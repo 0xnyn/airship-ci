@@ -19,6 +19,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/config"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
@@ -97,7 +98,10 @@ func run(ctx context.Context) error {
 	if app != nil {
 		gh = fleet.AppGitHub{App: app}
 	}
-	clouds := cloud.Registry{cloud.AWS: awscloud.New(awscloud.Options{Endpoint: cfg.AWSEndpoint})}
+	clouds := cloud.Registry{
+		cloud.AWS: awscloud.New(awscloud.Options{Endpoint: cfg.AWSEndpoint}),
+		cloud.GCP: gcpcloud.New(gcpcloud.Options{Endpoint: cfg.GCPEndpoint}),
+	}
 	scheduler := fleet.New(pool, gh, clouds, keyring, fleetCfg, logger)
 
 	queries := db.New(pool)

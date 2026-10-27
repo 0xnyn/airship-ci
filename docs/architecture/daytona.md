@@ -62,9 +62,11 @@ Daytona itself.
    runner name, unique in the organization. Every launch looks the name up
    first; a create that conflicts, times out or fails with a 5xx is
    followed by another lookup. Eight launches of one runner racing on the
-   fake produce one sandbox and the same ID for every caller; a repeated
-   launch against Daytona returned the same sandbox, three times out of
-   three. *(observed)*
+   fake produce one sandbox and the same ID for every caller; against
+   Daytona, five callers racing on one runner got one sandbox (the three
+   that got past Daytona's organization-wide memory check all received
+   the same ID), and a repeated launch returned the same sandbox, three
+   times out of three. *(observed)*
 2. **A sandbox the control plane did not label is never touched, and one
    it labelled for another installation is never deleted.** Listing
    filters on `airship-installation` and checks the label on each item;
@@ -77,16 +79,25 @@ Daytona itself.
 4. **The boot label is the last step of a launch and the only sign of a
    runner.** A sandbox without it is a launch in progress for ten minutes
    (twice the launcher's lease), then a leak the scan deletes. It is never
-   revived, because nothing will ever start in it.
+   revived, because nothing will ever start in it. A sandbox created and
+   started but never labelled, left as a control plane that died between
+   the create and the label leaves it, was hidden from `List` inside the
+   grace, reported `stopped` past it, and adopted by a relaunch of its
+   runner: the same ID came back, booted and labelled. *(observed)*
 5. **Nothing from this provider is ambiguous.** A launch that cannot
    finish deletes its sandbox and fails retryably. The control plane's
    `launch_unconfirmed` path exists for clouds whose machines boot on their
-   own; a Daytona sandbox does not.
+   own; a Daytona sandbox does not. A launch whose context was cancelled
+   2.5 s in, with the sandbox still `creating`, failed retryably and left
+   nothing by its name 5 s later. *(observed)*
 6. **Every sandbox ends on its own.** The script stops PID 1 on every exit
    path, the sandbox is created to delete itself on stop, the runner runs
    under `timeout` at the maximum lifetime, and the sandbox's TTL is fifteen
    minutes past that. Four sandboxes launched for real were all gone within
-   twenty seconds of their script ending. *(observed)*
+   twenty seconds of their script ending, and `Terminate` on a sandbox
+   whose runner was in the middle of a job returned in 500 ms, had the
+   sandbox gone within a minute, and did nothing, without error, when
+   called again. *(observed)*
 7. **Every call is bounded.** Thirty seconds per request, one minute per
    list, four minutes to start (inside the launcher's lease), two minutes
    at the HTTP client. A hung Daytona cannot stall the reconciler.
@@ -330,7 +341,7 @@ list, two minutes at the HTTP client.
 
 | Class | Examples | Behaviour |
 | --- | --- | --- |
-| **Retryable** | `429`, `408`, any 5xx, a transport error; a `400`, `403` or `409` whose message speaks of quota, capacity, a limit exceeded or too many requests; a sandbox that reached `error` or was destroyed while starting (Daytona's queue timed out); a start that took more than four minutes | The chain starts over, up to the attempt cap |
+| **Retryable** | `429`, `408`, any 5xx, a transport error; a `400`, `403` or `409` whose message speaks of quota, capacity, a limit exceeded or too many requests (`Total memory limit exceeded. Maximum allowed: 10GiB`, the organization's total, which Daytona charges creates in flight against); a sandbox that reached `error` or was destroyed while starting (Daytona's queue timed out); a start that took more than four minutes | The chain starts over, up to the attempt cap |
 | **Permanent** | `build_failed` (the image does not exist or does not build); a shape above the tier's per-sandbox maximum (`exceeds maximum allowed per sandbox`); an allow list on a tier that forbids them (`Network access is restricted and cannot be overridden at the sandbox level`); no GPU credits (`Organization doesn't have GPU credits`); a region without builds or without the snapshot; a `400` on the request body; a sandbox placed in another region | Next fallback; stop once every attempt has been tried |
 | **Credential** | `401`, `403` on the key itself, a key with no organization, an expired key, a key without `write:sandboxes` or `delete:sandboxes` | Refused at connect time; at launch time the failure is on the Events page with Daytona's message |
 | **Never ambiguous** | — | A launch the provider cannot finish deletes its sandbox and fails retryably. There is no `launch_unconfirmed` on Daytona |

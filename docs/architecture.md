@@ -521,6 +521,30 @@ Different, on purpose:
   launcher had just finished booting; a failed boot now re-reads the
   sandbox and, if it carries the boot label for this runner, returns it
   as the launch's result instead.
+  The failure modes were then run against Daytona itself, the same day,
+  through `Provider.Launch`, `List` and `Terminate` with the same shapes a
+  reconciler would send. *Racing launches:* five callers launching one
+  runner at once got one sandbox (one distinct ID, labelled `started`,
+  one sandbox listed) and two got `Total memory limit exceeded. Maximum
+  allowed: 10GiB` from Daytona, which counts creates in flight against the
+  organization's total before it checks the name; that message is
+  classified retryable, as a capacity wait, and the two callers would
+  have found the sandbox by name on their next attempt. *A launch cut
+  off mid-way* (its context cancelled 2.5 s in, while the sandbox was
+  `creating`) returned `sandbox did not start in time (last state
+  creating)`, retryable, deleted its sandbox so that nothing by that name
+  remained 5 s later, and a relaunch of the same runner created a fresh
+  one. *A crash mid-launch* (a sandbox created and started but never
+  labelled, as a control plane that died between the create and the label
+  leaves it) was invisible to `List` while younger than the boot grace,
+  reported `stopped` once older, so the scan deletes it, and was adopted
+  by a relaunch of the same runner: the same sandbox ID came back, booted
+  and labelled. *Terminating a busy runner:* a real runner registered
+  with a JIT config, a `workflow_dispatch` job that sleeps for ten
+  minutes started on it, and `Terminate` was called while the job's step
+  was running; it returned in 500 ms, the sandbox was gone from the
+  organization within a minute, and a second `Terminate` of the same ID
+  was a no-op without error.
   **Not run:** a GPU sandbox that actually started (the organization has
   no GPU credits), and a sandbox in a dedicated region (this
   organization's hosts no containers).

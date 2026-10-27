@@ -555,3 +555,36 @@ func TestFailedBootDefersToTheLauncherThatFinished(t *testing.T) {
 		t.Errorf("unlabelled failure: err %v, deletes %d", err, g.server.Deletes)
 	}
 }
+
+// Daytona's own words, as answered to real requests on 2026-10-27, sort
+// into waits for capacity and definitions that can never launch.
+func TestRealDaytonaMessagesAreClassified(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		status    int
+		message   string
+		retryable bool
+	}{
+		{400, "Total memory limit exceeded. Maximum allowed: 10GiB.\nTo increase concurrency limits, upgrade your organization's Tier by visiting https://app.daytona.io/dashboard/limits.", true},
+		{400, "Disk request 20GB exceeds maximum allowed per sandbox (10GB)", false},
+		{400, "Organization doesn't have GPU credits. Add more by visiting the Wallet page", false},
+		{400, "Organization doesn't have spot GPU credits. Add more by visiting the Wallet page", false},
+		{400, "Network access is restricted and cannot be overridden at the sandbox level. Remove domainAllowList from the request.", false},
+		{403, "Declarative builds are not available to your organization in region us-west-4.", false},
+		{400, "Snapshot daytona-small is not available in region us-west-4", false},
+		{400, "No runners are configured in region 'us-west-4' for sandbox class 'container'. Try a different region or sandbox class.", false},
+		{409, "Sandbox with name airship-x already exists", false},
+		{429, "Too Many Requests", true},
+		{503, "Service Unavailable", true},
+	}
+	for _, tc := range cases {
+		err := classify(&apiError{op: "create sandbox", status: tc.status, message: tc.message})
+		var le *cloud.LaunchError
+		if !errors.As(err, &le) {
+			t.Fatalf("%q: not a LaunchError: %v", tc.message, err)
+		}
+		if le.Retryable != tc.retryable || le.Ambiguous {
+			t.Errorf("%d %q: retryable=%v ambiguous=%v, want retryable=%v", tc.status, tc.message, le.Retryable, le.Ambiguous, tc.retryable)
+		}
+	}
+}

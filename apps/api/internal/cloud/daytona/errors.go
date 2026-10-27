@@ -149,7 +149,9 @@ func isCapacityOrQuota(err error) bool {
 		// A sandbox larger than the organization's per-sandbox maximum
 		// ("Disk request 20GB exceeds maximum allowed per sandbox (10GB)")
 		// is a definition that can never launch, not a wait for capacity.
-		for _, word := range []string{"per sandbox", "per-sandbox", "maximum allowed", "not allowed"} {
+		// The organization's total ("Total memory limit exceeded. Maximum
+		// allowed: 10GiB.") is a wait: other sandboxes end.
+		for _, word := range []string{"per sandbox", "per-sandbox"} {
 			if strings.Contains(msg, word) {
 				return false
 			}

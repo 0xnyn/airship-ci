@@ -544,7 +544,15 @@ Different, on purpose:
   minutes started on it, and `Terminate` was called while the job's step
   was running; it returned in 500 ms, the sandbox was gone from the
   organization within a minute, and a second `Terminate` of the same ID
-  was a no-op without error.
+  was a no-op without error. GitHub's side of that is slower: the runner
+  showed `online` for about two minutes and the job `in_progress` for
+  six, until a cancel requested right after the terminate took effect
+  (`completed`, `cancelled`, 13:30:58 for a sandbox destroyed at 13:25);
+  the ephemeral registration was removed by GitHub itself, and the job
+  record keeps its step `in_progress` for good, since no runner ever
+  reported it. This is why a terminated busy runner is not the same as a
+  cancelled job: the job ends when GitHub gives up on the runner, not
+  when the sandbox goes.
   **Not run:** a GPU sandbox that actually started (the organization has
   no GPU credits), and a sandbox in a dedicated region (this
   organization's hosts no containers).

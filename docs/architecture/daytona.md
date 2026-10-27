@@ -97,7 +97,9 @@ Daytona itself.
    twenty seconds of their script ending, and `Terminate` on a sandbox
    whose runner was in the middle of a job returned in 500 ms, had the
    sandbox gone within a minute, and did nothing, without error, when
-   called again. *(observed)*
+   called again; GitHub marked that runner offline about two minutes
+   later and ended its job six minutes later, so a job cut off this way
+   finishes on GitHub's clock, not the sandbox's. *(observed)*
 7. **Every call is bounded.** Thirty seconds per request, one minute per
    list, four minutes to start (inside the launcher's lease), two minutes
    at the HTTP client. A hung Daytona cannot stall the reconciler.

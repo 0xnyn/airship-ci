@@ -29,6 +29,9 @@ jobs:
     env:
       # Each database test creates and drops its own database here.
       TEST_DATABASE_URL: postgres://airship:airship@localhost:5432/airship?sslmode=disable
+      # The dashboard build refuses the localhost default; this proves it
+      # compiles, and is not what a deployment ships (set the real URL there).
+      NEXT_PUBLIC_API_URL: https://api.airship.invalid
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

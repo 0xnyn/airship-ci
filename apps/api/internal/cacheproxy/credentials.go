@@ -17,8 +17,10 @@ import (
 // Grant is what the control plane hands a runner: where its cache lives
 // and short-lived credentials for exactly that.
 type Grant struct {
-	Cloud           string    `json:"cloud"`
-	Bucket          string    `json:"bucket"`
+	Cloud  string `json:"cloud"`
+	Bucket string `json:"bucket"`
+	// AccountID owns the bucket; every S3 call names it.
+	AccountID       string    `json:"accountId,omitempty"`
 	Region          string    `json:"region"`
 	Prefix          string    `json:"prefix"`
 	AccessKeyID     string    `json:"accessKeyId"`
@@ -53,14 +55,36 @@ func (c *GrantClient) Fetch(ctx context.Context) (Grant, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return Grant{}, fmt.Errorf("fetch cache grant: %w", err)
+	var resp *http.Response
+	var raw []byte
+	for attempt := range fetchAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return Grant{}, ctx.Err() //nolint:wrapcheck // the context's own reason
+			case <-time.After(fetchRetryDelay):
+			}
+		}
+		resp, err = client.Do(req.Clone(ctx))
+		if err != nil {
+			err = fmt.Errorf("fetch cache grant: %w", err)
+
+			continue
+		}
+		raw, _ = io.ReadAll(io.LimitReader(resp.Body, maxJSONBody))
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			err = nil
+
+			break
+		}
+		err = fmt.Errorf("fetch cache grant: %s: %s", resp.Status, raw)
+		if resp.StatusCode < http.StatusInternalServerError {
+			break // the control plane refused the token; asking again will not help
+		}
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxJSONBody))
-	if resp.StatusCode != http.StatusOK {
-		return Grant{}, fmt.Errorf("fetch cache grant: %s: %s", resp.Status, raw)
+	if err != nil {
+		return Grant{}, err
 	}
 	var grant Grant
 	if err := json.Unmarshal(raw, &grant); err != nil {
@@ -84,11 +108,37 @@ func (c *GrantClient) Retrieve(ctx context.Context) (awssdk.Credentials, error) 
 		return awssdk.Credentials{}, err
 	}
 
+	return credentialsFor(grant), nil
+}
+
+// HandleFailToRefresh implements the credential cache's refresh fallback:
+// while the last grant is still valid, a control plane that cannot be
+// reached does not fail the cache call that needed a refresh.
+func (c *GrantClient) HandleFailToRefresh(_ context.Context, prev awssdk.Credentials, err error) (awssdk.Credentials, error) {
+	c.mu.Lock()
+	last := c.last
+	c.mu.Unlock()
+	if last.AccessKeyID != "" && time.Now().Before(last.ExpiresAt) {
+		return credentialsFor(last), nil
+	}
+	if prev.HasKeys() && !prev.Expired() {
+		return prev, nil
+	}
+
+	return awssdk.Credentials{}, err
+}
+
+func credentialsFor(grant Grant) awssdk.Credentials {
 	return awssdk.Credentials{
 		AccessKeyID: grant.AccessKeyID, SecretAccessKey: grant.SecretAccessKey, SessionToken: grant.SessionToken,
 		CanExpire: true, Expires: grant.ExpiresAt, Source: "airship",
-	}, nil
+	}
 }
+
+const (
+	fetchAttempts   = 3
+	fetchRetryDelay = 2 * time.Second
+)
 
 // NewS3Client builds an S3 client that authenticates through grants.
 func NewS3Client(grants *GrantClient, region, endpoint string) *s3.Client {

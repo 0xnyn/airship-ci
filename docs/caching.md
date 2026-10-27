@@ -37,9 +37,11 @@ runners:
 ## How it works
 
 1. At launch, the control plane makes sure the bucket
-   `airship-cache-<region>-<hash>` exists in your account: private, with a
-   lifecycle rule that expires entries after 7 days (and abandoned multipart
-   uploads after a day). It gives the machine a one-off `asr_` token.
+   `airship-cache-<region>-<hash>` exists in your account and belongs to
+   it (every call names the expected owner, so a bucket of that name in
+   another account is refused): private, with a lifecycle rule that
+   expires entries after 7 days (and abandoned multipart uploads after a
+   day). It gives the machine a one-off `asr_` token.
 2. The boot script downloads the cache proxy from the control plane, starts
    it, and trusts its certificate authority on the machine only (system
    store and `NODE_EXTRA_CA_CERTS`). The runner's `.env` gets
@@ -57,9 +59,9 @@ runners:
    GitHub untouched. Every other host is tunnelled without inspection.
 5. Uploads arrive as Azure block blob calls against the "signed" URL the
    proxy hands out; it stages the blocks on the root volume and writes the
-   entry to S3 as a multipart upload with 8 parallel 64 MiB parts.
-   Downloads are served with the HEAD plus ranged GETs the client makes,
-   straight from S3.
+   entry to S3 as a multipart upload with 8 parallel 64 MiB parts sent
+   straight from disk. Downloads are served straight from S3: one GET for
+   `actions/cache`, HEAD plus ranged GETs for clients such as buildx.
 
 Entries are stored at `<version>/<key>`, one namespace per bucket as on
 Cirun. `restore-keys` match by prefix within the same version, newest
@@ -128,13 +130,17 @@ are the ceiling of what a runner can do.
 - **Containers.** Steps in a `container:` job inherit `https_proxy` but not
   the host's trust store; `NODE_EXTRA_CA_CERTS` points at a host path. Run
   cache steps on the host.
-- **Verified on a real runner.** A real `actions/runner` in a container
-  built as the boot script builds a machine ran a real GitHub job whose
-  `actions/cache` steps saved, restored (exact and by prefix) and missed
-  through the proxy, with live logs relayed over the intercepted
-  websocket. The bucket and credential calls run against moto. What has
-  not run is an EC2 instance itself. On a machine, the Events page and
-  `/var/log/airship-cacheproxy.log` show what happened.
+- **Verified on a real runner.** The rendered Linux boot script, run
+  unmodified in an Ubuntu container, fetched the proxy and its grant,
+  trusted its CA and started a real `actions/runner`, which ran a real
+  GitHub job whose `actions/cache` steps saved 90 MB (multipart),
+  restored it (exact and by prefix, checksums matching) and missed
+  through the proxy into an S3 emulator, with live logs relayed over the
+  intercepted websocket. The bucket and credential calls, and the store's
+  own S3 calls (single and multipart puts, ranged gets, listing), run
+  against moto in tests. What has not run is an EC2 instance itself. On a
+  machine, the Events page and `/var/log/airship-cacheproxy.log` show what
+  happened.
 - **BYO bucket.** For runners outside this setup, Cirun's
   `cirunlabs/cache/s3` action works against any S3-compatible bucket with
   static keys from repository secrets.

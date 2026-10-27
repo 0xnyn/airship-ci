@@ -174,6 +174,7 @@ type Runner struct {
 	ProvisionedAt        *time.Time
 	CacheTokenHash       []byte
 	CacheBucket          *string
+	ReservedAt           *time.Time
 }
 
 type Session struct {

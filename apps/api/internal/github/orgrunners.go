@@ -91,22 +91,29 @@ func (c *Client) EnsureRunnerGroup(ctx context.Context, org, name string, repoID
 	if repoIDs == nil {
 		repoIDs = []int64{}
 	}
-	var listed struct {
-		Groups []RunnerGroup `json:"runner_groups"`
-	}
-	if err := c.do(ctx, http.MethodGet, runnerGroupsPath(org)+"?per_page=100", nil, &listed); err != nil {
-		return 0, err
-	}
-	for _, group := range listed.Groups {
-		if group.Name != name {
-			continue
+	const perPage = 100
+	for page := 1; ; page++ {
+		var listed struct {
+			Groups []RunnerGroup `json:"runner_groups"`
 		}
-		body := map[string]any{"selected_repository_ids": repoIDs}
-		if err := c.do(ctx, http.MethodPut, runnerGroupsPath(org)+"/"+strconv.FormatInt(group.ID, 10)+"/repositories", body, nil); err != nil {
+		query := "?per_page=" + strconv.Itoa(perPage) + "&page=" + strconv.Itoa(page)
+		if err := c.do(ctx, http.MethodGet, runnerGroupsPath(org)+query, nil, &listed); err != nil {
 			return 0, err
 		}
+		for _, group := range listed.Groups {
+			if group.Name != name {
+				continue
+			}
+			body := map[string]any{"selected_repository_ids": repoIDs}
+			if err := c.do(ctx, http.MethodPut, runnerGroupsPath(org)+"/"+strconv.FormatInt(group.ID, 10)+"/repositories", body, nil); err != nil {
+				return 0, err
+			}
 
-		return group.ID, nil
+			return group.ID, nil
+		}
+		if len(listed.Groups) < perPage {
+			break
+		}
 	}
 	var created RunnerGroup
 	body := map[string]any{

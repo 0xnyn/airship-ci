@@ -106,19 +106,28 @@ func (s *Service) expireLeases(ctx context.Context) error {
 	return nil
 }
 
-// reapIdle removes launched runners that never got a job. The runner is
-// deleted from GitHub first, so GitHub cannot hand it a job while its
-// machine is being torn down; a runner GitHub says is busy is kept.
+// reapIdle removes launched runners that never got a job, and retires
+// idle pool runners halfway through their maximum lifetime, so a job they
+// take still has the other half before the machine's own deadline. The
+// runner is deleted from GitHub first, so GitHub cannot hand it a job
+// while its machine is being torn down; a runner GitHub says is busy is
+// kept.
 func (s *Service) reapIdle(ctx context.Context) error {
+	now := time.Now()
 	idle, err := s.q.ListIdleRunners(ctx, db.ListIdleRunnersParams{
-		RunningBefore: time.Now().Add(-s.cfg.IdleTimeout),
-		MaxResults:    reconcileBatch,
+		RunningBefore:     now.Add(-s.cfg.IdleTimeout),
+		PoolRunningBefore: now.Add(-s.poolMaxAge()),
+		MaxResults:        reconcileBatch,
 	})
 	if err != nil {
 		return fmt.Errorf("list idle runners: %w", err)
 	}
 	for _, runner := range idle {
-		if err := s.reapIdleRunner(ctx, runner); err != nil {
+		reason := ReasonIdle
+		if runner.PoolID != nil && runner.TriggerJobID == nil {
+			reason = ReasonMaxLifetime
+		}
+		if err := s.reapIdleRunner(ctx, runner, reason); err != nil {
 			s.log.WarnContext(ctx, "reap idle runner", slog.String("runner", runner.ID.String()), slog.Any("error", err))
 		}
 	}
@@ -126,10 +135,17 @@ func (s *Service) reapIdle(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) reapIdleRunner(ctx context.Context, runner db.Runner) error {
+// poolMaxAge is how long an idle pool runner is kept before it is replaced.
+func (s *Service) poolMaxAge() time.Duration {
+	return s.cfg.MaxLifetime / 2
+}
+
+// reapIdleRunner removes a runner that is waiting for a job from GitHub
+// and finishes it with reason, unless GitHub reports it busy.
+func (s *Service) reapIdleRunner(ctx context.Context, runner db.Runner, reason string) error {
 	finish := func() error {
 		finished, err := s.q.FinishRunner(ctx, db.FinishRunnerParams{
-			ID: runner.ID, Reason: ReasonIdle, Deregistered: true, FromStates: []string{StateRunning},
+			ID: runner.ID, Reason: reason, Deregistered: true, FromStates: []string{StateRunning},
 		})
 		if isNoRows(err) {
 			return nil
@@ -297,9 +313,30 @@ func (s *Service) refreshJob(ctx context.Context, job db.Job) error {
 		}
 	}
 
-	// The job was already matched to a profile, so the repository passed
-	// the visibility check then; reuse that verdict.
+	// Whether the repository is public comes from the repositories table,
+	// which the repository webhook keeps current; a job planned earlier
+	// reuses its plan anyway.
 	return s.applyJob(ctx, installation, github.Repository{ID: job.RepositoryID, FullName: job.RepositoryFullName, Private: true}, remote, status)
+}
+
+// retrySkippedJobs plans again the queued jobs of an installation (or one
+// of its repositories) that were skipped for reasons that no longer hold:
+// a cloud was connected, a repository activated, the installation
+// unsuspended. GitHub is asked about each first, in case it has moved on.
+func (s *Service) retrySkippedJobs(ctx context.Context, installationID int64, repositoryID *int64, reasons ...string) {
+	jobs, err := s.q.ListSkippedQueuedJobs(ctx, db.ListSkippedQueuedJobsParams{
+		InstallationID: installationID, RepositoryID: repositoryID, Reasons: reasons, MaxResults: reconcileBatch,
+	})
+	if err != nil {
+		s.log.WarnContext(ctx, "list skipped jobs", slog.Int64("installation", installationID), slog.Any("error", err))
+
+		return
+	}
+	for _, job := range jobs {
+		if err := s.refreshJob(ctx, job); err != nil {
+			s.log.WarnContext(ctx, "retry skipped job", slog.Int64("job", job.ID), slog.Any("error", err))
+		}
+	}
 }
 
 func (s *Service) expireSessions(ctx context.Context) error {

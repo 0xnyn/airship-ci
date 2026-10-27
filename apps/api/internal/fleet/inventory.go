@@ -51,7 +51,7 @@ func (s *Service) scanScope(ctx context.Context, credentialID uuid.UUID, region 
 	if err != nil {
 		return err
 	}
-	secret, err := s.secrets.Open(cred.Secret)
+	secret, err := s.secrets.Open(cred.Secret, credentialContext(cred.InstallationID, cred.Cloud))
 	if err != nil {
 		return fmt.Errorf("open credential: %w", err)
 	}
@@ -70,6 +70,13 @@ func (s *Service) scanScope(ctx context.Context, credentialID uuid.UUID, region 
 		id, err := uuid.Parse(instance.RunnerID)
 		if err != nil {
 			terminate = append(terminate, instance) // tagged for us, but not a runner we know
+
+			continue
+		}
+		if instance.Stopped {
+			// A stopped machine runs no jobs and still costs its volume:
+			// its runner is as good as gone, and the machine goes.
+			terminate = append(terminate, instance)
 
 			continue
 		}

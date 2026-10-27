@@ -64,9 +64,11 @@ type CacheBoot struct {
 
 // Grant is short-lived access to one cache prefix in one bucket.
 type Grant struct {
-	Bucket          string
-	Region          string
-	Prefix          string
+	Bucket string
+	Region string
+	Prefix string
+	// AccountID owns the bucket, when the provider knows it.
+	AccountID       string
 	AccessKeyID     string
 	SecretAccessKey string
 	SessionToken    string
@@ -135,6 +137,9 @@ type Instance struct {
 	InstanceID string
 	// Stopping is true once the machine is shutting down.
 	Stopping bool
+	// Stopped is true for a machine someone stopped by hand: it runs no
+	// job and still costs its disk, so it is treated as gone and removed.
+	Stopped bool
 }
 
 // Provider is one cloud. Implementations must only list and terminate

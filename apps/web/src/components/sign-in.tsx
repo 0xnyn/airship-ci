@@ -71,7 +71,13 @@ export function SignIn() {
                 {devSignIn.isPending ? "Signing in…" : "Development sign-in"}
               </Button>
             ) : null}
-            {githubUrl || config.data?.devSignIn ? null : (
+            {config.isError ? (
+              <p className="text-destructive text-xs" role="alert">
+                {errorMessage(config.error, "The API cannot be reached")}. Is
+                the API running?
+              </p>
+            ) : null}
+            {githubUrl || config.data?.devSignIn || config.isError ? null : (
               <p className="text-muted-foreground text-xs">
                 Sign-in is not configured. Set the GitHub App variables on the
                 API, or enable DEV_LOGIN in development.

@@ -53,10 +53,28 @@ type Store interface {
 	List(ctx context.Context, prefix string) ([]Object, error)
 }
 
-// S3Store keeps entries in one bucket.
+// S3Store keeps entries in one bucket. When the bucket's owner is known,
+// every call names it, so a bucket of the same name in another account is
+// refused rather than read from or written to.
 type S3Store struct {
-	client *s3.Client
-	bucket string
+	client  *s3.Client
+	bucket  string
+	account string
+}
+
+// WithOwner sets the account the bucket must belong to.
+func (s *S3Store) WithOwner(account string) *S3Store {
+	s.account = account
+
+	return s
+}
+
+func (s *S3Store) owner() *string {
+	if s.account == "" {
+		return nil
+	}
+
+	return &s.account
 }
 
 const (
@@ -71,7 +89,7 @@ func NewS3Store(client *s3.Client, bucket string) *S3Store {
 
 // Head implements Store.
 func (s *S3Store) Head(ctx context.Context, key string) (int64, error) {
-	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &s.bucket, Key: &key})
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &s.bucket, Key: &key, ExpectedBucketOwner: s.owner()})
 	if isNotFound(err) {
 		return 0, ErrNotFound
 	}
@@ -84,7 +102,7 @@ func (s *S3Store) Head(ctx context.Context, key string) (int64, error) {
 
 // Get implements Store.
 func (s *S3Store) Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, int64, error) {
-	in := &s3.GetObjectInput{Bucket: &s.bucket, Key: &key}
+	in := &s3.GetObjectInput{Bucket: &s.bucket, Key: &key, ExpectedBucketOwner: s.owner()}
 	if offset > 0 || length >= 0 {
 		if length < 0 {
 			in.Range = awssdk.String(fmt.Sprintf("bytes=%d-", offset))
@@ -111,23 +129,26 @@ func (s *S3Store) Get(ctx context.Context, key string, offset, length int64) (io
 
 // Put implements Store. Small objects go in one request; larger ones as
 // a multipart upload with parts sent in parallel, which is what saturates
-// the instance's network. An upload that fails is aborted so no parts are
-// left behind (the bucket's lifecycle rule also sweeps them).
+// the instance's network. A body that can be read at any offset (the
+// staged files) is sent from disk, so a 2 GB entry costs no memory and a
+// part can be retried; any other body is read through a bounded set of
+// buffers. An upload that fails is aborted so no parts are left behind
+// (the bucket's lifecycle rule also sweeps them).
 func (s *S3Store) Put(ctx context.Context, key string, size int64, body io.Reader) error {
 	if size >= 0 && size <= uploadPartSize {
-		if _, err := s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: &s.bucket, Key: &key, Body: body, ContentLength: &size}); err != nil {
+		if _, err := s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: &s.bucket, Key: &key, Body: body, ContentLength: &size, ExpectedBucketOwner: s.owner()}); err != nil {
 			return fmt.Errorf("put %s: %w", key, err)
 		}
 
 		return nil
 	}
-	created, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{Bucket: &s.bucket, Key: &key})
+	created, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{Bucket: &s.bucket, Key: &key, ExpectedBucketOwner: s.owner()})
 	if err != nil {
 		return fmt.Errorf("start upload %s: %w", key, err)
 	}
 	uploadID := created.UploadId
 	abort := func() {
-		_, _ = s.client.AbortMultipartUpload(context.WithoutCancel(ctx), &s3.AbortMultipartUploadInput{Bucket: &s.bucket, Key: &key, UploadId: uploadID})
+		_, _ = s.client.AbortMultipartUpload(context.WithoutCancel(ctx), &s3.AbortMultipartUploadInput{Bucket: &s.bucket, Key: &key, UploadId: uploadID, ExpectedBucketOwner: s.owner()})
 	}
 
 	var (
@@ -136,22 +157,11 @@ func (s *S3Store) Put(ctx context.Context, key string, size int64, body io.Reade
 	)
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(uploadConcurrency)
-	for number := int32(1); ; number++ {
-		buf := make([]byte, uploadPartSize)
-		n, readErr := io.ReadFull(body, buf)
-		if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
-			abort()
-
-			return fmt.Errorf("read upload %s: %w", key, readErr)
-		}
-		if n == 0 && number > 1 {
-			break
-		}
-		chunk := buf[:n]
+	send := func(number int32, part io.Reader, length int64) {
 		group.Go(func() error {
 			out, err := s.client.UploadPart(groupCtx, &s3.UploadPartInput{
 				Bucket: &s.bucket, Key: &key, UploadId: uploadID, PartNumber: awssdk.Int32(number),
-				Body: bytes.NewReader(chunk), ContentLength: awssdk.Int64(int64(len(chunk))),
+				Body: part, ContentLength: awssdk.Int64(length), ExpectedBucketOwner: s.owner(),
 			})
 			if err != nil {
 				return fmt.Errorf("upload part %d: %w", number, err)
@@ -162,8 +172,48 @@ func (s *S3Store) Put(ctx context.Context, key string, size int64, body io.Reade
 
 			return nil
 		})
-		if n < uploadPartSize {
-			break
+	}
+	if at, seekable := body.(io.ReaderAt); seekable && size >= 0 {
+		for number, offset := int32(1), int64(0); offset < size; number, offset = number+1, offset+uploadPartSize {
+			length := min(int64(uploadPartSize), size-offset)
+			send(number, io.NewSectionReader(at, offset, length), length)
+		}
+	} else {
+		// One buffer per part in flight, handed back when the part is sent.
+		buffers := make(chan []byte, uploadConcurrency)
+		for range uploadConcurrency {
+			buffers <- make([]byte, uploadPartSize)
+		}
+		for number := int32(1); ; number++ {
+			buf := <-buffers
+			n, readErr := io.ReadFull(body, buf)
+			if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
+				abort()
+
+				return fmt.Errorf("read upload %s: %w", key, readErr)
+			}
+			if n == 0 && number > 1 {
+				break
+			}
+			chunk := buf[:n]
+			group.Go(func() error {
+				defer func() { buffers <- buf }()
+				out, err := s.client.UploadPart(groupCtx, &s3.UploadPartInput{
+					Bucket: &s.bucket, Key: &key, UploadId: uploadID, PartNumber: awssdk.Int32(number),
+					Body: bytes.NewReader(chunk), ContentLength: awssdk.Int64(int64(len(chunk))), ExpectedBucketOwner: s.owner(),
+				})
+				if err != nil {
+					return fmt.Errorf("upload part %d: %w", number, err)
+				}
+				mu.Lock()
+				parts = append(parts, s3types.CompletedPart{ETag: out.ETag, PartNumber: awssdk.Int32(number)})
+				mu.Unlock()
+
+				return nil
+			})
+			if n < uploadPartSize {
+				break
+			}
 		}
 	}
 	if err := group.Wait(); err != nil {
@@ -173,7 +223,7 @@ func (s *S3Store) Put(ctx context.Context, key string, size int64, body io.Reade
 	}
 	sort.Slice(parts, func(i, j int) bool { return awssdk.ToInt32(parts[i].PartNumber) < awssdk.ToInt32(parts[j].PartNumber) })
 	_, err = s.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
-		Bucket: &s.bucket, Key: &key, UploadId: uploadID,
+		Bucket: &s.bucket, Key: &key, UploadId: uploadID, ExpectedBucketOwner: s.owner(),
 		MultipartUpload: &s3types.CompletedMultipartUpload{Parts: parts},
 	})
 	if err != nil {
@@ -188,7 +238,7 @@ func (s *S3Store) Put(ctx context.Context, key string, size int64, body io.Reade
 // List implements Store.
 func (s *S3Store) List(ctx context.Context, prefix string) ([]Object, error) {
 	var out []Object
-	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{Bucket: &s.bucket, Prefix: &prefix})
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{Bucket: &s.bucket, Prefix: &prefix, ExpectedBucketOwner: s.owner()})
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {

@@ -104,8 +104,11 @@ type Querier interface {
 	ListCloudCredentials(ctx context.Context, installationID int64) ([]CloudCredential, error)
 	ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error)
 	ListIdlePools(ctx context.Context) ([]IdlePool, error)
-	// Launched runners that never got a job. Warm-pool runners waiting for one
-	// are idle on purpose; their pool decides when they go.
+	// Launched runners that never got a job. A pool runner reserved for a job
+	// has waited since the reservation, not since its launch. Pool runners
+	// waiting for a job are idle on purpose and their pool decides when they
+	// go, except that one older than pool_running_before is retired before
+	// its machine's own deadline could cut a job short.
 	ListIdleRunners(ctx context.Context, arg ListIdleRunnersParams) ([]Runner, error)
 	ListInstallationIdlePools(ctx context.Context, installationID int64) ([]IdlePool, error)
 	ListInstallationMembers(ctx context.Context, installationID int64) ([]ListInstallationMembersRow, error)
@@ -126,6 +129,9 @@ type Querier interface {
 	// Finished runners whose instance may still be running: never asked to
 	// terminate, or asked a while ago and still listed.
 	ListRunnersToTerminate(ctx context.Context, arg ListRunnersToTerminateParams) ([]Runner, error)
+	// Queued jobs that were skipped for a reason that no longer holds, such
+	// as a cloud that has since been connected, so they can be planned again.
+	ListSkippedQueuedJobs(ctx context.Context, arg ListSkippedQueuedJobsParams) ([]Job, error)
 	// Organizations whose .cirun.global.yml should be read again for idle
 	// runners: pushed to, or not read for a while.
 	ListStaleOrganizationConfigs(ctx context.Context, arg ListStaleOrganizationConfigsParams) ([]Installation, error)

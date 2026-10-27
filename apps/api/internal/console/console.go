@@ -60,7 +60,7 @@ type Fleet interface {
 	OrganizationConfig(ctx context.Context, installation db.Installation) (fleet.OrganizationConfig, error)
 	ConnectCloud(ctx context.Context, installationID int64, cloud string, secret []byte, defaultRegion string, by *uuid.UUID) (db.CloudCredential, error)
 	DisconnectCloud(ctx context.Context, installationID int64, cloud string) error
-	ProvisionScript(ctx context.Context, sealed []byte) (string, error)
+	ProvisionScript(ctx context.Context, runnerID uuid.UUID, sealed []byte) (string, error)
 	ReadAccessControl(ctx context.Context, installation db.Installation) (fleet.AccessControl, error)
 	UpdateAccessControl(ctx context.Context, installation db.Installation, changes []runnerconfig.AccessChange) (fleet.AccessControlUpdate, error)
 }
@@ -139,6 +139,11 @@ func (h *handlers) org(ctx context.Context, login string, admin bool) (db.Instal
 	}
 	if admin && row.Role != "admin" {
 		return db.Installation{}, huma.Error403Forbidden("only organization owners can change settings")
+	}
+	if admin && row.Installation.SuspendedAt != nil {
+		// Nothing can run while GitHub has the app suspended, as the
+		// developer API already says; reads stay open so the state shows.
+		return db.Installation{}, huma.Error409Conflict("the GitHub App installation is suspended; unsuspend it on GitHub first")
 	}
 
 	return row.Installation, nil

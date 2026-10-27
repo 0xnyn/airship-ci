@@ -695,8 +695,8 @@ export interface components {
             sha: string | null;
         };
         ConfigValidation: {
-            /** @description The first problem found */
-            problem: components["schemas"]["ConfigProblem"];
+            /** @description The first problem found; absent when valid */
+            problem?: components["schemas"]["ConfigProblem"];
             /** @description Runner definitions in the file */
             runners: components["schemas"]["ConfigRunner"][] | null;
             /** @description Whether the file can be used */
@@ -849,6 +849,7 @@ export interface components {
         };
         Grant: {
             accessKeyId: string;
+            accountId?: string;
             bucket: string;
             cloud: string;
             /** Format: date-time */
@@ -1105,8 +1106,8 @@ export interface components {
             activatedAt: string | null;
             /** @description Serve jobs while the repository is public */
             allowPublic: boolean;
-            /** @description The default branch's .cirun.yml as last read */
-            config: components["schemas"]["ConfigState"];
+            /** @description The default branch's .cirun.yml as last read; absent until activated */
+            config?: components["schemas"]["ConfigState"];
             /** @description Branch idle runner config is read from */
             defaultBranch: string;
             /** @description owner/name */

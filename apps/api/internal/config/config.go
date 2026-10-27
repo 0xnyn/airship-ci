@@ -117,9 +117,16 @@ func (c Config) validate() error {
 	if !c.IsDevelopment() && !strings.HasPrefix(c.PublicURL, "https://") {
 		return errors.New("load config: PUBLIC_URL must be https outside development")
 	}
+	if !c.IsDevelopment() && strings.Contains(c.CredentialsKey, exampleCredentialsKey) {
+		return errors.New("load config: CREDENTIALS_KEY is the key from .env.example; generate one with: openssl rand -base64 32")
+	}
 
 	return nil
 }
+
+// exampleCredentialsKey is the key .env.example ships for local
+// development. It is public, so it must never seal real credentials.
+const exampleCredentialsKey = "LwPTIJ8fQ2YUuXCSPYH/h/esBGBJ5udmiu5NaCngjaQ=" //nolint:gosec // the public key from .env.example, listed so it is refused
 
 // IsDevelopment reports whether the api runs on a developer machine.
 func (c Config) IsDevelopment() bool {

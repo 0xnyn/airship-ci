@@ -12,9 +12,9 @@ import { Skeleton } from "@airship/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
-
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
+import { ErrorRow } from "./data-table";
 
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
@@ -35,11 +35,18 @@ export function SettingsPage() {
         description="Limits that apply to every repository in the organization."
         title="Settings"
       />
+      {settings.isError ? (
+        <ErrorRow error={settings.error} fallback="Could not load settings" />
+      ) : null}
+      {settings.isPending ? <Skeleton className="h-24" /> : null}
       {settings.data ? (
-        <MaxRunners initial={settings.data.maxRunners} />
-      ) : (
-        <Skeleton className="h-24" />
-      )}
+        // Keyed on the stored value, so a change saved elsewhere resets
+        // the form instead of leaving a stale number ready to save back.
+        <MaxRunners
+          initial={settings.data.maxRunners}
+          key={settings.data.maxRunners}
+        />
+      ) : null}
     </>
   );
 }

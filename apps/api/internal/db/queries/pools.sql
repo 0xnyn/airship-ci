@@ -74,7 +74,7 @@ limit sqlc.arg(max_results);
 -- Points an idle pool runner at a queued job, so the job is not given an
 -- on-demand runner too and the pool replaces the one it will take.
 update runners
-set trigger_job_id = sqlc.arg(job_id)
+set trigger_job_id = sqlc.arg(job_id), reserved_at = now()
 where id = (
     select candidates.id from runners as candidates
     where candidates.pool_id = sqlc.arg(pool_id)
@@ -89,7 +89,7 @@ returning *;
 -- name: ReturnPoolRunners :execrows
 -- GitHub gave the job a different runner, so pool runners reserved for it
 -- go back to waiting in their pool.
-update runners set trigger_job_id = null
+update runners set trigger_job_id = null, reserved_at = null
 where trigger_job_id = sqlc.arg(job_id) and pool_id is not null
     and state in ('pending', 'launching', 'running')
     and id <> sqlc.arg(except_id);

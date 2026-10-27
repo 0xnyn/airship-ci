@@ -13,9 +13,10 @@ import {
 import { type PointerEvent, useId, useState } from "react";
 
 import { $api } from "@/lib/api";
+import { formatUTCDay, utcDayKey } from "@/lib/day-format";
 import { formatDuration, formatInteger } from "@/lib/format";
 
-import { EmptyRow, FilterTabs } from "./data-table";
+import { EmptyRow, ErrorRow, FilterTabs } from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 
@@ -49,6 +50,9 @@ export function AnalyticsPage() {
         value={window}
       />
       {analytics.isPending ? <Skeleton className="h-64" /> : null}
+      {analytics.isError ? (
+        <ErrorRow error={analytics.error} fallback="Could not load analytics" />
+      ) : null}
       {analytics.data ? (
         <Report days={Number(window)} report={analytics.data} />
       ) : null}
@@ -63,14 +67,14 @@ type Day = Schemas["DailyUsage"] & { otherJobs: number };
  * missing columns. */
 function fillDays(daily: Schemas["DailyUsage"][], days: number): Day[] {
   const byDay = new Map(
-    daily.map((row) => [new Date(row.day).toISOString().slice(0, 10), row])
+    daily.map((row) => [utcDayKey(new Date(row.day)), row])
   );
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const out: Day[] = [];
   for (let offset = days - 1; offset >= 0; offset -= 1) {
     const date = new Date(today.getTime() - offset * DAY_MS);
-    const key = date.toISOString().slice(0, 10);
+    const key = utcDayKey(date);
     const row = byDay.get(key);
     out.push({
       airshipJobs: row?.airshipJobs ?? 0,
@@ -185,10 +189,7 @@ const PAD_BOTTOM = 20;
 const GAP = 2;
 const RADIUS = 2;
 const TICKS = 3;
-const dayFormat = new Intl.DateTimeFormat(undefined, {
-  day: "numeric",
-  month: "short",
-});
+const dayFormat = { format: (date: Date) => formatUTCDay(date.toISOString()) };
 
 // Two series at most: a saturated step and a light step of the same hue,
 // stacked with a 2px surface gap so the split reads without color.

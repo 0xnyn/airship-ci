@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"math/big"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -221,10 +223,15 @@ func (p *Provider) List(ctx context.Context, raw []byte, region string, installa
 		}
 		for _, reservation := range page.Reservations {
 			for _, instance := range reservation.Instances {
+				state := ec2types.InstanceStateNamePending
+				if instance.State != nil {
+					state = instance.State.Name
+				}
 				out = append(out, cloud.Instance{
 					RunnerID:   tagValue(instance.Tags, TagRunner),
 					InstanceID: awssdk.ToString(instance.InstanceId),
-					Stopping:   instance.State != nil && instance.State.Name == ec2types.InstanceStateNameShuttingDown,
+					Stopping:   state == ec2types.InstanceStateNameShuttingDown,
+					Stopped:    state == ec2types.InstanceStateNameStopping || state == ec2types.InstanceStateNameStopped,
 				})
 			}
 		}
@@ -486,20 +493,44 @@ func isCapacityError(err error) bool {
 }
 
 // classify marks errors worth retrying with a fresh runner on the same
-// machine shape. Everything else moves the job on to its next fallback.
+// machine shape: capacity, limits, throttling, and failures to reach EC2
+// at all (a timeout or a connection error says nothing about the
+// machine). Everything EC2 itself refused moves the job on to its next
+// fallback.
 func classify(err error) error {
 	var launchErr *cloud.LaunchError
 	if errors.As(err, &launchErr) {
 		return err
 	}
+	if isTransportError(err) {
+		return &cloud.LaunchError{Err: err, Retryable: true}
+	}
 	switch errorCode(err) {
 	case "InsufficientInstanceCapacity", "InstanceLimitExceeded", "RequestLimitExceeded", "Unavailable",
-		"InternalError", "ServiceUnavailable", "Throttling", "MaxSpotInstanceCountExceeded",
+		"InternalError", "InternalFailure", "ServiceUnavailable", "Throttling", "ThrottlingException",
+		"RequestExpired", "RequestTimeout", "MaxSpotInstanceCountExceeded",
 		"SpotMaxPriceTooLow", "InsufficientFreeAddressesInSubnet", "VcpuLimitExceeded":
 		return &cloud.LaunchError{Err: err, Retryable: true}
 	}
 
 	return &cloud.LaunchError{Err: err}
+}
+
+// isTransportError reports an SDK call that never got an answer from
+// EC2: a timeout, a connection failure, or a context that ended. The
+// provider's own checks (an image that does not exist, no default VPC)
+// are not SDK calls and stay permanent.
+func isTransportError(err error) bool {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return false
+	}
+	var opErr *smithy.OperationError
+	var netErr net.Error
+
+	return errors.As(err, &opErr) || errors.As(err, &netErr) ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func (p *Provider) cacheGetImage(key string) (resolvedImage, bool) {

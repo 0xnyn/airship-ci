@@ -69,9 +69,11 @@ func (s *Service) RefreshOrganizationConfig(ctx context.Context, installation db
 		s.record(ctx, installation.ID, "config.invalid", levelError, installation.AccountLogin+"/"+runnerconfig.GlobalRepo+": "+org.problem,
 			eventFields{repository: installation.AccountLogin + "/" + runnerconfig.GlobalRepo})
 	}
-	if org.problem != "" && org.sha == "" {
-		// Unreadable: keep the pools it had, as a repository would.
-		return s.wrap("save organization config status", s.q.SetOrganizationConfig(ctx, db.SetOrganizationConfigParams{ID: installation.ID, Error: nilIfEmpty(org.problem)}))
+	if org.problem != "" {
+		// Unreadable or broken: keep the pools it had, as a repository
+		// does, so a typo does not drop warm capacity. Jobs see the problem
+		// through the config cache either way.
+		return s.wrap("save organization config status", s.q.SetOrganizationConfig(ctx, db.SetOrganizationConfigParams{ID: installation.ID, Sha: nilIfEmpty(org.sha), Error: nilIfEmpty(org.problem)}))
 	}
 
 	repos, err := s.q.ListRepositories(ctx, installation.ID)

@@ -78,6 +78,17 @@ where stale.rank <= sqlc.arg(per_installation)::bigint
 order by stale.rank, jobs.updated_at
 limit sqlc.arg(max_results);
 
+-- name: ListSkippedQueuedJobs :many
+-- Queued jobs that were skipped for a reason that no longer holds, such
+-- as a cloud that has since been connected, so they can be planned again.
+select * from jobs
+where installation_id = sqlc.arg(installation_id)
+    and (sqlc.narg(repository_id)::bigint is null or repository_id = sqlc.narg(repository_id)::bigint)
+    and status = 'queued' and plan is null
+    and skip_reason = any(sqlc.arg(reasons)::text[])
+order by queued_at
+limit sqlc.arg(max_results);
+
 -- name: TouchJob :exec
 update jobs set updated_at = now() where id = $1;
 
@@ -122,7 +133,7 @@ select id from jobs where id = $1 for update;
 -- Per-day totals for the analytics page: jobs seen, jobs run on Airship,
 -- failures, and minutes of runner time.
 select
-    date_trunc('day', queued_at)::timestamptz as day,
+    date_trunc('day', queued_at, 'UTC')::timestamptz as day,
     count(*)::bigint as jobs,
     count(*) filter (where runner_id is not null)::bigint as airship_jobs,
     count(*) filter (where conclusion = 'failure')::bigint as failed,

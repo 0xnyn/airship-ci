@@ -189,11 +189,16 @@ where state = 'launching' and lease_expires_at < now()
 returning *;
 
 -- name: ListIdleRunners :many
--- Launched runners that never got a job. Warm-pool runners waiting for one
--- are idle on purpose; their pool decides when they go.
+-- Launched runners that never got a job. A pool runner reserved for a job
+-- has waited since the reservation, not since its launch. Pool runners
+-- waiting for a job are idle on purpose and their pool decides when they
+-- go, except that one older than pool_running_before is retired before
+-- its machine's own deadline could cut a job short.
 select * from runners
-where state = 'running' and running_at < sqlc.arg(running_before)::timestamptz
-    and (pool_id is null or trigger_job_id is not null)
+where state = 'running'
+    and ((pool_id is null and running_at < sqlc.arg(running_before)::timestamptz)
+        or (trigger_job_id is not null and coalesce(reserved_at, running_at) < sqlc.arg(running_before)::timestamptz)
+        or (pool_id is not null and trigger_job_id is null and running_at < sqlc.arg(pool_running_before)::timestamptz))
 order by running_at
 limit sqlc.arg(max_results);
 

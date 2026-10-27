@@ -3,6 +3,16 @@ import { createApiHooks } from "@airship/client/react";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { ENV } from "@/env";
+import { isLocalApiUrl } from "./api-url";
+
+// NEXT_PUBLIC_API_URL is inlined at build time and defaults to the local
+// API, so a production build that forgot to set it would ship a dashboard
+// calling localhost from every visitor's browser. Fail the build instead.
+if (ENV.NODE_ENV === "production" && isLocalApiUrl(ENV.NEXT_PUBLIC_API_URL)) {
+  throw new Error(
+    "NEXT_PUBLIC_API_URL points at localhost in a production build; set it to the API's public URL"
+  );
+}
 
 /**
  * Typed fetch client for the Go API. The session lives in an HttpOnly

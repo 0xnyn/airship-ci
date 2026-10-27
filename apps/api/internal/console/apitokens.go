@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -201,9 +202,11 @@ func accessControlError(err error) error {
 	case github.StatusOf(err) == http.StatusNotFound:
 		return huma.Error404NotFound("the organization has no .cirun repository, or the app is not installed on it")
 	case github.StatusOf(err) == http.StatusForbidden:
-		return huma.Error502BadGateway("GitHub refused to write to the .cirun repository: the app needs Contents and Pull requests write permission on it", err)
+		return huma.Error502BadGateway("GitHub refused to write to the .cirun repository: the app needs Contents and Pull requests write permission on it")
 	case github.StatusOf(err) != 0:
-		return huma.Error502BadGateway("GitHub refused the request", err)
+		slog.Warn("access control change refused by github", slog.Any("error", err))
+
+		return huma.Error502BadGateway("GitHub refused the request; try again in a moment")
 	default:
 		return fmt.Errorf("access control: %w", err)
 	}
@@ -279,7 +282,7 @@ func (h *handlers) runnerProvision(ctx context.Context, in *runnerProvisionInput
 	if err != nil {
 		return nil, fmt.Errorf("mark provisioned: %w", err)
 	}
-	script, err := h.Fleet.ProvisionScript(ctx, runner.BootSecret)
+	script, err := h.Fleet.ProvisionScript(ctx, runner.ID, runner.BootSecret)
 	if errors.Is(err, fleet.ErrNotProvisionable) {
 		return nil, huma.Error404NotFound(err.Error())
 	}

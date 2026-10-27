@@ -7,11 +7,10 @@ import { cn } from "@airship/ui/lib/utils";
 import { Check } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
-
 import { $api } from "@/lib/api";
 import { formatDuration, formatInteger } from "@/lib/format";
-
 import { CodeBlock } from "./copy-button";
+import { ErrorRow } from "./data-table";
 import { EventRow } from "./events";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
@@ -44,7 +43,14 @@ export function Overview() {
       {clouds.isSuccess && repos.isSuccess && !ready ? (
         <GettingStarted clouds={cloudItems} repositories={activated} />
       ) : null}
-      {overview.data ? <Stats overview={overview.data} /> : <StatsSkeleton />}
+      {overview.isError ? (
+        <ErrorRow
+          error={overview.error}
+          fallback="Could not load the overview"
+        />
+      ) : null}
+      {overview.data ? <Stats overview={overview.data} /> : null}
+      {overview.isPending ? <StatsSkeleton /> : null}
       <div className="grid gap-8 lg:grid-cols-2">
         <RecentJobs />
         <RecentEvents />
@@ -276,6 +282,9 @@ function RecentJobs() {
         </Link>
       </div>
       {jobs.isPending ? <Skeleton className="h-40" /> : null}
+      {jobs.isError ? (
+        <ErrorRow error={jobs.error} fallback="Could not load jobs" />
+      ) : null}
       {jobs.isSuccess && items.length === 0 ? (
         <p className="border border-dashed p-6 text-center text-muted-foreground text-xs">
           No jobs yet. Push to an activated repository to see them here.
@@ -338,6 +347,9 @@ function RecentEvents() {
         </Link>
       </div>
       {events.isPending ? <Skeleton className="h-40" /> : null}
+      {events.isError ? (
+        <ErrorRow error={events.error} fallback="Could not load events" />
+      ) : null}
       {events.isSuccess && items.length === 0 ? (
         <p className="border border-dashed p-6 text-center text-muted-foreground text-xs">
           Nothing has happened yet.

@@ -63,7 +63,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		store = cacheproxy.NewS3Store(cacheproxy.NewS3Client(grants, grant.Region, *s3Endpoint), grant.Bucket)
+		store = cacheproxy.NewS3Store(cacheproxy.NewS3Client(grants, grant.Region, *s3Endpoint), grant.Bucket).WithOwner(grant.AccountID)
 		prefix = grant.Prefix
 		logger.Info("cache grant", slog.String("bucket", grant.Bucket), slog.String("region", grant.Region), slog.String("prefix", grant.Prefix))
 	}

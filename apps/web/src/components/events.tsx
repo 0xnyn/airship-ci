@@ -6,7 +6,13 @@ import { useState } from "react";
 
 import { $api } from "@/lib/api";
 
-import { EmptyRow, FilterTabs, LoadMore, TableSkeleton } from "./data-table";
+import {
+  EmptyRow,
+  ErrorRow,
+  FilterTabs,
+  LoadMore,
+  TableSkeleton,
+} from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { RelativeTime } from "./time";
@@ -54,6 +60,9 @@ export function Events() {
         value={level}
       />
       {events.isPending ? <TableSkeleton /> : null}
+      {events.isError ? (
+        <ErrorRow error={events.error} fallback="Could not load events" />
+      ) : null}
       {events.isSuccess && items.length === 0 ? (
         <EmptyRow>
           {level === "all"

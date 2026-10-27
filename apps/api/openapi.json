@@ -473,7 +473,7 @@
         "properties": {
           "problem": {
             "$ref": "#/components/schemas/ConfigProblem",
-            "description": "The first problem found"
+            "description": "The first problem found; absent when valid"
           },
           "runners": {
             "description": "Runner definitions in the file",
@@ -492,7 +492,6 @@
         },
         "required": [
           "valid",
-          "problem",
           "runners"
         ],
         "type": "object"
@@ -824,6 +823,9 @@
         "additionalProperties": false,
         "properties": {
           "accessKeyId": {
+            "type": "string"
+          },
+          "accountId": {
             "type": "string"
           },
           "bucket": {
@@ -1468,7 +1470,7 @@
           },
           "config": {
             "$ref": "#/components/schemas/ConfigState",
-            "description": "The default branch's .cirun.yml as last read"
+            "description": "The default branch's .cirun.yml as last read; absent until activated"
           },
           "defaultBranch": {
             "description": "Branch idle runner config is read from",
@@ -1496,8 +1498,7 @@
           "accessible",
           "activated",
           "allowPublic",
-          "activatedAt",
-          "config"
+          "activatedAt"
         ],
         "type": "object"
       },

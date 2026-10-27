@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// maxSkipDetail is the jobs.skip_detail column's limit.
+const maxSkipDetail = 2000
 
 // jobStatus maps a workflow_job action or REST status to the job states
 // Airship tracks. ok is false for states Airship ignores, such as "waiting"
@@ -90,7 +94,7 @@ func (s *Service) applyJob(ctx context.Context, installation db.Installation, re
 			Conclusion:         job.Conclusion,
 			Plan:               rawPlan,
 			SkipReason:         nilIfEmpty(why.reason),
-			SkipDetail:         nilIfEmpty(why.detail),
+			SkipDetail:         nilIfEmpty(truncate(why.detail, maxSkipDetail)),
 			RunnerName:         job.RunnerName,
 			QueuedAt:           job.CreatedAt,
 			StartedAt:          job.StartedAt,
@@ -179,6 +183,11 @@ func dbJobFrom(job github.WorkflowJob) db.Job {
 func (s *Service) serveJob(ctx context.Context, q *db.Queries, job db.Job, plan Plan, maxAttempts int64) (added bool, fromPool bool, err error) {
 	if err := q.LockJob(ctx, job.ID); err != nil {
 		return false, false, fmt.Errorf("lock job: %w", err)
+	}
+	// Creating a runner references a credential; the installation lock is
+	// what disconnecting a cloud takes while it checks nothing does.
+	if _, err := q.LockInstallation(ctx, job.InstallationID); err != nil {
+		return false, false, fmt.Errorf("lock installation: %w", err)
 	}
 	reserved, err := s.reservePoolRunner(ctx, q, job, plan)
 	if err != nil || reserved {
@@ -343,12 +352,34 @@ func (s *Service) HandleInstallation(ctx context.Context, event github.Installat
 
 		return s.wrap("suspend installation", s.q.SetInstallationSuspended(ctx, db.SetInstallationSuspendedParams{ID: event.Installation.ID, SuspendedAt: &now}))
 	case "unsuspend":
-		return s.wrap("unsuspend installation", s.q.SetInstallationSuspended(ctx, db.SetInstallationSuspendedParams{ID: event.Installation.ID}))
+		if err := s.q.SetInstallationSuspended(ctx, db.SetInstallationSuspendedParams{ID: event.Installation.ID}); err != nil {
+			return fmt.Errorf("unsuspend installation: %w", err)
+		}
+		s.retrySkippedJobs(ctx, event.Installation.ID, nil, SkipInstallationSuspended)
+
+		return nil
 	default:
 		_, err := s.SaveInstallation(ctx, event.Installation)
 
 		return err
 	}
+}
+
+// HandleInstallationRepositories deactivates repositories the app lost
+// access to: nothing can be read or registered there any more, and a pool
+// would keep failing to launch for it.
+func (s *Service) HandleInstallationRepositories(ctx context.Context, event github.InstallationRepositoriesEvent) error {
+	if event.Action != "removed" {
+		return nil
+	}
+	for _, repo := range event.RepositoriesRemoved {
+		err := s.DeactivateRepository(ctx, event.Installation.ID, repo.ID)
+		if err != nil && !errors.Is(err, ErrRepositoryNotFound) {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func cmpOr(value, fallback string) string {

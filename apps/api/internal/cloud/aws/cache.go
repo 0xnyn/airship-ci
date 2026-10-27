@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
@@ -43,28 +44,39 @@ func (p *Provider) EnsureCacheBucket(ctx context.Context, raw []byte, region, bu
 	if err != nil {
 		return err
 	}
-	client := p.newClients(secret, region).S3
+	clients := p.newClients(secret, region)
+	client := clients.S3
 	if client == nil {
 		return errors.New("this provider has no S3 client")
 	}
-	if _, err := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucket}); err == nil {
-		return nil
+	// The bucket must be this account's: a bucket of the same name that
+	// another account made readable would otherwise pass as ours.
+	identity, err := clients.STS.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return fmt.Errorf("get account: %w", err)
 	}
-	in := &s3.CreateBucketInput{Bucket: &bucket}
-	if region != "us-east-1" {
-		in.CreateBucketConfiguration = &s3types.CreateBucketConfiguration{LocationConstraint: s3types.BucketLocationConstraint(region)}
-	}
-	if _, err := client.CreateBucket(ctx, in); err != nil {
-		switch errorCode(err) {
-		case "BucketAlreadyOwnedByYou":
-		case "BucketAlreadyExists":
-			return fmt.Errorf("bucket %s is taken by another account", bucket)
-		default:
-			return fmt.Errorf("create bucket %s: %w", bucket, err)
+	owner := identity.Account
+	_, err = client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucket, ExpectedBucketOwner: owner})
+	if err != nil {
+		in := &s3.CreateBucketInput{Bucket: &bucket}
+		if region != "us-east-1" {
+			in.CreateBucketConfiguration = &s3types.CreateBucketConfiguration{LocationConstraint: s3types.BucketLocationConstraint(region)}
+		}
+		if _, err := client.CreateBucket(ctx, in); err != nil {
+			switch errorCode(err) {
+			case "BucketAlreadyOwnedByYou":
+			case "BucketAlreadyExists":
+				return fmt.Errorf("bucket %s is taken by another account", bucket)
+			default:
+				return fmt.Errorf("create bucket %s: %w", bucket, err)
+			}
 		}
 	}
+	// Applied on every check, so a bucket whose settings failed to apply
+	// when it was created (a throttled call, a permission added later) is
+	// put right rather than accepted as it is.
 	_, err = client.PutPublicAccessBlock(ctx, &s3.PutPublicAccessBlockInput{
-		Bucket: &bucket,
+		Bucket: &bucket, ExpectedBucketOwner: owner,
 		PublicAccessBlockConfiguration: &s3types.PublicAccessBlockConfiguration{
 			BlockPublicAcls: awssdk.Bool(true), BlockPublicPolicy: awssdk.Bool(true),
 			IgnorePublicAcls: awssdk.Bool(true), RestrictPublicBuckets: awssdk.Bool(true),
@@ -74,7 +86,7 @@ func (p *Provider) EnsureCacheBucket(ctx context.Context, raw []byte, region, bu
 		return fmt.Errorf("block public access on %s: %w", bucket, err)
 	}
 	_, err = client.PutBucketLifecycleConfiguration(ctx, &s3.PutBucketLifecycleConfigurationInput{
-		Bucket: &bucket,
+		Bucket: &bucket, ExpectedBucketOwner: owner,
 		LifecycleConfiguration: &s3types.BucketLifecycleConfiguration{Rules: []s3types.LifecycleRule{{
 			ID:                             awssdk.String("airship-cache-expiry"),
 			Status:                         s3types.ExpirationStatusEnabled,
@@ -136,9 +148,16 @@ func (p *Provider) CacheGrant(ctx context.Context, raw []byte, region, bucket, p
 		return cloud.Grant{}, fmt.Errorf("get federation token: %w", err)
 	}
 	creds := out.Credentials
+	account := ""
+	if out.FederatedUser != nil {
+		// arn:aws:sts::123456789012:federated-user/name
+		if parts := strings.Split(awssdk.ToString(out.FederatedUser.Arn), ":"); len(parts) > 4 {
+			account = parts[4]
+		}
+	}
 
 	return cloud.Grant{
-		Bucket: bucket, Region: region, Prefix: prefix,
+		Bucket: bucket, Region: region, Prefix: prefix, AccountID: account,
 		AccessKeyID: awssdk.ToString(creds.AccessKeyId), SecretAccessKey: awssdk.ToString(creds.SecretAccessKey),
 		SessionToken: awssdk.ToString(creds.SessionToken), ExpiresAt: awssdk.ToTime(creds.Expiration),
 	}, nil

@@ -18,6 +18,9 @@ type Instance struct {
 	Region   string
 	Launch   cloud.Launch
 	Stopping bool
+	// Stopped marks a machine stopped by hand.
+	Stopped bool
+	seq     int
 }
 
 // Provider is the in-memory cloud.
@@ -34,6 +37,9 @@ type Provider struct {
 	FailList bool
 	// BadSecret is a secret Verify rejects.
 	BadSecret string
+	// AccountID is what Verify reports; tests change it to connect another
+	// account.
+	AccountID string
 	launches  int
 	buckets   []string
 	grants    int
@@ -53,7 +59,12 @@ func (p *Provider) Verify(_ context.Context, secret []byte, _ string) (cloud.Ide
 		return cloud.Identity{}, cloud.ErrBadCredentials
 	}
 
-	return cloud.Identity{AccountID: "123456789012", Principal: "arn:aws:iam::123456789012:user/fake"}, nil
+	account := p.AccountID
+	if account == "" {
+		account = "123456789012"
+	}
+
+	return cloud.Identity{AccountID: account, Principal: "arn:aws:iam::" + account + ":user/fake"}, nil
 }
 
 // List implements cloud.Provider.
@@ -66,7 +77,7 @@ func (p *Provider) List(_ context.Context, _ []byte, region string, installation
 	out := []cloud.Instance{}
 	for _, instance := range p.instances {
 		if instance.Region == region && instance.Launch.InstallationID == installationID {
-			out = append(out, cloud.Instance{RunnerID: instance.Launch.RunnerID, InstanceID: instance.ID, Stopping: instance.Stopping})
+			out = append(out, cloud.Instance{RunnerID: instance.Launch.RunnerID, InstanceID: instance.ID, Stopping: instance.Stopping, Stopped: instance.Stopped})
 		}
 	}
 
@@ -90,9 +101,18 @@ func (p *Provider) Launch(_ context.Context, _ []byte, launch cloud.Launch) (str
 	}
 	p.next++
 	id := fmt.Sprintf("i-fake%d", p.next)
-	p.instances[id] = &Instance{ID: id, Region: launch.Region, Launch: launch}
+	p.instances[id] = &Instance{ID: id, Region: launch.Region, Launch: launch, seq: p.next}
 
 	return id, nil
+}
+
+// Stop marks an instance as stopped by hand, as the EC2 console would.
+func (p *Provider) Stop(instanceID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if instance, ok := p.instances[instanceID]; ok {
+		instance.Stopped = true
+	}
 }
 
 // Terminate implements cloud.Provider.
@@ -114,7 +134,7 @@ func (p *Provider) Instances() []Instance {
 	}
 	for i := range out {
 		for j := i + 1; j < len(out); j++ {
-			if out[j].ID < out[i].ID {
+			if out[j].seq < out[i].seq {
 				out[i], out[j] = out[j], out[i]
 			}
 		}

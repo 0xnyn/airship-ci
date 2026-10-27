@@ -21,7 +21,8 @@ const DefaultImage = "ubuntu2204"
 
 // ubuntuAliases map one-line image tokens to Canonical's AMI name
 // patterns. The storage segment changed between releases, so it is
-// wildcarded.
+// wildcarded. The architecture segment is Debian's name for it (amd64,
+// arm64), not EC2's (x86_64, arm64); see ubuntuArch.
 var ubuntuAliases = map[string]string{
 	"ubuntu2204": "ubuntu/images/hvm-ssd*/ubuntu-jammy-22.04-%s-server-*",
 	"ubuntu2404": "ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-%s-server-*",
@@ -60,7 +61,7 @@ func (p *Provider) resolveImage(ctx context.Context, client EC2, scope string, m
 		out, err := client.DescribeImages(ctx, &ec2.DescribeImagesInput{
 			Owners: []string{canonicalOwner},
 			Filters: []ec2types.Filter{
-				{Name: awssdk.String("name"), Values: []string{fmt.Sprintf(pattern, ec2Arch(m.Arch))}},
+				{Name: awssdk.String("name"), Values: []string{fmt.Sprintf(pattern, ubuntuArch(m.Arch))}},
 				{Name: awssdk.String("state"), Values: []string{"available"}},
 				{Name: awssdk.String("architecture"), Values: []string{string(ec2Arch(m.Arch))}},
 			},
@@ -95,6 +96,15 @@ func (p *Provider) resolveImage(ctx context.Context, client EC2, scope string, m
 	p.cachePutImage(key, image)
 
 	return image, nil
+}
+
+// ubuntuArch is the architecture as Canonical spells it in AMI names.
+func ubuntuArch(arch string) string {
+	if arch == "arm64" {
+		return "arm64"
+	}
+
+	return "amd64"
 }
 
 func ec2Arch(arch string) ec2types.ArchitectureValues {

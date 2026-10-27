@@ -16,7 +16,7 @@ import {
 
 import { $api } from "@/lib/api";
 
-import { EmptyRow, TableSkeleton } from "./data-table";
+import { EmptyRow, ErrorRow, TableSkeleton } from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { RelativeTime } from "./time";
@@ -40,6 +40,9 @@ export function Teams() {
         title="Teams"
       />
       {members.isPending ? <TableSkeleton /> : null}
+      {members.isError ? (
+        <ErrorRow error={members.error} fallback="Could not load members" />
+      ) : null}
       {members.isSuccess && items.length === 0 ? (
         <EmptyRow>Nobody has signed in yet.</EmptyRow>
       ) : null}

@@ -61,6 +61,15 @@ type InstallationEvent struct {
 	Installation Installation `json:"installation"`
 }
 
+// InstallationRepositoriesEvent is the installation_repositories webhook
+// payload: repositories added to or removed from the app's access.
+type InstallationRepositoriesEvent struct {
+	Action              string          `json:"action"`
+	Installation        InstallationRef `json:"installation"`
+	RepositoriesAdded   []Repository    `json:"repositories_added"`
+	RepositoriesRemoved []Repository    `json:"repositories_removed"`
+}
+
 // PushEvent is the push webhook payload, trimmed to what Airship uses.
 type PushEvent struct {
 	Ref          string           `json:"ref"`

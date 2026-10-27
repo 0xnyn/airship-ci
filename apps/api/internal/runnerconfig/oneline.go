@@ -17,10 +17,15 @@ import (
 const oneLineAWS = LabelPrefix + "aws-"
 
 var (
-	// EC2 sizes: nano ... 48xlarge, metal, metal-24xl.
-	sizePattern   = regexp.MustCompile(`^(nano|micro|small|medium|large|xlarge|[0-9]{1,2}xlarge|metal)$`)
+	// EC2 sizes: nano ... 112xlarge, metal, metal-24xl.
+	sizePattern   = regexp.MustCompile(`^(nano|micro|small|medium|large|xlarge|[0-9]{1,3}xlarge|metal)$`)
 	metalSizeTail = regexp.MustCompile(`^[0-9]{1,3}xl$`)
-	familyPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	// EC2 families: letters, a generation number (u-6tb1 puts a dash
+	// before it), optional letters, and an optional dashed suffix such
+	// as c7i-flex, u7i-12tb or mac2-m2. "spot" and the image tokens are
+	// never families, so a label that misplaces them is refused rather
+	// than launched as spot.large.
+	familyPattern = regexp.MustCompile(`^[a-z]{1,8}-?[0-9]{1,2}[a-z0-9]{0,8}(-[a-z0-9]{1,8})?$`)
 )
 
 // OneLine reads a one-line runner from a runs-on label (with or without
@@ -68,6 +73,11 @@ func oneLineEC2(rest string) (Variant, bool) {
 	family := strings.Join(familyTokens, "-")
 	if !familyPattern.MatchString(family) {
 		return Variant{}, false
+	}
+	for _, token := range familyTokens {
+		if token == "spot" || imageAliasPattern.MatchString(token) {
+			return Variant{}, false
+		}
 	}
 	out.InstanceType = family + "." + size
 	out.Arch = ArchForInstanceType(out.InstanceType)

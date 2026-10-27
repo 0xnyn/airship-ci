@@ -3,6 +3,7 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -41,6 +42,30 @@ type Deps struct {
 	AppSlug     string
 	DevLogin    bool
 	CORSOrigins []string
+}
+
+func init() {
+	// Huma's default error puts the offending value into each detail. For
+	// a cloud secret that fails validation that would echo the secret, so
+	// details carry their location and message only.
+	huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
+		details := make([]*huma.ErrorDetail, 0, len(errs))
+		for _, err := range errs {
+			if err == nil {
+				continue
+			}
+			var detailer huma.ErrorDetailer
+			if errors.As(err, &detailer) {
+				detail := detailer.ErrorDetail()
+				details = append(details, &huma.ErrorDetail{Message: detail.Message, Location: detail.Location})
+
+				continue
+			}
+			details = append(details, &huma.ErrorDetail{Message: err.Error()})
+		}
+
+		return &huma.ErrorModel{Status: status, Title: http.StatusText(status), Detail: msg, Errors: details}
+	}
 }
 
 // NewAPI registers every operation on mux and returns the Huma API.

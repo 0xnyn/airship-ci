@@ -350,3 +350,16 @@ func TestSettingsAndMembers(t *testing.T) {
 		t.Fatalf("members = %v", members)
 	}
 }
+
+// While GitHub has the app suspended nothing can run, so the console
+// refuses changes (as the developer API does) and keeps reads open.
+func TestSuspendedInstallationIsReadOnly(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	e.send("installation", map[string]any{"action": "suspend", "installation": map[string]any{"id": 1, "account": map[string]any{"id": 1, "login": "acme", "type": "Organization"}}})
+	e.call(http.MethodGet, "/v1/orgs/acme/settings", nil, http.StatusOK)
+	e.call(http.MethodPatch, "/v1/orgs/acme/settings", map[string]any{"maxRunners": 7}, http.StatusConflict)
+	e.send("installation", map[string]any{"action": "unsuspend", "installation": map[string]any{"id": 1, "account": map[string]any{"id": 1, "login": "acme", "type": "Organization"}}})
+	e.call(http.MethodPatch, "/v1/orgs/acme/settings", map[string]any{"maxRunners": 7}, http.StatusOK)
+}

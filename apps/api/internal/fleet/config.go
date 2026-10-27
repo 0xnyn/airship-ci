@@ -64,7 +64,9 @@ func (s *Service) planFromConfig(ctx context.Context, installation db.Installati
 	if err != nil {
 		return nil, verdict{}, fmt.Errorf("get repository: %w", err)
 	}
-	if !repo.Private && !activated.AllowPublic {
+	// The event says what the repository is now; the stored row is what
+	// the repository webhook last said, and is all a refresh has.
+	if (!repo.Private || !activated.Private) && !activated.AllowPublic {
 		return nil, verdict{reason: SkipPublicRepository, detail: "public repositories must be activated with public access allowed"}, nil
 	}
 	ghRepo, err := github.ParseRepo(repo.FullName)

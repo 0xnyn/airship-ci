@@ -54,7 +54,7 @@ func NewCA() (*CA, error) {
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: "Airship cache proxy (this machine only)"},
 		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
+		NotAfter:              time.Now().Add(certValidity),
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
@@ -216,6 +216,10 @@ func (p *Proxy) connect(w http.ResponseWriter, r *http.Request) {
 	go p.serveIntercepted(tlsConn, host)
 }
 
+// certValidity is how long the machine's certificate authority and the
+// leaves it signs last. It only needs to outlive the longest runner.
+const certValidity = 30 * 24 * time.Hour
+
 // serveIntercepted reads HTTP/1.1 requests off a terminated connection.
 // CacheService calls go to the local cache; the rest to the real host.
 func (p *Proxy) serveIntercepted(conn net.Conn, host string) {
@@ -243,8 +247,18 @@ func (p *Proxy) serveIntercepted(conn net.Conn, host string) {
 		if req.Close || resp.header.Get("Connection") == "close" {
 			return
 		}
+		// A handler that did not read the whole body leaves it on the
+		// connection, where it would be parsed as the next request. Drain a
+		// bounded amount, as net/http does, and close past that.
+		if n, _ := io.CopyN(io.Discard, req.Body, maxBodyDrain); n == maxBodyDrain {
+			return
+		}
 	}
 }
+
+// maxBodyDrain is how much of an unread request body is skipped before the
+// connection is closed instead.
+const maxBodyDrain = 256 << 10
 
 // forward sends a request to its real destination and copies the answer.
 func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, scheme, host string) {

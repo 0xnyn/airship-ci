@@ -9,6 +9,8 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud/bootscript"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
+
+	"github.com/google/uuid"
 )
 
 // ErrNotProvisionable is returned when a runner has no boot script to hand
@@ -30,7 +32,7 @@ func (s *Service) storeProvisionSecret(ctx context.Context, runner db.Runner, bo
 	if err != nil {
 		return fmt.Errorf("encode boot: %w", err)
 	}
-	sealed, err := s.secrets.Seal(raw)
+	sealed, err := s.secrets.Seal(raw, provisionContext(runner.ID))
 	if err != nil {
 		return fmt.Errorf("seal boot: %w", err)
 	}
@@ -41,13 +43,18 @@ func (s *Service) storeProvisionSecret(ctx context.Context, runner db.Runner, bo
 	return nil
 }
 
+// provisionContext binds a sealed boot script to its runner row.
+func provisionContext(runnerID uuid.UUID) string {
+	return "provision:" + runnerID.String()
+}
+
 // ProvisionScript renders the boot script from a sealed secret handed out
 // by MarkRunnerProvisioned, which is what clears it from the runner.
-func (s *Service) ProvisionScript(_ context.Context, sealed []byte) (string, error) {
+func (s *Service) ProvisionScript(_ context.Context, runnerID uuid.UUID, sealed []byte) (string, error) {
 	if len(sealed) == 0 {
 		return "", ErrNotProvisionable
 	}
-	raw, err := s.secrets.Open(sealed)
+	raw, err := s.secrets.Open(sealed, provisionContext(runnerID))
 	if err != nil {
 		return "", fmt.Errorf("open boot: %w", err)
 	}

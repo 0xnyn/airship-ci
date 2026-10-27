@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,23 +77,27 @@ const (
 )
 
 var (
-	namePattern         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
-	labelPattern        = regexp.MustCompile(`^cirun-[a-z0-9][a-z0-9._-]{0,62}$`)
-	jobLabelPattern     = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
-	instancePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
-	amiPattern          = regexp.MustCompile(`^ami-[0-9a-f]{8,17}$`)
-	regionPattern       = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
-	envNamePattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
-	subnetPattern       = regexp.MustCompile(`^subnet-[0-9a-f]{8,17}$`)
-	sgPattern           = regexp.MustCompile(`^sg-[0-9a-f]{8,17}$`)
-	profilePattern      = regexp.MustCompile(`^(arn:aws[a-z-]*:iam::[0-9]{12}:instance-profile/)?[A-Za-z0-9+=,.@_/-]{1,128}$`)
-	windowsPathPattern  = regexp.MustCompile(`^[A-Za-z]:\\[A-Za-z0-9_.\\-]{1,200}$`)
-	windowsUserPattern  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,20}$`)
-	imageAliasPattern   = regexp.MustCompile(`^ubuntu(2204|2404)$`)
+	namePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+	labelPattern       = regexp.MustCompile(`^cirun-[a-z0-9][a-z0-9._-]{0,62}$`)
+	jobLabelPattern    = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
+	instancePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
+	amiPattern         = regexp.MustCompile(`^ami-[0-9a-f]{8,17}$`)
+	regionPattern      = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
+	envNamePattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	subnetPattern      = regexp.MustCompile(`^subnet-[0-9a-f]{8,17}$`)
+	sgPattern          = regexp.MustCompile(`^sg-[0-9a-f]{8,17}$`)
+	profilePattern     = regexp.MustCompile(`^(arn:aws[a-z-]*:iam::[0-9]{12}:instance-profile/)?[A-Za-z0-9+=,.@_/-]{1,128}$`)
+	windowsPathPattern = regexp.MustCompile(`^[A-Za-z]:\\[A-Za-z0-9_.\\-]{1,200}$`)
+	windowsUserPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,20}$`)
+	imageAliasPattern  = regexp.MustCompile(`^ubuntu(2204|2404)$`)
+	// An EC2 instance type: a family that starts with a letter, a dot, and
+	// a size (c7i.large, u-6tb1.112xlarge, m7i.metal-24xl).
+	instanceTypePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[a-z0-9-]*[a-z][a-z0-9-]*$`)
 	maxSecurityGroupIDs = 5
 	// Graviton families have a "g" after the generation number: c7g, m6gd,
 	// t4g, c7gn, x2gd, is4gen. GPU families such as g5 and g4dn do not.
-	gravitonPattern = regexp.MustCompile(`^(a1|[a-z]+[0-9]+[a-z]*g[a-z]*)$`)
+	// Apple silicon Macs (mac2, mac2-m2, mac2-m1ultra) are arm64 too.
+	gravitonPattern = regexp.MustCompile(`^(a1|mac2(-[a-z0-9]+)?|[a-z]+[0-9]+[a-z]*g[a-z]*)$`)
 	// GPU families: g*, p*, gr*, inf*, trn*, dl*.
 	gpuFamilyPattern = regexp.MustCompile(`^(g[0-9]|gr[0-9]|p[0-9]|inf[0-9]|trn[0-9]|dl[0-9])`)
 )
@@ -307,7 +312,7 @@ type rawWindow struct {
 	Day      string `yaml:"day"`
 	Time     string `yaml:"time"`
 	Timezone string `yaml:"timezone"`
-	Replicas int    `yaml:"replicas"`
+	Replicas *int   `yaml:"replicas"`
 }
 
 type rawUsageIdle struct {
@@ -366,10 +371,20 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 		return Runner{}, failf(".cloud", "cloud %q is unknown; use aws", r.Cloud)
 	}
 	if r.GPU.Kind != 0 {
-		if r.GPU.Kind != yaml.ScalarNode || strings.TrimSpace(r.GPU.Value) == "" {
+		// Cirun treats the value as a flag: any GPU name turns it on, and
+		// what Python (YAML 1.1) reads as false or null turns it off.
+		if r.GPU.Kind != yaml.ScalarNode {
 			return Runner{}, failf(".gpu", "gpu must be a GPU name, such as nvidia-tesla-t4")
 		}
-		out.GPU = true
+		switch strings.ToLower(strings.TrimSpace(r.GPU.Value)) {
+		case "":
+			if r.GPU.Tag != "!!null" {
+				return Runner{}, failf(".gpu", "gpu must be a GPU name, such as nvidia-tesla-t4")
+			}
+		case "false", "no", "off", "0", "null", "~", "none":
+		default:
+			out.GPU = true
+		}
 	}
 
 	labels, ferr := validateLabels(r.Labels)
@@ -453,14 +468,8 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 		default:
 			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].VolumeType", "VolumeType must be gp3, gp2, io1 or io2")
 		}
-		if d.Iops < 0 || d.Iops > 256000 {
-			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Iops", "Iops must be between 0 and 256000")
-		}
-		if d.Throughput < 0 || d.Throughput > 2000 {
-			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput must be between 0 and 2000 MiB/s")
-		}
-		if d.Throughput > 0 && disk.Type != "gp3" {
-			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].Throughput", "Throughput only applies to gp3 volumes")
+		if ferr := validateDiskPerformance(disk.Type, d.Iops, d.Throughput); ferr != nil {
+			return Disk{}, ferr
 		}
 		if d.VolumeInitializationRate != 0 && (d.VolumeInitializationRate < 100 || d.VolumeInitializationRate > 300) {
 			return Disk{}, failf(".extra_config.BlockDeviceMappings[0].VolumeInitializationRate", "VolumeInitializationRate must be between 100 and 300 MiB/s")
@@ -617,7 +626,7 @@ func expandVariants(r rawRunner, disk Disk) ([]Variant, *fieldError) {
 		if v.Region != "" && !regionPattern.MatchString(v.Region) {
 			return nil, failf(".region"+index, "%q is not an AWS region (such as us-east-1)", v.Region)
 		}
-		if !instancePattern.MatchString(v.InstanceType) || !strings.Contains(v.InstanceType, ".") {
+		if !instancePattern.MatchString(v.InstanceType) || !instanceTypePattern.MatchString(v.InstanceType) {
 			return nil, failf(".instance_type"+index, "%q is not an EC2 instance type (such as c7i.xlarge)", v.InstanceType)
 		}
 		if v.Image != "" && !amiPattern.MatchString(v.Image) && !imageAliasPattern.MatchString(v.Image) {
@@ -703,6 +712,57 @@ var weekdays = map[string]time.Weekday{
 	"thu": time.Thursday, "fri": time.Friday, "sat": time.Saturday,
 }
 
+// iopsRange is what EC2 accepts for each volume type that takes Iops.
+var iopsRange = map[string][2]int{"gp3": {3000, 16000}, "io1": {100, 64000}, "io2": {100, 256000}}
+
+const (
+	gp3DefaultIOPS = 3000
+	// gp3 throughput may not exceed a quarter MiB/s per provisioned IOPS.
+	gp3ThroughputPerIOPS = 0.25
+	gp3MinThroughput     = 125
+	gp3MaxThroughput     = 1000
+)
+
+// validateDiskPerformance checks Iops and Throughput against what EC2
+// accepts for the volume type, so a bad combination is a config error
+// rather than a failed launch per fallback attempt.
+func validateDiskPerformance(volumeType string, iops, throughput int) *fieldError {
+	const iopsPath, throughputPath = ".extra_config.BlockDeviceMappings[0].Iops", ".extra_config.BlockDeviceMappings[0].Throughput"
+	if iops < 0 {
+		return failf(iopsPath, "Iops must be positive")
+	}
+	if throughput < 0 {
+		return failf(throughputPath, "Throughput must be positive")
+	}
+	allowed, takesIOPS := iopsRange[volumeType]
+	switch {
+	case iops > 0 && !takesIOPS:
+		return failf(iopsPath, "Iops only applies to gp3, io1 and io2 volumes")
+	case iops == 0 && (volumeType == "io1" || volumeType == "io2"):
+		return failf(iopsPath, "%s volumes need Iops", volumeType)
+	case iops > 0 && (iops < allowed[0] || iops > allowed[1]):
+		return failf(iopsPath, "Iops for %s must be between %d and %d", volumeType, allowed[0], allowed[1])
+	}
+	if throughput > 0 {
+		if volumeType != "gp3" {
+			return failf(throughputPath, "Throughput only applies to gp3 volumes")
+		}
+		if throughput < gp3MinThroughput || throughput > gp3MaxThroughput {
+			return failf(throughputPath, "Throughput must be between %d and %d MiB/s", gp3MinThroughput, gp3MaxThroughput)
+		}
+		if iops == 0 {
+			iops = gp3DefaultIOPS
+		}
+		if float64(throughput) > float64(iops)*gp3ThroughputPerIOPS {
+			return failf(throughputPath, "Throughput of %d MiB/s needs Iops of at least %d (a quarter MiB/s per IOPS)", throughput, int(float64(throughput)/gp3ThroughputPerIOPS))
+		}
+	}
+
+	return nil
+}
+
+var timeRangePattern = regexp.MustCompile(`^([0-9]{1,2})-([0-9]{1,2})$`)
+
 func (w rawWindow) validate() (Window, *fieldError) {
 	var out Window
 	first, last, isRange := strings.Cut(strings.ToLower(strings.TrimSpace(w.Day)), "-")
@@ -722,8 +782,13 @@ func (w rawWindow) validate() (Window, *fieldError) {
 		}
 	}
 
-	var start, end int
-	if _, err := fmt.Sscanf(strings.TrimSpace(w.Time), "%d-%d", &start, &end); err != nil || start < 0 || end > 24 || start >= end {
+	hours := timeRangePattern.FindStringSubmatch(strings.TrimSpace(w.Time))
+	if hours == nil {
+		return Window{}, failf(".time", "time must be a range of hours such as 9-17 (from 9:00 until 17:00)")
+	}
+	start, _ := strconv.Atoi(hours[1])
+	end, _ := strconv.Atoi(hours[2])
+	if end > 24 || start >= end {
 		return Window{}, failf(".time", "time must be a range of hours such as 9-17 (from 9:00 until 17:00)")
 	}
 	out.StartHour, out.EndHour = start, end
@@ -738,10 +803,13 @@ func (w rawWindow) validate() (Window, *fieldError) {
 	}
 	out.Location = loc
 
-	if w.Replicas < 0 || w.Replicas > maxIdleReplicas {
+	if w.Replicas == nil {
+		return Window{}, failf(".replicas", "replicas is required")
+	}
+	if *w.Replicas < 0 || *w.Replicas > maxIdleReplicas {
 		return Window{}, failf(".replicas", "replicas must be between 0 and %d", maxIdleReplicas)
 	}
-	out.Replicas = w.Replicas
+	out.Replicas = *w.Replicas
 
 	return out, nil
 }

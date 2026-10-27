@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -31,7 +32,7 @@ type Repository struct {
 	Activated   bool         `doc:"Whether its .cirun.yml launches runners"           json:"activated"`
 	AllowPublic bool         `doc:"Serve jobs while the repository is public"         json:"allowPublic"`
 	ActivatedAt *time.Time   `doc:"When it was activated"                             json:"activatedAt"`
-	Config      *ConfigState `doc:"The default branch's .cirun.yml as last read"      json:"config"`
+	Config      *ConfigState `doc:"The default branch's .cirun.yml as last read; absent until activated" json:"config,omitempty"`
 }
 
 // ConfigState is the result of reading a config file.
@@ -82,7 +83,9 @@ func (h *handlers) repositories(ctx context.Context, installationID int64) ([]Re
 	}
 	remote, err := h.Fleet.ListInstallationRepositories(ctx, installationID)
 	if err != nil {
-		return nil, huma.Error502BadGateway("could not list repositories from GitHub", err)
+		slog.WarnContext(ctx, "list repositories", slog.Any("error", err))
+
+		return nil, huma.Error502BadGateway("could not list repositories from GitHub; try again in a moment")
 	}
 
 	byID := map[int64]Repository{}
@@ -279,7 +282,7 @@ type ConfigRunner struct {
 // ConfigValidation is the result of checking a config file.
 type ConfigValidation struct {
 	Valid   bool           `doc:"Whether the file can be used"   json:"valid"`
-	Problem *ConfigProblem `doc:"The first problem found"        json:"problem"`
+	Problem *ConfigProblem `doc:"The first problem found; absent when valid" json:"problem,omitempty"`
 	Runners []ConfigRunner `doc:"Runner definitions in the file" json:"runners"`
 }
 
@@ -374,7 +377,9 @@ func (h *handlers) organizationConfig(ctx context.Context, in *orgInput) (*organ
 	}
 	cfg, err := h.Fleet.OrganizationConfig(ctx, inst)
 	if err != nil {
-		return nil, huma.Error502BadGateway("could not read the organization's .cirun repository", err)
+		slog.WarnContext(ctx, "read organization config", slog.Any("error", err))
+
+		return nil, huma.Error502BadGateway("could not read the organization's .cirun repository from GitHub; try again in a moment")
 	}
 	out := OrganizationRunnerConfig{Found: cfg.Found, Restricted: cfg.Restricted, Runners: summarizeRunners(cfg.Runners)}
 	if cfg.SHA != "" {

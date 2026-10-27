@@ -1,6 +1,7 @@
 package runnerconfig
 
 import (
+	"fmt"
 	"io"
 	"regexp"
 	"slices"
@@ -10,12 +11,17 @@ import (
 var errEOF = io.EOF
 
 var (
-	yamlTypeName  = regexp.MustCompile(` in type runnerconfig\.raw[A-Za-z]+`)
+	yamlTypeName  = regexp.MustCompile(` in type (\[\])?runnerconfig\.[A-Za-z]+`)
 	yamlUnmarshal = regexp.MustCompile(`^yaml: (unmarshal errors:\n\s*)?`)
-	yamlCannot    = regexp.MustCompile("cannot unmarshal !!\\w+ (`[^`]*`|[^ ]+) into ([][\\w.]+)")
+	yamlCannot    = regexp.MustCompile("cannot unmarshal !!(\\w+)(?: (`[^`]*`|[^ ]+))? into ((?:\\[\\])?[\\w.]+)")
 )
 
-// cleanYAMLError drops the parser's Go type names from its messages.
+// maxErrorLines bounds a YAML error: the parser reports every problem in
+// the file, and a long one would not fit where the message is stored.
+const maxErrorLines = 8
+
+// cleanYAMLError drops the parser's Go type names from its messages and
+// bounds their length.
 func cleanYAMLError(err error) error {
 	msg := yamlTypeName.ReplaceAllString(err.Error(), "")
 	msg = yamlUnmarshal.ReplaceAllString(msg, "")
@@ -23,13 +29,29 @@ func cleanYAMLError(err error) error {
 	msg = strings.ReplaceAll(msg, " not found", "")
 	msg = yamlCannot.ReplaceAllStringFunc(msg, func(m string) string {
 		parts := yamlCannot.FindStringSubmatch(m)
-		want := map[string]string{"[]string": "a list", "int": "a number", "bool": "true or false", "map[string]string": "a mapping"}[parts[2]]
-		if want == "" {
+		want := map[string]string{"[]string": "a list", "int": "a number", "bool": "true or false", "map[string]string": "a mapping"}[parts[3]]
+		switch {
+		case want != "":
+		case strings.HasPrefix(parts[3], "[]"):
+			want = "a list"
+		case strings.HasPrefix(parts[3], "runnerconfig."):
+			want = "a mapping"
+		default:
 			want = "a different kind of value"
 		}
+		got := parts[2]
+		if got == "" {
+			got = map[string]string{"map": "a mapping", "seq": "a list", "str": "text", "null": "nothing"}[parts[1]]
+		}
+		if got == "" {
+			got = parts[1]
+		}
 
-		return "expected " + want + ", not " + parts[1]
+		return "expected " + want + ", not " + got
 	})
+	if lines := strings.Split(msg, "\n"); len(lines) > maxErrorLines {
+		msg = strings.Join(lines[:maxErrorLines], "\n") + fmt.Sprintf("\n... and %d more", len(lines)-maxErrorLines)
+	}
 
 	return &plainError{msg: msg}
 }
@@ -95,8 +117,14 @@ type Attempt struct {
 // definitions first, each with its variants in order. A variant is left out
 // when the runner it would launch could not take the job (an arm64 job
 // label on an x64 machine, say). An empty plan means nothing matches.
+//
+// A job that suffixes its labels (cirun-build--<run id>) gets a runner
+// registered with those labels only, so GitHub can hand it nothing but a
+// job from that run; otherwise the runner carries the definition's labels
+// and any job asking for them may take it.
 func Plan(jobLabels []string, candidates []Candidate) []Attempt {
-	var wanted, suffixed, other []string
+	var wanted, asked, other []string
+	var suffixed bool
 	for _, label := range jobLabels {
 		if !jobLabelPattern.MatchString(label) || len(label) > maxLabelLength {
 			return nil
@@ -108,7 +136,8 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 			continue
 		}
 		wanted = append(wanted, base)
-		suffixed = append(suffixed, strings.ToLower(label))
+		asked = append(asked, strings.ToLower(label))
+		suffixed = suffixed || base != strings.ToLower(label)
 	}
 	if len(wanted) == 0 {
 		return nil
@@ -119,10 +148,17 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 		if !coversAll(c.Runner.Labels, wanted) {
 			continue
 		}
+		defined := c.Runner.Labels
+		if suffixed {
+			defined = nil
+		}
 		for _, v := range c.Runner.Variants {
-			labels := registeredLabels(c.Runner.Cloud, v.Arch, c.Runner.GPU || HasGPU(v.InstanceType), c.Runner.Labels, suffixed)
-			if !coversAll(withAliases(labels), other) {
+			labels := registeredLabels(c.Runner.Cloud, v.Arch, c.Runner.GPU || HasGPU(v.InstanceType), defined, asked)
+			if !coversAll(withOSAliases(labels, v.Image), other) {
 				continue
+			}
+			if slices.ContainsFunc(out, func(a Attempt) bool { return a.Runner.Name == c.Runner.Name && a.Variant == v }) {
+				continue // the same machine twice (a label and its suffixed form) is one attempt
 			}
 			out = append(out, Attempt{Source: c.Source, Runner: c.Runner, Variant: v, Labels: labels})
 		}
@@ -133,14 +169,14 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 
 // registeredLabels are what a runner registers with GitHub: the defaults
 // every self-hosted runner carries, the cloud, whether it has a GPU (as
-// Cirun labels them), the definition's labels and the job's own suffixed
+// Cirun labels them), the definition's labels and the job's own config
 // labels. The OS label is left to the runner, which knows what it runs on.
-func registeredLabels(cloud string, arch string, gpu bool, defined, suffixed []string) []string {
+func registeredLabels(cloud string, arch string, gpu bool, defined, asked []string) []string {
 	labels := []string{"self-hosted", arch, cloud, "cpu"}
 	if gpu {
 		labels[3] = "gpu"
 	}
-	for _, l := range slices.Concat(defined, suffixed) {
+	for _, l := range slices.Concat(defined, asked) {
 		if !slices.Contains(labels, l) {
 			labels = append(labels, l)
 		}
@@ -149,15 +185,21 @@ func registeredLabels(cloud string, arch string, gpu bool, defined, suffixed []s
 	return labels
 }
 
-// withAliases adds the other spellings GitHub accepts for default labels,
-// and the OS label the runner adds itself.
+// withAliases adds the OS labels a runner may add itself, for a machine
+// whose image is not known.
 func withAliases(labels []string) []string {
-	out := append(slices.Clone(labels), "linux", "windows")
-	if slices.Contains(labels, "x64") {
-		out = append(out, "x86_64")
+	return withOSAliases(labels, "unknown")
+}
+
+// withOSAliases adds the OS label the runner adds itself. A known Ubuntu
+// image (an alias, or none, which means the default) is Linux; a custom
+// AMI could be either until it boots.
+func withOSAliases(labels []string, image string) []string {
+	if image == "" || imageAliasPattern.MatchString(image) {
+		return append(slices.Clone(labels), "linux")
 	}
 
-	return out
+	return append(slices.Clone(labels), "linux", "windows")
 }
 
 func coversAll(have, want []string) bool {
@@ -184,7 +226,7 @@ func PoolAttempts(source Source, r Runner) []Attempt {
 
 // Covers reports whether a runner registered with labels can take a job
 // asking for jobLabels, as GitHub decides it: every job label, compared
-// case-insensitively, with the x64 alias GitHub accepts.
+// case-insensitively.
 func Covers(labels, jobLabels []string) bool {
 	lower := make([]string, 0, len(jobLabels))
 	for _, l := range jobLabels {

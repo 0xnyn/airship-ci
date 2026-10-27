@@ -36,6 +36,7 @@ import { toast } from "sonner";
 
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
+import { parseRepositoryInput } from "@/lib/repository-name";
 
 import { EmptyRow, FilterTabs, TableSkeleton } from "./data-table";
 import { useOrg } from "./org-context";
@@ -48,7 +49,6 @@ const REPOSITORIES = "/v1/orgs/{org}/repositories";
 const ACTIVATION = "/v1/orgs/{org}/repositories/{repo}/activation";
 const POOLS = "/v1/orgs/{org}/pools";
 const SHA_PREFIX = 7;
-const GITHUB_URL = /^https:\/\/github\.com\//;
 
 const EXAMPLE = `runners:
   - name: build
@@ -177,6 +177,9 @@ function ConnectGitHub() {
   );
 }
 
+// The API refuses files over this many bytes.
+const MAX_CONFIG_BYTES = 65_536;
+
 function Activate() {
   const { isAdmin, org } = useOrg();
   const [name, setName] = useState("");
@@ -190,14 +193,12 @@ function Activate() {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const typed = name.trim().replace(GITHUB_URL, "");
-    const [owner, repoName] = typed.includes("/")
-      ? typed.split("/", 2)
-      : [org.login, typed];
-    if (owner?.toLowerCase() !== org.login.toLowerCase()) {
-      setProblem(`${typed} is not in ${org.login}.`);
+    const parsed = parseRepositoryInput(name, org.login);
+    if ("problem" in parsed) {
+      setProblem(parsed.problem);
       return;
     }
+    const repoName = parsed.name;
     const match = (repos.data?.items ?? []).find(
       (repo) =>
         repo.fullName.toLowerCase() === `${org.login}/${repoName}`.toLowerCase()
@@ -711,7 +712,11 @@ function Validator() {
         <Textarea
           className="min-h-48 font-mono text-[11px]"
           id="config-content"
-          onChange={(event) => setContent(event.target.value)}
+          maxLength={MAX_CONFIG_BYTES}
+          onChange={(event) => {
+            setContent(event.target.value);
+            validate.reset();
+          }}
           spellCheck={false}
           value={content}
         />

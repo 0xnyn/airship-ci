@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
@@ -30,7 +31,23 @@ func (s *Service) ConnectCloud(ctx context.Context, installationID int64, cloudN
 	if err != nil {
 		return db.CloudCredential{}, err //nolint:wrapcheck // the provider's error names the cloud's reason
 	}
-	sealed, err := s.secrets.Seal(secret)
+	// Rotating a key within the account is fine: the new key can still
+	// terminate the instances the old one launched. Another account
+	// cannot, so live runners keep the credential they were launched with.
+	existing, err := s.q.GetCloudCredential(ctx, db.GetCloudCredentialParams{InstallationID: installationID, Cloud: cloudName})
+	if err != nil && !isNoRows(err) {
+		return db.CloudCredential{}, fmt.Errorf("get credential: %w", err)
+	}
+	if err == nil && identity.AccountID != "" && existing.AccountID != nil && *existing.AccountID != identity.AccountID {
+		active, err := s.q.CountActiveRunnersForCredential(ctx, &existing.ID)
+		if err != nil {
+			return db.CloudCredential{}, fmt.Errorf("count runners: %w", err)
+		}
+		if active > 0 {
+			return db.CloudCredential{}, fmt.Errorf("%w: %d runners launched in account %s are still alive", ErrCloudInUse, active, *existing.AccountID)
+		}
+	}
+	sealed, err := s.secrets.Seal(secret, credentialContext(installationID, cloudName))
 	if err != nil {
 		return db.CloudCredential{}, fmt.Errorf("seal credentials: %w", err)
 	}
@@ -44,33 +61,51 @@ func (s *Service) ConnectCloud(ctx context.Context, installationID int64, cloudN
 	}
 	s.record(ctx, installationID, "cloud.connected", levelInfo,
 		fmt.Sprintf("Connected %s as %s (default region %s)", cloudName, identity.Principal, defaultRegion), eventFields{})
-	// Jobs skipped for want of a cloud are retried by the stale job
-	// refresh; pools can start now.
+	// Jobs skipped for want of a cloud can be planned now, and pools can
+	// start.
+	s.retrySkippedJobs(ctx, installationID, nil, SkipNoCloud)
 	s.fillInstallationPools(ctx, installationID)
 
 	return row, nil
 }
 
+// credentialContext binds a sealed secret to its cloud_credentials row.
+func credentialContext(installationID int64, cloudName string) string {
+	return "credential:" + strconv.FormatInt(installationID, 10) + ":" + cloudName
+}
+
 // DisconnectCloud removes an installation's credentials for a cloud. It
 // refuses while runners launched with them are alive, because without the
-// secret their instances could not be terminated.
+// secret their instances could not be terminated. The installation is
+// locked while counting, as every path that creates a runner locks it
+// too, so no runner can appear between the count and the delete.
 func (s *Service) DisconnectCloud(ctx context.Context, installationID int64, cloudName string) error {
-	cred, err := s.q.GetCloudCredential(ctx, db.GetCloudCredentialParams{InstallationID: installationID, Cloud: cloudName})
-	if isNoRows(err) {
-		return ErrCloudNotFound
-	}
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		if _, err := q.LockInstallation(ctx, installationID); err != nil {
+			return fmt.Errorf("lock installation: %w", err)
+		}
+		cred, err := q.GetCloudCredential(ctx, db.GetCloudCredentialParams{InstallationID: installationID, Cloud: cloudName})
+		if isNoRows(err) {
+			return ErrCloudNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("get credential: %w", err)
+		}
+		active, err := q.CountActiveRunnersForCredential(ctx, &cred.ID)
+		if err != nil {
+			return fmt.Errorf("count runners: %w", err)
+		}
+		if active > 0 {
+			return fmt.Errorf("%w: %d", ErrCloudInUse, active)
+		}
+		if _, err := q.DeleteCloudCredential(ctx, db.DeleteCloudCredentialParams{InstallationID: installationID, Cloud: cloudName}); err != nil {
+			return fmt.Errorf("delete credential: %w", err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("get credential: %w", err)
-	}
-	active, err := s.q.CountActiveRunnersForCredential(ctx, &cred.ID)
-	if err != nil {
-		return fmt.Errorf("count runners: %w", err)
-	}
-	if active > 0 {
-		return fmt.Errorf("%w: %d", ErrCloudInUse, active)
-	}
-	if _, err := s.q.DeleteCloudCredential(ctx, db.DeleteCloudCredentialParams{InstallationID: installationID, Cloud: cloudName}); err != nil {
-		return fmt.Errorf("delete credential: %w", err)
+		return err
 	}
 	s.record(ctx, installationID, "cloud.disconnected", levelInfo, "Disconnected "+cloudName, eventFields{})
 

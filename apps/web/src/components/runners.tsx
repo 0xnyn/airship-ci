@@ -15,7 +15,13 @@ import { $api } from "@/lib/api";
 import { formatDuration, secondsBetween } from "@/lib/format";
 import { sourceLabel } from "@/lib/labels";
 
-import { EmptyRow, FilterTabs, LoadMore, TableSkeleton } from "./data-table";
+import {
+  EmptyRow,
+  ErrorRow,
+  FilterTabs,
+  LoadMore,
+  TableSkeleton,
+} from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { RunnerState } from "./status";
@@ -64,6 +70,9 @@ export function Runners() {
         value={filter}
       />
       {runners.isPending ? <TableSkeleton /> : null}
+      {runners.isError ? (
+        <ErrorRow error={runners.error} fallback="Could not load runners" />
+      ) : null}
       {runners.isSuccess && items.length === 0 ? (
         <EmptyRow>
           {filter === "active"

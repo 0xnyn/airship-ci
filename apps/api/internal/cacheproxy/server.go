@@ -480,9 +480,15 @@ func (s *Server) v1Reserve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	up.v1Size = req.CacheSize
-	s.mu.Lock()
-	n := s.nextID
-	s.mu.Unlock()
+	// The cache id is the number newUpload put in front of the id; reading
+	// the counter again would hand concurrent reserves the same number.
+	number, _, _ := strings.Cut(id, "-")
+	n, err := strconv.ParseInt(number, 10, 64)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"cacheId": n, "uploadId": id})
 }
 
@@ -616,32 +622,89 @@ func (s *Server) commit(ctx context.Context, up *upload) (int64, error) {
 	default:
 		return 0, errors.New("nothing was uploaded")
 	}
-	var size int64
-	readers := make([]io.Reader, 0, len(files))
-	var handles []*os.File
-	defer func() {
-		for _, f := range handles {
-			_ = f.Close()
-		}
-	}()
-	for _, path := range files {
-		f, err := os.Open(path) //nolint:gosec // staged by this server
-		if err != nil {
-			return 0, fmt.Errorf("read staged block: %w", err)
-		}
-		info, err := f.Stat()
-		if err != nil {
-			return 0, fmt.Errorf("stat staged block: %w", err)
-		}
-		size += info.Size()
-		handles = append(handles, f)
-		readers = append(readers, f)
+	staged, err := openStaged(files)
+	if err != nil {
+		return 0, err
 	}
-	if err := s.store.Put(ctx, objectKey(s.prefix, up.version, up.key), size, io.MultiReader(readers...)); err != nil {
+	defer staged.Close()
+	// The staged files are read in place: a seekable body lets the store
+	// send parts straight from disk and retry them, instead of buffering.
+	if err := s.store.Put(ctx, objectKey(s.prefix, up.version, up.key), staged.size, io.NewSectionReader(staged, 0, staged.size)); err != nil {
 		return 0, err
 	}
 
-	return size, nil
+	return staged.size, nil
+}
+
+// stagedFiles reads a sequence of files as one object, at any offset.
+type stagedFiles struct {
+	handles []*os.File
+	starts  []int64 // offset of each file in the whole
+	size    int64
+}
+
+func openStaged(paths []string) (*stagedFiles, error) {
+	out := &stagedFiles{}
+	for _, path := range paths {
+		f, err := os.Open(path) //nolint:gosec // staged by this server
+		if err != nil {
+			out.Close()
+
+			return nil, fmt.Errorf("read staged block: %w", err)
+		}
+		info, err := f.Stat()
+		if err != nil {
+			_ = f.Close()
+			out.Close()
+
+			return nil, fmt.Errorf("stat staged block: %w", err)
+		}
+		out.handles = append(out.handles, f)
+		out.starts = append(out.starts, out.size)
+		out.size += info.Size()
+	}
+
+	return out, nil
+}
+
+// ReadAt implements io.ReaderAt across the file boundaries.
+func (s *stagedFiles) ReadAt(p []byte, off int64) (int, error) {
+	if off < 0 {
+		return 0, errors.New("negative offset")
+	}
+	total := 0
+	for i, f := range s.handles {
+		end := s.size
+		if i+1 < len(s.handles) {
+			end = s.starts[i+1]
+		}
+		if off >= end {
+			continue
+		}
+		if total == len(p) {
+			break
+		}
+		n, err := f.ReadAt(p[total:min(len(p), total+int(end-off))], off-s.starts[i])
+		total += n
+		off += int64(n)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return total, fmt.Errorf("read staged block: %w", err)
+		}
+		if n == 0 {
+			break
+		}
+	}
+	if total < len(p) {
+		return total, io.EOF
+	}
+
+	return total, nil
+}
+
+func (s *stagedFiles) Close() {
+	for _, f := range s.handles {
+		_ = f.Close()
+	}
 }
 
 // helpers

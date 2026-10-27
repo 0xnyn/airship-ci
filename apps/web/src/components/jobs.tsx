@@ -16,7 +16,13 @@ import { $api } from "@/lib/api";
 import { formatDuration, secondsBetween } from "@/lib/format";
 import { skipReasonLabel } from "@/lib/labels";
 
-import { EmptyRow, FilterTabs, LoadMore, TableSkeleton } from "./data-table";
+import {
+  EmptyRow,
+  ErrorRow,
+  FilterTabs,
+  LoadMore,
+  TableSkeleton,
+} from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { JobStatus } from "./status";
@@ -66,6 +72,9 @@ export function Jobs() {
         value={status}
       />
       {jobs.isPending ? <TableSkeleton /> : null}
+      {jobs.isError ? (
+        <ErrorRow error={jobs.error} fallback="Could not load jobs" />
+      ) : null}
       {jobs.isSuccess && items.length === 0 ? (
         <EmptyRow>
           No jobs yet. They appear here as soon as GitHub queues a workflow job

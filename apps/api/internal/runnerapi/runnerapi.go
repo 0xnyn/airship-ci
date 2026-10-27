@@ -65,7 +65,7 @@ func Register(api huma.API, granter Granter) {
 		}
 
 		return &grantOutput{Body: cacheproxy.Grant{
-			Cloud: cloud.AWS, Bucket: grant.Bucket, Region: grant.Region, Prefix: grant.Prefix,
+			Cloud: cloud.AWS, Bucket: grant.Bucket, Region: grant.Region, Prefix: grant.Prefix, AccountID: grant.AccountID,
 			AccessKeyID: grant.AccessKeyID, SecretAccessKey: grant.SecretAccessKey, SessionToken: grant.SessionToken,
 			ExpiresAt: grant.ExpiresAt.UTC().Truncate(time.Second),
 		}}, nil

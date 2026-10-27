@@ -140,11 +140,12 @@ func (d AccessDocument) Compile() (Access, error) {
 			return Access{}, &Error{File: AccessFile, Path: path + ".policies", Detail: "list at least one policy; remove the rule to open the runner to everyone"}
 		}
 		for j, id := range rule.Policies {
+			id = strings.TrimSpace(id)
 			if _, ok := out.policies[id]; !ok {
 				return Access{}, &Error{File: AccessFile, Path: fmt.Sprintf("%s.policies[%d]", path, j), Detail: fmt.Sprintf("no policy has id %q", id)}
 			}
+			out.rules[resource] = append(out.rules[resource], id)
 		}
-		out.rules[resource] = append(out.rules[resource], rule.Policies...)
 	}
 
 	return out, nil
@@ -160,6 +161,7 @@ func (p PolicyDocument) validate() (Policy, string) {
 		return Policy{}, "repo must be a repository name in this organization, such as api"
 	}
 	for _, team := range p.Teams {
+		team = strings.TrimSpace(team)
 		if !slugPattern.MatchString(team) {
 			return Policy{}, fmt.Sprintf("team %q is not a team slug", team)
 		}
@@ -173,6 +175,7 @@ func (p PolicyDocument) validate() (Policy, string) {
 		out.Roles = append(out.Roles, lower)
 	}
 	for _, user := range p.Users {
+		user = strings.TrimSpace(user)
 		if !loginPattern.MatchString(user) {
 			return Policy{}, fmt.Sprintf("user %q is not a GitHub username", user)
 		}
@@ -226,6 +229,28 @@ func (d *AccessDocument) Apply(change AccessChange) error {
 	if len(change.Resources) == 0 {
 		return &Error{File: AccessFile, Detail: "list at least one resource"}
 	}
+	// Validate everything the change would write before touching the
+	// document, so the error names the input rather than the file.
+	for i, resource := range change.Resources {
+		if !namePattern.MatchString(strings.ToLower(strings.TrimSpace(resource))) {
+			return &Error{File: AccessFile, Path: fmt.Sprintf("resources[%d]", i), Detail: fmt.Sprintf("%q is not a runner name", resource)}
+		}
+	}
+	for i, team := range change.Teams {
+		if !slugPattern.MatchString(strings.TrimSpace(team)) {
+			return &Error{File: AccessFile, Path: fmt.Sprintf("teams[%d]", i), Detail: fmt.Sprintf("%q is not a team slug", team)}
+		}
+	}
+	for i, role := range change.Roles {
+		if !slugPattern.MatchString(strings.ToLower(strings.TrimSpace(role))) {
+			return &Error{File: AccessFile, Path: fmt.Sprintf("roles[%d]", i), Detail: fmt.Sprintf("%q is not a repository role", role)}
+		}
+	}
+	for i, user := range change.Users {
+		if !loginPattern.MatchString(strings.TrimSpace(user)) {
+			return &Error{File: AccessFile, Path: fmt.Sprintf("users[%d]", i), Detail: fmt.Sprintf("%q is not a GitHub username", user)}
+		}
+	}
 	if d.Version == 0 {
 		d.Version = 1
 	}
@@ -251,7 +276,7 @@ func (d *AccessDocument) Apply(change AccessChange) error {
 	}
 
 	if policyIndex < 0 {
-		d.Policies = append(d.Policies, PolicyDocument{ID: repo + "-policy", Repo: repo})
+		d.Policies = append(d.Policies, PolicyDocument{ID: d.freePolicyID(repo + "-policy"), Repo: repo})
 		policyIndex = len(d.Policies) - 1
 	}
 	policy := &d.Policies[policyIndex]
@@ -275,6 +300,20 @@ func (d *AccessDocument) Apply(change AccessChange) error {
 	}
 
 	return nil
+}
+
+// freePolicyID returns want, or want with a number appended when another
+// repository's policy already has that id.
+func (d AccessDocument) freePolicyID(want string) string {
+	taken := func(id string) bool {
+		return slices.ContainsFunc(d.Policies, func(p PolicyDocument) bool { return strings.EqualFold(p.ID, id) })
+	}
+	id := want
+	for n := 2; taken(id); n++ {
+		id = fmt.Sprintf("%s-%d", want, n)
+	}
+
+	return id
 }
 
 func union(have, add []string) []string {

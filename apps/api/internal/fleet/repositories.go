@@ -61,6 +61,8 @@ func (s *Service) ActivateRepository(ctx context.Context, installationID, repoID
 	}
 	// Organization runner groups list the activated repositories.
 	s.resyncOrganization(ctx, installationID)
+	// Jobs that queued before the activation can be planned now.
+	s.retrySkippedJobs(ctx, installationID, &row.ID, SkipRepositoryInactive, SkipPublicRepository)
 
 	return s.q.GetRepository(ctx, db.GetRepositoryParams{InstallationID: installationID, ID: row.ID}) //nolint:wrapcheck // a plain read
 }

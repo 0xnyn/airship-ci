@@ -22,6 +22,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/testsupport/fakegithub"
 	"github.com/wizenheimer/airship/apps/api/internal/testsupport/pgtest"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -57,6 +58,7 @@ type harness struct {
 	svc     *fleet.Service
 	aws     *fake.Provider
 	nextJob int64
+	lastJob github.WorkflowJob
 }
 
 // newHarness builds an installation with AWS connected and a repository
@@ -160,6 +162,7 @@ func (h *harness) queue(labels ...string) github.WorkflowJob {
 	h.t.Helper()
 	job := h.newJob(labels...)
 	h.event("queued", job, true)
+	h.lastJob = job
 
 	return job
 }
@@ -468,19 +471,66 @@ func TestNoCloudConnected(t *testing.T) {
 	h.disconnect()
 	job := h.queue()
 	wantSkip(t, h, job, fleet.SkipNoCloud, "connect aws")
+	cancelled := h.queue()
+	wantSkip(t, h, cancelled, fleet.SkipNoCloud, "")
 
-	// Connecting the cloud lets the stale job refresh plan it.
-	h.connect()
+	// Connecting the cloud plans the jobs still queued on GitHub, and
+	// leaves alone the one GitHub has since cancelled.
 	h.gh.SetJob(job)
-	h.exec("update jobs set updated_at = now() - interval '1 hour'")
-	h.reconcile()
-	if row := h.job(job.ID); row.Plan != nil {
-		t.Log("stale refresh only revisits planned jobs; a redelivery plans it")
-	}
-	h.event("queued", job, true)
+	done := cancelled
+	done.Status, done.Conclusion = "completed", ptr("cancelled")
+	h.gh.SetJob(done)
+	h.connect()
 	if row := h.job(job.ID); row.Plan == nil || row.SkipReason != nil {
 		t.Fatalf("job not planned after connecting: %+v", row)
 	}
+	if row := h.job(cancelled.ID); row.Status != "completed" || row.Plan != nil {
+		t.Fatalf("cancelled job after connecting: status %s, plan %v", row.Status, row.Plan != nil)
+	}
+	wantStates(t, h, "pending")
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// Credentials for another account cannot replace the ones live runners
+// were launched with, since they could not terminate those machines; a
+// rotated key in the same account can.
+func TestConnectAnotherAccountRefusedWhileRunnersLive(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.queue()
+	h.launch()
+	secret, _ := awscloud.EncodeSecret(awscloud.Secret{AccessKeyID: "AKIAROTATED", SecretAccessKey: "secret2"})
+	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.AWS, secret, region, nil); err != nil {
+		t.Fatalf("rotating the key: %v", err)
+	}
+	h.aws.AccountID = "999999999999"
+	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.AWS, secret, region, nil); !errors.Is(err, fleet.ErrCloudInUse) {
+		t.Fatalf("connecting another account with a live runner = %v, want ErrCloudInUse", err)
+	}
+	h.complete(h.lastJob, &h.runners()[0].Name, "success")
+	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.AWS, secret, region, nil); err != nil {
+		t.Fatalf("connecting another account with no live runner: %v", err)
+	}
+}
+
+// Repositories removed from the app's access are deactivated, so their
+// pools stop trying to launch runners nobody can register.
+func TestRemovedRepositoriesAreDeactivated(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	err := h.svc.HandleInstallationRepositories(h.ctx, github.InstallationRepositoriesEvent{
+		Action: "removed", Installation: github.InstallationRef{ID: installationID},
+		RepositoriesRemoved: []github.Repository{{ID: repoID, FullName: repoName}, {ID: 404, FullName: "acme/never-activated"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.q.GetRepository(h.ctx, db.GetRepositoryParams{InstallationID: installationID, ID: repoID}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("repository still activated after removal: %v", err)
+	}
+	job := h.queue()
+	wantSkip(t, h, job, fleet.SkipRepositoryInactive, "")
 }
 
 func TestDisconnectRefusedWhileRunnersLive(t *testing.T) {

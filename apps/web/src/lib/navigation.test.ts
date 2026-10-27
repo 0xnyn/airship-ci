@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { safeNext } from "./navigation.ts";
+import { isActiveSection, nextFor, safeNext } from "./navigation.ts";
 
 test("safeNext keeps local paths and rejects everything else", () => {
   assert.equal(
@@ -18,4 +18,25 @@ test("safeNext keeps local paths and rejects everything else", () => {
   ]) {
     assert.equal(safeNext(unsafe), "/");
   }
+});
+
+test("the post-sign-in destination keeps the query string", () => {
+  assert.equal(
+    nextFor("/acme/jobs", "?status=queued"),
+    "/acme/jobs?status=queued"
+  );
+  assert.equal(
+    nextFor("/acme/jobs", "status=queued"),
+    "/acme/jobs?status=queued"
+  );
+  assert.equal(nextFor("/acme/jobs", ""), "/acme/jobs");
+  assert.equal(nextFor("/acme/jobs", "?"), "/acme/jobs");
+});
+
+test("sections match the path case-insensitively and by prefix", () => {
+  assert.equal(isActiveSection("/ACME/jobs", "/acme", "/jobs"), true);
+  assert.equal(isActiveSection("/acme/jobs/123", "/acme", "/jobs"), true);
+  assert.equal(isActiveSection("/acme/jobsx", "/acme", "/jobs"), false);
+  assert.equal(isActiveSection("/ACME", "/acme", ""), true);
+  assert.equal(isActiveSection("/acme/jobs", "/acme", ""), false);
 });

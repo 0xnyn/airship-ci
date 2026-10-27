@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
@@ -116,7 +117,9 @@ func (h *handlers) connect(ctx context.Context, installationID int64, cloudName 
 		return db.CloudCredential{}, huma.Error422UnprocessableEntity("only aws is supported")
 	}
 	if err != nil {
-		return db.CloudCredential{}, huma.Error502BadGateway("could not verify the credentials with "+cloudName, err)
+		slog.WarnContext(ctx, "verify cloud credentials", slog.String("cloud", cloudName), slog.Any("error", err))
+
+		return db.CloudCredential{}, huma.Error502BadGateway("could not verify the credentials with " + cloudName + "; try again in a moment")
 	}
 
 	return row, nil

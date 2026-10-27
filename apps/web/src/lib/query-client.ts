@@ -6,6 +6,7 @@ import {
 import { toast } from "sonner";
 
 import { errorMessage, errorStatus } from "./api-errors";
+import { queryErrorToastId } from "./query-errors";
 
 const STALE_TIME_MS = 30_000;
 const UNAUTHORIZED = 401;
@@ -30,7 +31,11 @@ function makeQueryClient() {
     queryCache: new QueryCache({
       onError: async (error, query) => {
         if (errorStatus(error) !== UNAUTHORIZED) {
-          toast.error(errorMessage(error, "Request failed"));
+          // One toast per failing query, updated in place: pages poll, and
+          // an API outage must not stack a new toast every few seconds.
+          toast.error(errorMessage(error, "Request failed"), {
+            id: queryErrorToastId(query.queryKey),
+          });
           return;
         }
         // The session expired. Refetching the user makes the shell notice

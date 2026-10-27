@@ -71,11 +71,11 @@ func run(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	key, err := secrets.ParseKey(cfg.CredentialsKey)
+	keys, err := secrets.ParseKeys(cfg.CredentialsKey)
 	if err != nil {
 		return fmt.Errorf("CREDENTIALS_KEY: %w", err)
 	}
-	keyring, err := secrets.New(key)
+	keyring, err := secrets.New(keys...)
 	if err != nil {
 		return fmt.Errorf("CREDENTIALS_KEY: %w", err)
 	}
@@ -127,13 +127,21 @@ func run(ctx context.Context) error {
 		background.Go(func() { roles.Run(ctx, roleRefreshInterval) })
 	}
 
+	// Requests in flight when the signal arrives finish during Shutdown's
+	// drain instead of being cancelled with it; the background loops stop
+	// at once.
+	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelRequests()
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", strconv.Itoa(cfg.Port)),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       time.Minute,
-		IdleTimeout:       2 * time.Minute,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		// Long enough for the cache proxy binary to download on a slow
+		// link; everything else answers in milliseconds.
+		WriteTimeout: 5 * time.Minute,
+		IdleTimeout:  2 * time.Minute,
+		BaseContext:  func(net.Listener) context.Context { return requestCtx },
 	}
 
 	errs := make(chan error, 1)
@@ -154,6 +162,7 @@ func run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	err = srv.Shutdown(shutdownCtx)
+	cancelRequests()
 	background.Wait()
 	if err != nil {
 		return fmt.Errorf("shutdown: %w", err)

@@ -173,7 +173,11 @@ replicas can run at once: launchers claim runners with row locks, and the
 reconciler elects a leader through a Postgres advisory lock. Serve the
 dashboard (`apps/web`, `NEXT_PUBLIC_API_URL` set to the API) on the same site
 as the API, e.g. `app.example.com` and `api.example.com`, so the session
-cookie is sent.
+cookie is sent. `NEXT_PUBLIC_API_URL` is inlined when `next build` runs, so
+set it in the build environment; a production build with the `localhost`
+default fails on purpose. To rotate `CREDENTIALS_KEY`, list the new key
+first and the old one after a comma, deploy, reconnect each cloud, then
+drop the old key.
 
 The image embeds the cache proxy for `linux/amd64` and `linux/arm64`; a
 `go build` of the API alone leaves it out, and cache-enabled runners then

@@ -26,6 +26,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -69,6 +71,9 @@ type App struct {
 
 	mu     sync.Mutex
 	tokens map[int64]installationToken
+	// flights collapses concurrent refreshes of one installation's token
+	// into one POST; GitHub's secondary limits punish bursts of them.
+	flights singleflight.Group
 }
 
 type installationToken struct {
@@ -185,18 +190,31 @@ func (a *App) installationToken(ctx context.Context, id int64) (string, error) {
 		return cached.token, nil
 	}
 
-	var out struct {
-		Token     string    `json:"token"`
-		ExpiresAt time.Time `json:"expires_at"`
-	}
-	path := "/app/installations/" + strconv.FormatInt(id, 10) + "/access_tokens"
-	if err := a.appClient().do(ctx, http.MethodPost, path, nil, &out); err != nil {
-		return "", fmt.Errorf("create installation token: %w", err)
-	}
+	token, err, _ := a.flights.Do(strconv.FormatInt(id, 10), func() (any, error) {
+		a.mu.Lock()
+		cached, ok := a.tokens[id]
+		a.mu.Unlock()
+		if ok && a.now().Add(tokenRefreshMargin).Before(cached.expiresAt) {
+			return cached.token, nil // refreshed by the flight this one joined late
+		}
+		var out struct {
+			Token     string    `json:"token"`
+			ExpiresAt time.Time `json:"expires_at"`
+		}
+		path := "/app/installations/" + strconv.FormatInt(id, 10) + "/access_tokens"
+		if err := a.appClient().do(ctx, http.MethodPost, path, nil, &out); err != nil {
+			return "", fmt.Errorf("create installation token: %w", err)
+		}
+		a.mu.Lock()
+		a.tokens[id] = installationToken{token: out.Token, expiresAt: out.ExpiresAt}
+		a.mu.Unlock()
 
-	a.mu.Lock()
-	a.tokens[id] = installationToken{token: out.Token, expiresAt: out.ExpiresAt}
-	a.mu.Unlock()
+		return out.Token, nil
+	})
+	if err != nil {
+		return "", err //nolint:wrapcheck // wrapped inside the flight
+	}
+	out := struct{ Token string }{Token: token.(string)} //nolint:forcetypeassert // the flight returns a string
 
 	return out.Token, nil
 }

@@ -120,7 +120,7 @@ func (q *Queries) DeleteOrganizationIdlePoolsExcept(ctx context.Context, arg Del
 const detachPoolRunner = `-- name: DetachPoolRunner :one
 update runners set pool_id = null
 where id = $1 and pool_id is not null and trigger_job_id is null and state = 'running'
-returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
+returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket, reserved_at
 `
 
 // Takes an idle runner out of its pool before it is trimmed.
@@ -164,6 +164,7 @@ func (q *Queries) DetachPoolRunner(ctx context.Context, id uuid.UUID) (Runner, e
 		&i.ProvisionedAt,
 		&i.CacheTokenHash,
 		&i.CacheBucket,
+		&i.ReservedAt,
 	)
 	return i, err
 }
@@ -375,7 +376,7 @@ func (q *Queries) ListRepositoryIdlePools(ctx context.Context, repositoryID *int
 }
 
 const listSurplusPoolRunners = `-- name: ListSurplusPoolRunners :many
-select id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket from runners
+select id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket, reserved_at from runners
 where pool_id = $1 and trigger_job_id is null and state in ('pending', 'running')
 order by state = 'pending' desc, created_at desc
 limit $2
@@ -435,6 +436,7 @@ func (q *Queries) ListSurplusPoolRunners(ctx context.Context, arg ListSurplusPoo
 			&i.ProvisionedAt,
 			&i.CacheTokenHash,
 			&i.CacheBucket,
+			&i.ReservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -472,7 +474,7 @@ func (q *Queries) LockIdlePool(ctx context.Context, id uuid.UUID) (IdlePool, err
 
 const reserveIdleRunner = `-- name: ReserveIdleRunner :one
 update runners
-set trigger_job_id = $1
+set trigger_job_id = $1, reserved_at = now()
 where id = (
     select candidates.id from runners as candidates
     where candidates.pool_id = $2
@@ -482,7 +484,7 @@ where id = (
     limit 1
     for update skip locked
 )
-returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket
+returning id, installation_id, definition, source, scope, cloud, credential_id, region, spec, labels, attempt, pool_id, repository_id, repository_full_name, trigger_job_id, name, state, finish_reason, github_runner_id, instance_id, error, lease_expires_at, not_before, created_at, launching_at, running_at, busy_at, finished_at, instance_seen_at, instance_gone_at, terminate_requested_at, deregistered_at, provision_secret, provisioned_at, cache_token_hash, cache_bucket, reserved_at
 `
 
 type ReserveIdleRunnerParams struct {
@@ -532,12 +534,13 @@ func (q *Queries) ReserveIdleRunner(ctx context.Context, arg ReserveIdleRunnerPa
 		&i.ProvisionedAt,
 		&i.CacheTokenHash,
 		&i.CacheBucket,
+		&i.ReservedAt,
 	)
 	return i, err
 }
 
 const returnPoolRunners = `-- name: ReturnPoolRunners :execrows
-update runners set trigger_job_id = null
+update runners set trigger_job_id = null, reserved_at = null
 where trigger_job_id = $1 and pool_id is not null
     and state in ('pending', 'launching', 'running')
     and id <> $2

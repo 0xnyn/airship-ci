@@ -31,9 +31,13 @@ func cacheBucketName(installationID int64, region string) string {
 	return "airship-cache-" + region + "-" + hex.EncodeToString(sum[:6])
 }
 
-// ensuredBuckets remembers buckets confirmed this process lifetime, so
-// each launch does not repeat the bucket calls.
+// ensuredBuckets remembers buckets confirmed recently, per credential, so
+// each launch does not repeat the bucket calls. Entries expire so a bucket
+// deleted by hand, or a credential swapped for another account's, is
+// noticed.
 var ensuredBuckets sync.Map
+
+const ensuredBucketTTL = time.Hour
 
 // prepareCache makes sure the runner's bucket exists and gives the runner
 // a token its cache proxy will present for credentials.
@@ -46,8 +50,8 @@ func (s *Service) prepareCache(ctx context.Context, runner db.Runner, provider c
 		return nil, errors.New("PUBLIC_URL is not set, so runners cannot reach the control plane")
 	}
 	bucket := cacheBucketName(runner.InstallationID, runner.Region)
-	key := strconv.FormatInt(runner.InstallationID, 10) + "/" + runner.Region
-	if _, done := ensuredBuckets.Load(key); !done {
+	key := deref(runner.CredentialID).String() + "/" + runner.Region
+	if at, done := ensuredBuckets.Load(key); !done || time.Since(at.(time.Time)) > ensuredBucketTTL { //nolint:forcetypeassert // only times are stored
 		if err := cacher.EnsureCacheBucket(ctx, secret, runner.Region, bucket, s.cfg.CacheRetentionDays); err != nil {
 			return nil, err //nolint:wrapcheck // the provider's error names the bucket
 		}

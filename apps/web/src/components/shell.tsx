@@ -36,9 +36,11 @@ import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo } from "react";
+import { toast } from "sonner";
 
 import { $api, api } from "@/lib/api";
-import { errorStatus } from "@/lib/api-errors";
+import { errorMessage, errorStatus } from "@/lib/api-errors";
+import { isActiveSection, nextFor } from "@/lib/navigation";
 
 import { ModeToggle } from "./mode-toggle";
 import { NotFound } from "./not-found";
@@ -68,7 +70,8 @@ export function useSession() {
 
   useEffect(() => {
     if (signedOut) {
-      router.replace(`/sign-in?next=${encodeURIComponent(pathname)}` as Route);
+      const next = nextFor(pathname, window.location.search);
+      router.replace(`/sign-in?next=${encodeURIComponent(next)}` as Route);
     }
   }, [signedOut, router, pathname]);
 
@@ -157,8 +160,7 @@ function Sidebar({ me, org }: { me: Me; org: string }) {
         <ul className="flex gap-1 md:grid">
           {sections.map(({ href, icon: Icon, label }) => {
             const target = `${base}${href}`;
-            const active =
-              href === "" ? pathname === base : pathname.startsWith(target);
+            const active = isActiveSection(pathname, base, href);
             return (
               <li key={label}>
                 <Link
@@ -229,7 +231,11 @@ function UserMenu({ me }: { me: Me }) {
   const queryClient = useQueryClient();
 
   const signOut = async () => {
-    await api.POST("/v1/auth/sign-out");
+    const { error } = await api.POST("/v1/auth/sign-out");
+    if (error) {
+      toast.error(errorMessage(error, "Could not sign out"));
+      return;
+    }
     queryClient.clear();
     router.replace("/sign-in");
   };

@@ -37,7 +37,7 @@ import {
 } from "@airship/ui/components/table";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { ENV } from "@/env";
@@ -216,6 +216,13 @@ function CreateTokenDialog({
       await invalidatePath(queryClient, API_TOKENS);
     },
   });
+  // The dialog is closed programmatically once a key is created; drop the
+  // plaintext secret from the mutation's state as soon as that happens.
+  useEffect(() => {
+    if (!open) {
+      create.reset();
+    }
+  }, [open, create.reset]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

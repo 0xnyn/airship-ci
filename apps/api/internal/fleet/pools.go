@@ -253,6 +253,9 @@ func (s *Service) balancePool(ctx context.Context, poolID uuid.UUID, creds []db.
 		if err != nil {
 			return fmt.Errorf("lock pool: %w", err)
 		}
+		if _, err := q.LockInstallation(ctx, pool.InstallationID); err != nil {
+			return fmt.Errorf("lock installation: %w", err)
+		}
 		installation, err := q.GetInstallation(ctx, pool.InstallationID)
 		if err != nil {
 			return fmt.Errorf("get installation: %w", err)
@@ -310,7 +313,7 @@ func (s *Service) balancePool(ctx context.Context, poolID uuid.UUID, creds []db.
 		s.wakeLauncher()
 	}
 	for _, runner := range trim {
-		if err := s.reapIdleRunner(ctx, runner); err != nil {
+		if err := s.reapIdleRunner(ctx, runner, ReasonIdle); err != nil {
 			// Detached, so the idle reaper finishes the job.
 			s.log.WarnContext(ctx, "trim pool runner", slog.String("runner", runner.ID.String()), slog.Any("error", err))
 		}

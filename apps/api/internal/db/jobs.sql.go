@@ -50,7 +50,7 @@ func (q *Queries) GetJob(ctx context.Context, id int64) (Job, error) {
 
 const jobDailyStats = `-- name: JobDailyStats :many
 select
-    date_trunc('day', queued_at)::timestamptz as day,
+    date_trunc('day', queued_at, 'UTC')::timestamptz as day,
     count(*)::bigint as jobs,
     count(*) filter (where runner_id is not null)::bigint as airship_jobs,
     count(*) filter (where conclusion = 'failure')::bigint as failed,
@@ -243,6 +243,75 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 		arg.CursorQueuedAt,
 		arg.CursorID,
 		arg.Status,
+		arg.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Job{}
+	for rows.Next() {
+		var i Job
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstallationID,
+			&i.RepositoryID,
+			&i.RepositoryFullName,
+			&i.RunID,
+			&i.RunAttempt,
+			&i.WorkflowName,
+			&i.Name,
+			&i.HeadBranch,
+			&i.HtmlUrl,
+			&i.Labels,
+			&i.Status,
+			&i.Conclusion,
+			&i.HeadSha,
+			&i.Plan,
+			&i.SkipReason,
+			&i.SkipDetail,
+			&i.RunnerID,
+			&i.RunnerName,
+			&i.QueuedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSkippedQueuedJobs = `-- name: ListSkippedQueuedJobs :many
+select id, installation_id, repository_id, repository_full_name, run_id, run_attempt, workflow_name, name, head_branch, html_url, labels, status, conclusion, head_sha, plan, skip_reason, skip_detail, runner_id, runner_name, queued_at, started_at, completed_at, created_at, updated_at from jobs
+where installation_id = $1
+    and ($2::bigint is null or repository_id = $2::bigint)
+    and status = 'queued' and plan is null
+    and skip_reason = any($3::text[])
+order by queued_at
+limit $4
+`
+
+type ListSkippedQueuedJobsParams struct {
+	InstallationID int64
+	RepositoryID   *int64
+	Reasons        []string
+	MaxResults     int32
+}
+
+// Queued jobs that were skipped for a reason that no longer holds, such
+// as a cloud that has since been connected, so they can be planned again.
+func (q *Queries) ListSkippedQueuedJobs(ctx context.Context, arg ListSkippedQueuedJobsParams) ([]Job, error) {
+	rows, err := q.db.Query(ctx, listSkippedQueuedJobs,
+		arg.InstallationID,
+		arg.RepositoryID,
+		arg.Reasons,
 		arg.MaxResults,
 	)
 	if err != nil {

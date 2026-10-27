@@ -25,6 +25,7 @@ const maxPayloadBytes = 25 << 20
 type Handler interface {
 	HandleWorkflowJob(ctx context.Context, event github.WorkflowJobEvent) error
 	HandleInstallation(ctx context.Context, event github.InstallationEvent) error
+	HandleInstallationRepositories(ctx context.Context, event github.InstallationRepositoriesEvent) error
 	HandlePush(ctx context.Context, event github.PushEvent) error
 	HandleRepository(ctx context.Context, event github.RepositoryEvent) error
 }
@@ -35,7 +36,12 @@ func New(secret []byte, handler Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPayloadBytes))
 		if err != nil {
-			http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+			} else {
+				http.Error(w, "could not read payload", http.StatusBadRequest)
+			}
 
 			return
 		}
@@ -87,6 +93,13 @@ func dispatch(ctx context.Context, handler Handler, event string, body []byte) e
 		}
 
 		return handler.HandleInstallation(ctx, payload) //nolint:wrapcheck // logged with context above
+	case "installation_repositories":
+		var payload github.InstallationRepositoriesEvent
+		if err := json.Unmarshal(body, &payload); err != nil || payload.Installation.ID == 0 {
+			return errMalformed
+		}
+
+		return handler.HandleInstallationRepositories(ctx, payload) //nolint:wrapcheck // logged with context above
 	case "push":
 		var payload github.PushEvent
 		if err := json.Unmarshal(body, &payload); err != nil {
@@ -102,8 +115,7 @@ func dispatch(ctx context.Context, handler Handler, event string, body []byte) e
 
 		return handler.HandleRepository(ctx, payload) //nolint:wrapcheck // logged with context above
 	default:
-		// ping, installation_repositories and anything else Airship does not
-		// act on.
+		// ping and anything else Airship does not act on.
 		return errIgnored
 	}
 }

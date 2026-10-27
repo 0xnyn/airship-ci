@@ -26,8 +26,8 @@ func TestConfigFallbackAndSuffix(t *testing.T) {
 		t.Fatalf("first launch = %+v", first)
 	}
 	registered, _ := h.gh.RunnerByJIT(first.Boot.JITConfig)
-	if !slices.Contains(registered.Labels, suffixed) || !slices.Contains(registered.Labels, cpuLabel) {
-		t.Fatalf("registered labels = %v, want the suffixed and plain label", registered.Labels)
+	if !slices.Contains(registered.Labels, suffixed) || slices.Contains(registered.Labels, cpuLabel) {
+		t.Fatalf("registered labels = %v, want the suffixed label and not the plain one", registered.Labels)
 	}
 	if row := h.job(job.ID); row.Plan == nil {
 		t.Fatal("job plan was not stored")
@@ -250,6 +250,69 @@ func TestWarmPool(t *testing.T) {
 	h.refreshPools()
 	if idle, reserved := h.poolRunners(); idle != 0 || reserved != 1 {
 		t.Fatalf("after scaling to zero: idle = %d, reserved = %d; want 0 and 1", idle, reserved)
+	}
+}
+
+// A pool runner that has been warm for longer than the idle timeout is
+// not written off as idle the moment a job reserves it: its wait is
+// measured from the reservation. One that waits that long after being
+// reserved is.
+func TestWarmPoolReservationIsNotIdle(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.setConfig("main", poolConfig)
+	h.setConfig(headSHA, poolConfig)
+	h.refreshPools()
+	h.launch()
+	h.exec("update runners set running_at = now() - interval '1 hour'")
+	h.reconcile()
+	if idle, _ := h.poolRunners(); idle != 2 {
+		t.Fatalf("warm pool runners after an hour = %d, want 2", idle)
+	}
+
+	job := h.queue()
+	h.reconcile() // GitHub has not started the job on it yet
+	if idle, reserved := h.poolRunners(); idle != 2 || reserved != 1 {
+		t.Fatalf("after reserving: idle=%d reserved=%d, want the reservation kept", idle, reserved)
+	}
+	h.exec("update runners set reserved_at = now() - interval '1 hour' where trigger_job_id = $1", job.ID)
+	h.reconcile()
+	if idle, reserved := h.poolRunners(); idle != 2 || reserved != 0 {
+		t.Fatalf("after waiting an hour reserved: idle=%d reserved=%d, want the reserved runner reaped", idle, reserved)
+	}
+	if !slices.Contains(states(h.runners()), "finished:idle") {
+		t.Fatalf("runner states = %v, want one finished as idle", states(h.runners()))
+	}
+}
+
+// Idle pool runners are replaced halfway through the maximum lifetime,
+// before the machine's own deadline could cut a job short, and the pool
+// refills in the same pass.
+func TestWarmPoolRunnersAreRotated(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.setConfig("main", poolConfig)
+	h.setConfig(headSHA, poolConfig)
+	h.refreshPools()
+	launched := h.launch()
+	if len(launched) != 2 {
+		t.Fatalf("launched = %d, want 2", len(launched))
+	}
+	h.exec("update runners set running_at = now() - interval '3 hours'")
+	h.reconcile()
+	if idle, _ := h.poolRunners(); idle != 2 || len(h.aws.Instances()) != 2 {
+		t.Fatalf("pool runners after 3 hours = %d, want both kept", idle)
+	}
+	h.exec("update runners set running_at = now() - interval '5 hours'")
+	h.reconcile()
+	if got := states(h.runners()); !slices.Equal(got, []string{"finished:max_lifetime", "finished:max_lifetime", "pending", "pending"}) {
+		t.Fatalf("runner states after 5 hours = %v, want both retired and replaced", got)
+	}
+	if left := h.aws.Instances(); len(left) != 0 {
+		t.Fatalf("retired runners' instances not terminated: %+v", left)
+	}
+	if n := len(h.gh.Runners()); n != 0 {
+		t.Fatalf("retired runners still registered: %d", n)
 	}
 }
 
@@ -517,6 +580,46 @@ func TestOrganizationIdleRunners(t *testing.T) {
 	h.reconcile()
 	if n := len(h.gh.Runners()); n != 0 {
 		t.Fatalf("organization runners left registered: %d", n)
+	}
+}
+
+// A .cirun.global.yml that stops parsing keeps the organization's pools,
+// as a repository's file does: a typo must not drop warm capacity.
+func TestOrganizationConfigTypoKeepsPools(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.gh.AddRepository(installationID, github.Repository{ID: 77, FullName: "acme/.cirun", Private: true, DefaultBranch: "main"})
+	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, []byte(orgPoolConfig))
+	installation, err := h.q.GetInstallation(h.ctx, installationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.RefreshOrganizationConfig(h.ctx, installation); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := h.q.ListOrganizationIdlePools(h.ctx, installationID); err != nil || len(pools) != 2 {
+		t.Fatalf("organization pools = %d, %v", len(pools), err)
+	}
+
+	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, []byte("runners: [oops"))
+	if err := h.svc.RefreshOrganizationConfig(h.ctx, installation); err != nil {
+		t.Fatal(err)
+	}
+	pools, err := h.q.ListOrganizationIdlePools(h.ctx, installationID)
+	if err != nil || len(pools) != 2 {
+		t.Fatalf("organization pools after a typo = %d, want both kept", len(pools))
+	}
+	if row, _ := h.q.GetInstallation(h.ctx, installationID); row.OrgConfigError == nil {
+		t.Fatal("the typo was not recorded")
+	}
+
+	// Removing the file removes the pools.
+	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, nil)
+	if err := h.svc.RefreshOrganizationConfig(h.ctx, installation); err != nil {
+		t.Fatal(err)
+	}
+	if pools, _ := h.q.ListOrganizationIdlePools(h.ctx, installationID); len(pools) != 0 {
+		t.Fatalf("organization pools after removing the file = %d, want 0", len(pools))
 	}
 }
 

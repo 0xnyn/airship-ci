@@ -123,6 +123,12 @@ RUNNER_VERSION='{{.RunnerVersion}}'
 RUNNER_ARCH='{{.Arch}}'
 RUNNER_DIR=/opt/actions-runner
 
+# Package installs must never prompt, and must wait for the lock that
+# unattended-upgrades holds on a fresh image rather than fail on it.
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
+mkdir -p /etc/apt/apt.conf.d
+echo 'DPkg::Lock::Timeout "600";' > /etc/apt/apt.conf.d/90airship-lock
+
 id -u runner >/dev/null 2>&1 || useradd --create-home --shell /bin/bash runner
 echo 'runner ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/runner
 chmod 0440 /etc/sudoers.d/runner
@@ -132,7 +138,6 @@ getent group docker >/dev/null && usermod -aG docker runner
 # The runner definition asked for a GPU: make sure the NVIDIA driver is
 # there. Images that ship one (NVIDIA's AMIs) skip this.
 if ! command -v nvidia-smi >/dev/null 2>&1; then
-  export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq && apt-get install -y -qq ubuntu-drivers-common
   ubuntu-drivers install --gpgpu || ubuntu-drivers install || true
   modprobe nvidia || true
@@ -174,6 +179,7 @@ if (
     sleep 0.2
   done
   [ -s /etc/airship/cacheproxy-ca.pem ]
+  curl -fsS http://127.0.0.1:6420/healthz > /dev/null
   cp /etc/airship/cacheproxy-ca.pem /usr/local/share/ca-certificates/airship-cacheproxy.crt
   update-ca-certificates > /dev/null
   {
@@ -253,7 +259,10 @@ func Linux(boot cloud.Boot, arch string) (string, error) {
 var windowsTemplate = template.Must(template.New("windows").Parse(`<powershell>
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-# Hard deadline: shut down (and so terminate) even if the control plane is unreachable.
+$PSNativeCommandUseErrorActionPreference = $false
+# Any failure below powers the machine off (and so terminates it).
+trap { shutdown.exe /s /t 0 /c "Airship runner setup failed"; break }
+# Hard deadline: shut down even if the control plane is unreachable.
 shutdown.exe /s /t {{.DeadlineSeconds}} /c "Airship runner deadline"
 
 $dir = "{{.Path}}"
@@ -285,10 +294,14 @@ Set-ItemProperty $winlogon -Name AutoAdminLogon -Value "1" -Type String
 Set-ItemProperty $winlogon -Name DefaultUserName -Value $user -Type String
 Set-ItemProperty $winlogon -Name DefaultPassword -Value $password -Type String
 Set-ItemProperty $winlogon -Name AutoLogonCount -Value 1 -Type DWord
-$action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $dir\run.cmd --jitconfig $jit & shutdown.exe /s /t 0" -WorkingDirectory $dir
+# The scheduled deadline does not survive the reboot, and a pending one
+# would refuse it: cancel it here and arm it again at logon, before the
+# runner starts, so the task's time limit is not the only bound.
+$action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c shutdown.exe /s /t {{.DeadlineSeconds}} /c AirshipRunnerDeadline & $dir\run.cmd --jitconfig $jit & shutdown.exe /s /t 0" -WorkingDirectory $dir
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds {{.DeadlineSeconds}})
 Register-ScheduledTask -TaskName "AirshipRunner" -Action $action -Trigger $trigger -Settings $settings -User $user -Password $password -RunLevel Highest -Force | Out-Null
+shutdown.exe /a
 Restart-Computer -Force
 {{- else}}
 

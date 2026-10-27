@@ -21,14 +21,13 @@ import {
 import { Input } from "@airship/ui/components/input";
 import { Skeleton } from "@airship/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
 import { awsRegions } from "@/lib/labels";
-
 import { CodeBlock } from "./copy-button";
+import { ErrorRow } from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { CloudStatus } from "./status";
@@ -67,6 +66,12 @@ export function CloudPage() {
           {aws ? <CloudStatus cloud={aws} /> : null}
         </div>
         {clouds.isPending ? <Skeleton className="h-32" /> : null}
+        {clouds.isError ? (
+          <ErrorRow
+            error={clouds.error}
+            fallback="Could not load the cloud connection"
+          />
+        ) : null}
         {clouds.isSuccess && aws ? <Connected cloud={aws} /> : null}
         {clouds.isSuccess ? <ConnectForm existing={aws} /> : null}
       </section>
@@ -126,6 +131,13 @@ function ConnectForm({ existing }: { existing: Schemas["Cloud"] | undefined }) {
       await invalidatePath(queryClient, CLOUDS);
     },
   });
+  // The pasted key stays in the mutation's variables until it is reset;
+  // drop it as soon as the connection succeeded.
+  useEffect(() => {
+    if (connect.isSuccess) {
+      connect.reset();
+    }
+  }, [connect.isSuccess, connect.reset]);
 
   if (!isAdmin) {
     return existing ? null : (

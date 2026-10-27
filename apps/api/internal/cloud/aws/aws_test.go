@@ -67,12 +67,22 @@ func (f *fakeEC2) DescribeImages(_ context.Context, in *ec2.DescribeImagesInput,
 
 		return nil, &smithy.GenericAPIError{Code: "InvalidAMIID.NotFound"}
 	}
-	// An alias lookup: two Canonical images, the older listed first.
+	// An alias lookup: two Canonical images, the older listed first. The
+	// name filter must spell the architecture as Canonical does (amd64,
+	// arm64), or nothing matches, as on EC2.
 	arch := ec2types.ArchitectureValuesX8664
+	name := ""
 	for _, filter := range in.Filters {
-		if awssdk.ToString(filter.Name) == "architecture" {
+		switch awssdk.ToString(filter.Name) {
+		case "architecture":
 			arch = ec2types.ArchitectureValues(filter.Values[0])
+		case "name":
+			name = filter.Values[0]
 		}
+	}
+	canonical := map[ec2types.ArchitectureValues]string{ec2types.ArchitectureValuesX8664: "-amd64-server-", ec2types.ArchitectureValuesArm64: "-arm64-server-"}[arch]
+	if !strings.Contains(name, canonical) {
+		return &ec2.DescribeImagesOutput{}, nil
 	}
 
 	return &ec2.DescribeImagesOutput{Images: []ec2types.Image{
@@ -300,6 +310,21 @@ func TestLaunchErrorsAreClassified(t *testing.T) {
 		var launchErr *cloud.LaunchError
 		if !errors.As(err, &launchErr) || launchErr.Retryable != retryable {
 			t.Errorf("%s: retryable = %v, want %v", code, launchErr != nil && launchErr.Retryable, retryable)
+		}
+	}
+}
+
+// A call that never reached EC2 says nothing about the machine, so it is
+// retried rather than moving the job to its next fallback.
+func TestTransportErrorsAreRetryable(t *testing.T) {
+	t.Parallel()
+	for name, failure := range map[string]error{
+		"timeout":   context.DeadlineExceeded,
+		"operation": &smithy.OperationError{ServiceID: "EC2", OperationName: "RunInstances", Err: errors.New("dial tcp: i/o timeout")},
+	} {
+		_, err := newProvider(&fakeEC2{failures: []error{failure, failure}}).Launch(context.Background(), testSecret, testLaunch())
+		if err == nil || !cloud.IsRetryable(err) {
+			t.Errorf("%s: err = %v, want retryable", name, err)
 		}
 	}
 }

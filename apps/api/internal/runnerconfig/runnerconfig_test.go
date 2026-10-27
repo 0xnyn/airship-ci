@@ -272,6 +272,103 @@ runners:
 	}
 }
 
+// gpu is a flag whose value is a GPU name; explicit false and null turn
+// it off, as a Python truthiness check would.
+func TestGPUFlag(t *testing.T) {
+	for value, want := range map[string]bool{"nvidia-tesla-t4": true, "true": true, "false": false, "no": false, "null": false} {
+		f := mustParse(t, `
+runners:
+  - name: a
+    cloud: aws
+    instance_type: g4dn.xlarge
+    labels: [cirun-a]
+    gpu: `+value+`
+`)
+		if f.Runners[0].GPU != want {
+			t.Errorf("gpu: %s = %v, want %v", value, f.Runners[0].GPU, want)
+		}
+	}
+}
+
+// Volume settings EC2 would refuse are config errors, not failed launches.
+func TestDiskPerformanceRules(t *testing.T) {
+	cases := map[string]string{
+		"VolumeType: gp2\n          Iops: 3000":                             "Iops only applies to gp3",
+		"VolumeType: io1":                                                   "io1 volumes need Iops",
+		"VolumeType: gp3\n          Iops: 100":                              "between 3000 and 16000",
+		"VolumeType: gp3\n          Throughput: 100":                        "between 125 and 1000",
+		"VolumeType: gp3\n          Throughput: 1000":                       "needs Iops of at least 4000",
+		"VolumeType: gp3\n          Iops: 4000\n          Throughput: 1000": "",
+		"VolumeType: io2\n          Iops: 20000":                            "",
+	}
+	for disk, want := range cases {
+		_, err := Parse(RepoFile, []byte(`
+runners:
+  - name: a
+    cloud: aws
+    instance_type: c7i.large
+    labels: [cirun-a]
+    extra_config:
+      BlockDeviceMappings:
+        - `+disk+`
+`))
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%q: unexpected error %v", disk, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%q: error %v, want it to mention %q", disk, err, want)
+		}
+	}
+}
+
+// Schedule windows are read strictly: a trailing character in the time
+// is an error, and replicas cannot be left out.
+func TestIdleScheduleStrict(t *testing.T) {
+	for window, want := range map[string]string{
+		"{day: mon-fri, time: 9-17abc, replicas: 1}": "time must be a range",
+		"{day: mon-fri, time: 9-17}":                 "replicas is required",
+		"{day: mon-fri, time: 17-9, replicas: 1}":    "time must be a range",
+		"{day: mon-fri, time: 9-17, replicas: 1}":    "",
+	} {
+		_, err := Parse(RepoFile, []byte(`
+runners:
+  - name: a
+    cloud: aws
+    instance_type: c7i.large
+    labels: [cirun-a]
+    idle:
+      schedule:
+        - `+window+`
+`))
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: unexpected error %v", window, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: error %v, want it to mention %q", window, err, want)
+		}
+	}
+}
+
+// A file full of problems gets a bounded error, with no Go type names.
+func TestParseErrorIsBoundedAndPlain(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("runners:\n")
+	for i := range 40 {
+		fmt.Fprintf(&src, "  - name: r%d\n    cloud: aws\n    instance_type: c7i.large\n    labels: [cirun-a]\n    extra_config:\n      nope%d: 1\n", i, i)
+	}
+	_, err := Parse(RepoFile, []byte(src.String()))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(err.Error()) > 2000 || !strings.Contains(err.Error(), "more") {
+		t.Fatalf("error is %d bytes: %s", len(err.Error()), err)
+	}
+	_, err = Parse(RepoFile, []byte("runners:\n  - name: a\n    cloud: aws\n    instance_type: c7i.large\n    labels: [cirun-a]\n    extra_config:\n      BlockDeviceMappings: {VolumeSize: 1}\n"))
+	if err == nil || strings.Contains(err.Error(), "runnerconfig.") || !strings.Contains(err.Error(), "expected a list, not a mapping") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestOneLine(t *testing.T) {
 	cases := map[string]Variant{
 		"cirun-aws-t2-large-ubuntu2204--123":  {InstanceType: "t2.large", Image: "ubuntu2204", Arch: "x64"},
@@ -408,11 +505,14 @@ runners:
 	if strings.Join(order, ",") != "c7i.large,c7i.xlarge,c7g.large" {
 		t.Fatalf("order %v", order)
 	}
-	// The runner registers with the job's own suffixed label, so only jobs
-	// from the same run are handed to it.
+	// The runner registers with the job's own suffixed label and not the
+	// plain one, so only jobs from the same run are handed to it.
 	labels := strings.Join(plan[0].Labels, ",")
-	if labels != "self-hosted,x64,aws,cpu,cirun-runner,cirun-runner--12345" {
+	if labels != "self-hosted,x64,aws,cpu,cirun-runner--12345" {
 		t.Fatalf("labels %s", labels)
+	}
+	if plain := Plan([]string{"cirun-runner"}, candidates); strings.Join(plain[0].Labels, ",") != "self-hosted,x64,aws,cpu,cirun-runner" {
+		t.Fatalf("plain labels %v", plain[0].Labels)
 	}
 
 	// An arm64 job label rules out the x64 variants.

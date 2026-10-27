@@ -232,7 +232,7 @@ func (s *Service) credentialFor(ctx context.Context, runner db.Runner) (cloud.Pr
 	if err != nil {
 		return nil, nil, fmt.Errorf("get credential: %w", err)
 	}
-	secret, err := s.secrets.Open(cred.Secret)
+	secret, err := s.secrets.Open(cred.Secret, credentialContext(cred.InstallationID, cred.Cloud))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open credential: %w", err)
 	}

@@ -73,6 +73,19 @@ func (p *Provider) network(ctx context.Context, client EC2, scope string, m clou
 // ensureSecurityGroup finds or creates the runners' security group in a
 // VPC. It allows no inbound traffic; the default egress rule stays.
 func (p *Provider) ensureSecurityGroup(ctx context.Context, client EC2, vpcID string) (string, error) {
+	group, err := p.findOrCreateSecurityGroup(ctx, client, vpcID)
+	if errorCode(err) == "InvalidGroup.Duplicate" {
+		// Another launch created it a moment ago; one more look finds it.
+		group, err = p.findOrCreateSecurityGroup(ctx, client, vpcID)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	return group, nil
+}
+
+func (p *Provider) findOrCreateSecurityGroup(ctx context.Context, client EC2, vpcID string) (string, error) {
 	existing, err := client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
 		Filters: []ec2types.Filter{
 			{Name: awssdk.String("group-name"), Values: []string{SecurityGroupName}},
@@ -94,10 +107,6 @@ func (p *Provider) ensureSecurityGroup(ctx context.Context, client EC2, vpcID st
 			Tags:         []ec2types.Tag{{Key: awssdk.String("Name"), Value: awssdk.String(SecurityGroupName)}},
 		}},
 	})
-	if errorCode(err) == "InvalidGroup.Duplicate" {
-		// Another launch created it a moment ago.
-		return p.ensureSecurityGroup(ctx, client, vpcID)
-	}
 	if err != nil {
 		return "", fmt.Errorf("create security group: %w", err)
 	}

@@ -8,7 +8,7 @@ this project ran an agent in the customer's account instead, and the
 differences below are the result of moving to Cirun's.
 
 ```
-                 webhooks (workflow_job, push, installation, repository)
+           webhooks (workflow_job, push, installation, installation_repositories, repository)
    GitHub  ───────────────────────────────────────────►  Control plane
      ▲  ▲        REST: JIT configs, runner/job lookups,      ├─ api: webhooks, dashboard API, developer API, runner API
      │  │        file reads, redelivery, PRs on .cirun       ├─ launcher (every replica)
@@ -38,7 +38,8 @@ All Go code lives in `apps/api`.
   `cloud/fake` is what tests launch on.
 - `internal/runnerconfig` parses `.cirun.yml`, `.cirun.global.yml` and
   `.access.yml` (pure, no I/O).
-- `internal/secrets` seals cloud credentials under `CREDENTIALS_KEY`.
+- `internal/secrets` seals cloud credentials under `CREDENTIALS_KEY`, each
+  blob bound to its row; the variable may list several keys for rotation.
 - `cmd/cacheproxy` and `internal/cacheproxy` run on runner machines; see
   [caching.md](caching.md).
 - `internal/github` is a small GitHub App client.
@@ -56,7 +57,8 @@ pending ──claim──► launching ──RunInstances ok──► running �
 runner was needed), `idle` (online 10 minutes without a job),
 `launch_failed`, `lease_expired` (a launcher claimed it and died),
 `lost` (its instance vanished and GitHub never said the job ended),
-`max_lifetime` (8 hours), or `deleted` (the app was uninstalled).
+`max_lifetime` (8 hours, or an idle pool runner replaced halfway through
+them), or `deleted` (the app was uninstalled).
 
 Every transition is a conditional `UPDATE ... WHERE state = <expected>`, so
 concurrent webhooks, launcher passes and reconciler passes cannot apply a
@@ -86,7 +88,8 @@ transition twice or undo each other.
 - **Inventory.** The reconciler lists instances per (credential, region)
   by the `airship:installation` tag and compares them with the runners
   table: instances for finished or unknown runners are terminated, runners
-  whose instance disappeared are `lost` (and their job retried), and a
+  whose instance disappeared are `lost` (and their job retried), a
+  stopped instance counts as disappeared and is terminated too, and a
   runner whose lease expired but whose instance did launch is revived.
   Listing errors leave state alone: an instance missing from a failed
   list is never presumed gone.
@@ -104,9 +107,12 @@ transition twice or undo each other.
   runners register on the organization in a runner group of their own.
   Pool runners register with the definition's plain labels and have no
   trigger job; a queued job whose labels a pool's runners carry reserves
-  one instead of creating a runner, and the pool refills at once.
-  Usage-based pools stay warm for `duration` after one of their
-  definition's runners starts a job.
+  one instead of creating a runner, and the pool refills at once. A
+  reserved runner that gets no job within the idle timeout is reaped;
+  one that waited idle for half the maximum lifetime is retired and
+  replaced, so a job never lands on a machine about to hit its own
+  deadline. Usage-based pools stay warm for `duration` after one of
+  their definition's runners starts a job.
 
 ## What a job reads
 
@@ -121,20 +127,31 @@ transition twice or undo each other.
    the repository's and filtered by `.access.yml`; a broken `.access.yml`
    closes every organization runner.
 5. Each attempt needs the installation's connected cloud; without one the
-   job is skipped with `no_cloud` and retried when a cloud is connected.
+   job is skipped with `no_cloud`. Connecting a cloud, activating the
+   repository or unsuspending the installation plans the jobs skipped
+   for that reason again, after asking GitHub whether they are still
+   queued.
 
 ## Security model
 
 - **Credentials.** Access keys are verified with STS before they are stored,
   sealed with AES-256-GCM under `CREDENTIALS_KEY`, opened only for the
-  duration of a cloud call, and never returned by any endpoint. Disconnecting
-  a cloud is refused while runners launched with it are alive, because
-  without the key their instances could not be terminated.
+  duration of a cloud call, and never returned by any endpoint. A sealed
+  blob is bound to its row (installation and cloud, or runner), so it
+  cannot be moved and opened elsewhere. Disconnecting a cloud, or
+  replacing its key with one for another account, is refused while
+  runners launched with it are alive, because without the key their
+  instances could not be terminated; rotating a key within the account is
+  allowed. Disconnecting and creating runners take the installation lock,
+  so no runner can slip in between the check and the delete. Validation
+  errors never echo the value that failed, and upstream failures are
+  reported without GitHub's or the database's error text.
 - **Tenancy.** Every query is scoped by GitHub installation ID; instances
   are tagged and listed by it.
 - **Dashboard sessions.** GitHub OAuth, HttpOnly `SameSite=Lax` cookies,
   an Origin check on every write. Organization owners are admins, members
-  read-only, nobody else gets in; roles are re-checked hourly.
+  read-only, nobody else gets in; roles are re-checked hourly. While
+  GitHub has the app suspended the dashboard is read-only too.
 - **Developer API.** `asa_` bearer tokens, stored hashed, scoped to one
   installation. The `/api/v1` routes accept no session cookie.
 - **Runner API.** `asr_` cache tokens, one per cache-enabled runner, dead
@@ -178,30 +195,41 @@ Different, on purpose:
 
 ## What has run, and what has not
 
-- **A real GitHub job on a real runner through the cache proxy.** An
-  Ubuntu container built the way the Linux boot script builds a machine
-  (actions/runner 2.338.2, the cache proxy from this build, its CA in the
-  system store, the runner's `.env` pointing at the proxy) ran a
-  `workflow_dispatch` job on a private repository with a single-use JIT
-  registration. The runner connected to GitHub through the proxy; the job's
+- **The Linux boot script, unmodified, on a real runner with a real
+  GitHub job.** The script `ProvisionScript` renders (JIT config inline,
+  the cache section enabled) ran as-is in a fresh `ubuntu:22.04`
+  container, with only `shutdown` stubbed because a container cannot
+  power itself off. It installed its packages, fetched the cache proxy
+  from the API's asset endpoint, obtained a grant with its runner token,
+  put the proxy's CA in the system store, wrote the runner's `.env`,
+  started actions/runner 2.338.2 with the single-use JIT registration and
+  ran one `workflow_dispatch` job on a private repository. The job's
   steps saw `https_proxy`, `NODE_EXTRA_CA_CERTS` and `ACTIONS_CACHE_URL`;
-  `actions/cache/save@v4` and `actions/cache/restore@v4` saved 20 MB,
-  restored it by exact key and by `restore-keys` prefix with matching
-  checksums, and reported a miss for an unknown key. Every step succeeded.
-  The first run showed the runner's live-log websocket on the results host
-  being refused by the interceptor; upgrades are now relayed, and the rerun
-  was clean. The same proxy had already been driven by the `@actions/cache`
-  library directly with a 140 MB block upload.
+  `actions/cache/save@v4` saved 90 MB (a multipart upload from the staged
+  file), `actions/cache/restore@v4` restored it by exact key and by
+  `restore-keys` prefix with matching checksums, and two unknown keys
+  missed. Every step succeeded, the runner exited after its one job and
+  the script reached its shutdown. The API and the bucket were stand-ins
+  at the network edge: a small HTTP server answering the two endpoints
+  the script and the proxy call, and moto for S3 (the proxy's
+  `AIRSHIP_S3_ENDPOINT` override). An earlier run of the same job against
+  a hand-built container had shown the runner's live-log websocket on the
+  results host being refused by the interceptor; upgrades are now relayed.
+  The proxy had also been driven by the `@actions/cache` library directly
+  with a 140 MB block upload.
 - **The EC2 provider, cache bucket and federation grant** run against moto
   in CI (`TestAgainstEmulator`): request shapes, tags, the default VPC and
   security group, lifecycle rules, termination. moto does not model IAM,
   quotas, spot capacity or the boot script.
 - **Boot scripts.** The Linux script is checked with `bash -n` in tests and
-  its `.env` line executed; its cache section is what the container above
-  ran. Both Windows scripts (background and `run_as: interactive`) parse
-  cleanly under PowerShell 7.4.
-- **Not run:** a launch on real EC2 (no AWS account was available), and a
-  Windows machine. The first real deployment exercises exactly the
+  its `.env` line executed, and the rendered script is what the container
+  above ran. Both Windows scripts (background and `run_as: interactive`) are
+  parsed by PowerShell itself in tests when `pwsh` is on the path or
+  `AIRSHIP_PWSH` names one (checked with 7.4.6).
+- **Not run:** a launch on real EC2 (no AWS account was available; the
+  opt-in `TestAgainstLiveAWS` in `internal/cloud/aws` launches and
+  terminates one instance when `AIRSHIP_LIVE_AWS_*` credentials are set),
+  and a Windows machine. The first real deployment exercises exactly the
   `RunInstances` call moto accepted and the scripts above.
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.

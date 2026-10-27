@@ -231,7 +231,7 @@ minutes the scan deletes it as a leak.
 | Launch fails: *the image lacks … and has no apt-get* | A non-Debian image without `curl`, `git`, `sudo` or `tar` | Bake them in, or use a Debian or Ubuntu base |
 | Launch fails: *Network access is restricted and cannot be overridden at the sandbox level* | An allow list on Tier 1 or 2 | Remove `network_allow_list` / `domain_allow_list`, or move to Tier 3 |
 | Launch fails: *Organization doesn't have GPU credits* (or *spot GPU credits*) | No GPU credits in the wallet | Add credits, or drop `gpu` |
-| Launch fails: *Declarative builds are not available to your organization in region …* or *Snapshot … is not available in region …* | A dedicated region without builds, or a snapshot published elsewhere | Create the snapshot in that region, or use a shared region |
+| Launch fails: *Declarative builds are not available to your organization in region …*, *Snapshot … is not available in region …* or *No runners are configured in region … for sandbox class 'container'* | A dedicated region without builds, a snapshot published elsewhere, or a region that hosts no Linux sandboxes (ours hosts Windows only) | Create the snapshot in that region if it takes containers, or use a shared region |
 | Runner never registers, sandbox exists | Egress blocked by an allow list | Add GitHub's hosts to `domain_allow_list` |
 | `docker: true` but Docker is missing in the job | The daemon did not come up within a minute; the boot log says `docker unavailable` | The sandbox must be able to reach `download.docker.com`; check the allow list |
 | A job runs out of memory at `-j$(nproc)` | `nproc` is the host's | Pin the parallelism |

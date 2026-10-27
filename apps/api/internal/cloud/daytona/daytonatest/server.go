@@ -36,7 +36,9 @@ type Sandbox struct {
 	Executed []string
 	// Script is the boot script the provider wrote, decoded.
 	Script string
-	reads  int
+	// sessions are the toolbox process sessions created in the sandbox.
+	sessions map[string]bool
+	reads    int
 }
 
 // HTTPError is a response to fail a request with.
@@ -85,6 +87,10 @@ type Server struct {
 	FailToolbox bool
 	// FailLabels fails label replacements with a 500.
 	FailLabels bool
+	// BeforeFailedLabel, when set with FailLabels, runs on the sandbox
+	// (under the lock) before the failure is answered: a test stands in
+	// for another launcher finishing the boot meanwhile.
+	BeforeFailedLabel func(sb *Sandbox)
 	// PageSize is how many sandboxes a list page holds (default 200).
 	PageSize int
 
@@ -179,7 +185,7 @@ func (s *Server) find(idOrName string) *Sandbox {
 func (s *Server) create(name, target string, labels map[string]string, body map[string]any) *Sandbox {
 	s.nextID++
 	id := fmt.Sprintf("sbx-%08d-0000-4000-8000-%012d", s.nextID, s.nextID)
-	sb := &Sandbox{ID: id, Name: name, Target: target, State: "creating", Labels: copyMap(labels), CreatedAt: time.Now(), Body: body}
+	sb := &Sandbox{ID: id, Name: name, Target: target, State: "creating", Labels: copyMap(labels), CreatedAt: time.Now(), Body: body, sessions: map[string]bool{}}
 	if name == "" {
 		sb.Name = id
 	}
@@ -378,6 +384,9 @@ func (s *Server) sandbox(w http.ResponseWriter, r *http.Request, rest string) {
 	case sub == "labels" && r.Method == http.MethodPut:
 		s.Labels++
 		if s.FailLabels {
+			if s.BeforeFailedLabel != nil {
+				s.BeforeFailedLabel(sb)
+			}
 			fail(w, http.StatusInternalServerError, "Internal server error")
 
 			return
@@ -431,12 +440,12 @@ func (s *Server) toolbox(w http.ResponseWriter, r *http.Request, rest string) {
 			SessionID string `json:"sessionId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if sb.Labels["_session:"+body.SessionID] != "" {
+		if sb.sessions[body.SessionID] {
 			fail(w, http.StatusConflict, "session already exists")
 
 			return
 		}
-		sb.Labels["_session:"+body.SessionID] = "1"
+		sb.sessions[body.SessionID] = true
 		w.WriteHeader(http.StatusCreated)
 	case strings.HasPrefix(sub, "process/session/") && strings.HasSuffix(sub, "/exec") && r.Method == http.MethodPost:
 		var body struct {
@@ -447,7 +456,7 @@ func (s *Server) toolbox(w http.ResponseWriter, r *http.Request, rest string) {
 		writeJSON(w, http.StatusAccepted, map[string]any{"cmdId": fmt.Sprintf("cmd-%d", len(sb.Commands))})
 	case strings.HasPrefix(sub, "process/session/") && r.Method == http.MethodGet:
 		sessionID := strings.TrimPrefix(sub, "process/session/")
-		if sb.Labels["_session:"+sessionID] == "" {
+		if !sb.sessions[sessionID] {
 			fail(w, http.StatusNotFound, "session not found")
 
 			return

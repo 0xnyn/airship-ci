@@ -509,9 +509,21 @@ Different, on purpose:
   GPU credits, 400), and the dedicated region `us-west-4` (no image
   builds there, 403; a snapshot not published there, 400); each was
   classified permanent, and the runnerconfig now refuses both allow lists
-  at once, IPv6 CIDRs and over-long lists, as Daytona documents.
-  **Not run:** a GPU sandbox that actually started, and a sandbox on a
-  dedicated region.
+  at once, IPv6 CIDRs and over-long lists, as Daytona documents. A
+  snapshot Airship's key created itself from `ubuntu:22.04` (1 CPU, 2 GB,
+  5 GB) became active in about a minute and launched a sandbox in 5 s
+  that booted, ran as root with a one-CPU cgroup, and self-destructed;
+  creating a snapshot in `us-west-4` was refused (`No runners are
+  configured in region 'us-west-4' for sandbox class 'container'`), so
+  that region hosts no Linux sandbox for this organization. Racing eight
+  launches of one runner against the fake under the race detector found
+  that a late launcher's failed boot would delete a sandbox another
+  launcher had just finished booting; a failed boot now re-reads the
+  sandbox and, if it carries the boot label for this runner, returns it
+  as the launch's result instead.
+  **Not run:** a GPU sandbox that actually started (the organization has
+  no GPU credits), and a sandbox in a dedicated region (this
+  organization's hosts no containers).
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in

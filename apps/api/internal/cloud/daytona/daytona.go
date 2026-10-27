@@ -431,12 +431,18 @@ func (p *Provider) Launch(ctx context.Context, raw []byte, launch cloud.Launch) 
 		return sandbox.Id, nil // an earlier launch finished
 	}
 	if err := c.boot(ctx, sandbox, launch, script); err != nil {
-		// The sandbox is ours (ensure checked the label) and has no
-		// runner, so nothing is lost by removing it; a retry makes a new
-		// one. Best effort: whatever stays is removed by the scan once it
-		// is older than BootGrace, and by its TTL in any case.
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 		defer cancel()
+		// Another launcher racing on the same runner may have finished the
+		// boot meanwhile; its sandbox has a runner and must stay. This
+		// launch then succeeded by proxy.
+		if current, getErr := c.get(cleanupCtx, sandbox.Id); getErr == nil && current.Labels[LabelBoot] == BootStarted && current.Labels[LabelRunner] == launch.RunnerID {
+			return sandbox.Id, nil
+		}
+		// Otherwise the sandbox is ours (ensure checked the label) and has
+		// no runner, so nothing is lost by removing it; a retry makes a new
+		// one. Best effort: whatever stays is removed by the scan once it
+		// is older than BootGrace, and by its TTL in any case.
 		if deleteErr := c.delete(cleanupCtx, sandbox.Id); deleteErr != nil {
 			err = fmt.Errorf("%w (and deleting the sandbox failed: %w)", err, deleteErr)
 		}

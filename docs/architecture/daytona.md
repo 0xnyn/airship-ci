@@ -40,8 +40,65 @@ spot and non-spot, was refused for want of GPU credits (400), classified
 permanent. The organization's **dedicated region** `us-west-4` passed
 verification and refused both an image build (`Declarative builds are not
 available to your organization in region us-west-4`, 403) and a snapshot
-not published there (400), both permanent. A GPU sandbox has therefore
-never *started* for Airship; everything else has.
+not published there (400), both permanent; creating a snapshot there was
+refused too (`No runners are configured in region 'us-west-4' for sandbox
+class 'container'`), so this region hosts no Linux sandbox for this
+organization at all and the path could not be taken further. A snapshot created by Airship's own key from `ubuntu:22.04` (`POST
+/snapshots`, 1 CPU, 2 GB, 5 GB, active in about a minute) launched a
+sandbox in 5 s that booted as root with a one-CPU cgroup and
+self-destructed. A GPU sandbox has therefore never *started* for Airship,
+and no sandbox has run in a dedicated region; everything else has.
+
+---
+
+## Invariants this provider keeps
+
+These are the rules the rest of the control plane relies on (the general
+ones are in [`../architecture.md`](../architecture.md#invariants)); each
+is tested against the fake in CI and the marked ones were observed against
+Daytona itself.
+
+1. **One sandbox per runner, found by name.** The sandbox name is the
+   runner name, unique in the organization. Every launch looks the name up
+   first; a create that conflicts, times out or fails with a 5xx is
+   followed by another lookup. Eight launches of one runner racing on the
+   fake produce one sandbox and the same ID for every caller; a repeated
+   launch against Daytona returned the same sandbox, three times out of
+   three. *(observed)*
+2. **A sandbox the control plane did not label is never touched, and one
+   it labelled for another installation is never deleted.** Listing
+   filters on `airship-installation` and checks the label on each item;
+   `Terminate` reads the sandbox and refuses a wrong label. *(observed)*
+3. **No runner is started twice in one sandbox.** The session is read
+   before the start command is submitted, and the script itself takes a
+   lock directory before it does anything, before even arming its exit
+   trap, so a second start exits without stopping the first. The lock
+   directory was present, root-owned, in the snapshot sandbox. *(observed)*
+4. **The boot label is the last step of a launch and the only sign of a
+   runner.** A sandbox without it is a launch in progress for ten minutes
+   (twice the launcher's lease), then a leak the scan deletes. It is never
+   revived, because nothing will ever start in it.
+5. **Nothing from this provider is ambiguous.** A launch that cannot
+   finish deletes its sandbox and fails retryably. The control plane's
+   `launch_unconfirmed` path exists for clouds whose machines boot on their
+   own; a Daytona sandbox does not.
+6. **Every sandbox ends on its own.** The script stops PID 1 on every exit
+   path, the sandbox is created to delete itself on stop, the runner runs
+   under `timeout` at the maximum lifetime, and the sandbox's TTL is fifteen
+   minutes past that. Four sandboxes launched for real were all gone within
+   twenty seconds of their script ending. *(observed)*
+7. **Every call is bounded.** Thirty seconds per request, one minute per
+   list, four minutes to start (inside the launcher's lease), two minutes
+   at the HTTP client. A hung Daytona cannot stall the reconciler.
+8. **The API key never leaves the control plane.** It travels in one
+   request header to Daytona's API and to the toolbox proxy, is never
+   written into a sandbox, a log, an error or a response, and the dashboard
+   shows it masked to its first and last three characters.
+9. **What Daytona refuses, the definition cannot ask for.** Both allow lists
+   at once, an IPv6 CIDR, more than ten CIDRs or a hundred domains, spot
+   without a GPU, `latest` images, resources with a snapshot, Windows
+   images and `provision_via` are config errors before any launch, with
+   the message naming the field.
 
 ---
 
@@ -146,8 +203,11 @@ Every sandbox carries:
    `airship-boot: started`, retried three times on transport and 5xx
    errors since failing here throws a booting sandbox away.
 
-Any failure after step 2 deletes the sandbox (best effort, twenty seconds)
-and fails the launch; the error is retryable for transport, capacity, quota
+Any failure after step 2 first re-reads the sandbox: if it now carries the
+boot label for this runner, another launcher racing on the same runner
+finished the boot, and this launch returns that sandbox as its result.
+Otherwise it deletes the sandbox (best effort, twenty seconds) and fails
+the launch; the error is retryable for transport, capacity, quota
 and 5xx failures and permanent otherwise. Daytona reports a shape above
 your tier's per-sandbox maximum as a `400` whose message says `exceeds
 maximum allowed per sandbox`; that is permanent, where other `exceeds` and

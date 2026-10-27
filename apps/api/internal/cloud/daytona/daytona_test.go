@@ -471,3 +471,87 @@ func TestDescribeStates(t *testing.T) {
 		}
 	}
 }
+
+// Launchers on several replicas may launch the same runner at once (a lease
+// handed on after a crash, a retried call racing its predecessor). Whatever
+// the interleaving, there is one sandbox, every caller gets its ID, and the
+// boot ends labelled; the script's own lock keeps a second start from
+// registering twice.
+func TestConcurrentLaunchesShareOneSandbox(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.server.StartAfterReads = 2
+	l := testLaunch()
+	const callers = 8
+	ids := make(chan string, callers)
+	errs := make(chan error, callers)
+	for range callers {
+		go func() {
+			id, err := f.launch(l)
+			ids <- id
+			errs <- err
+		}()
+	}
+	var first string
+	for range callers {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent launch: %v", err)
+		}
+		id := <-ids
+		if first == "" {
+			first = id
+		}
+		if id != first {
+			t.Errorf("launches returned different sandboxes: %s and %s", first, id)
+		}
+	}
+	all := f.server.Sandboxes()
+	if len(all) != 1 || all[0].ID != first {
+		t.Fatalf("sandboxes = %+v, want exactly %s", all, first)
+	}
+	sb := f.server.Sandbox(first)
+	if sb.Labels[LabelBoot] != BootStarted || sb.Labels[LabelRunner] != runnerID || sb.State != "started" {
+		t.Errorf("after racing launches: %+v", sb)
+	}
+	if f.server.Deletes != 0 {
+		t.Errorf("a racing launch deleted the sandbox (%d deletes)", f.server.Deletes)
+	}
+	if len(sb.Commands) == 0 || len(sb.Commands) > callers {
+		t.Errorf("boot commands = %d", len(sb.Commands))
+	}
+	for _, c := range sb.Commands {
+		if c != sb.Commands[0] {
+			t.Errorf("racing launches started different commands: %q vs %q", c, sb.Commands[0])
+		}
+	}
+	// And once settled, a late launch is a pure lookup.
+	creates := f.server.Creates
+	if id, err := f.launch(l); err != nil || id != first || f.server.Creates != creates {
+		t.Errorf("late launch = %s, %v, creates %d -> %d", id, err, creates, f.server.Creates)
+	}
+}
+
+// A launch whose boot fails after another launcher of the same runner has
+// finished theirs must not delete the sandbox with the runner in it: it is
+// the launch's result.
+func TestFailedBootDefersToTheLauncherThatFinished(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.server.FailLabels = true
+	f.server.BeforeFailedLabel = func(sb *daytonatest.Sandbox) { sb.Labels[LabelBoot] = BootStarted }
+	l := testLaunch()
+	id, err := f.launch(l)
+	if err != nil || id == "" {
+		t.Fatalf("launch = %q, %v; want the sandbox the other launcher booted", id, err)
+	}
+	if f.server.Deletes != 0 || len(f.server.Sandboxes()) != 1 {
+		t.Errorf("deletes = %d, sandboxes = %d", f.server.Deletes, len(f.server.Sandboxes()))
+	}
+
+	// Without that other launcher the failed boot still cleans up.
+	g := newFixture(t)
+	g.server.FailLabels = true
+	if _, err := g.launch(l); err == nil || g.server.Deletes != 1 {
+		t.Errorf("unlabelled failure: err %v, deletes %d", err, g.server.Deletes)
+	}
+}

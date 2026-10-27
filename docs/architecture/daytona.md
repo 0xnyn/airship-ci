@@ -350,6 +350,22 @@ list, two minutes at the HTTP client.
 
 ---
 
+## Daytona features weighed and left out
+
+Each was read in the API (v0.226.1) and, where the organization allows,
+tried; none is used, for the reason given.
+
+| Feature | What it offers | Why Airship does not use it |
+| --- | --- | --- |
+| Webhooks (`sandbox.state.updated`, `sandbox.created`, snapshot and volume events, delivered through Svix) | A push when a sandbox changes state, instead of the inventory scan noticing | Endpoints are configured per organization in Svix's portal, not per API key, so Airship cannot register its own URL at connect time; the events carry only the state, which the scan already reads every cycle; and a push would add a second source of truth for runner state next to the lease and the list. This organization has webhooks uninitialized (`Webhook initialization status not found`). The two-minute instance grace is the cost of not having them |
+| Warm pools (`/warm-pools`: pre-started sandboxes of a snapshot per region) | A sandbox from a snapshot ready before the launch | The route answers `Cannot GET` on `app.daytona.io` for this organization, and Airship's own warm pool (`idle_pool`) already keeps registered runners waiting, which a pre-started sandbox without a runner would not be |
+| Secret vault (`secrets` on create: env var name to vault secret) | Credentials mounted as environment variables | The one credential a sandbox needs, the JIT config, is single-use and per launch; a vault entry per launch would be one more object to create and delete for no gain, and the toolbox write it replaces is already visible only to the key holder |
+| `kvm`, `linkedSandbox`, `outboundProxyUrl`, `networkBlockAll`, `public`, preview links, SSH access | Nested virtualization, sandbox-to-sandbox links, an egress proxy, no network at all, a public port, browser or SSH access to the sandbox | A runner needs outbound HTTPS to GitHub and nothing inbound; Docker runs in the privileged container without KVM. `networkBlockAll` is the one network control a Tier 1 or 2 organization could set and it would cut the runner off |
+| Audit logs (`/organizations/<id>/audit`) | Who did what to the organization | Daytona's dashboard shows them; Airship records its own events per runner |
+| Windows and `linux-vm` classes | Windows Server 2025 sandboxes, KVM Linux VMs | Gated by tier (Windows) or absent from the organization's class list (VMs); see the limits below |
+
+---
+
 ## Limits to check before you scale
 
 | Limit | Why it bites |

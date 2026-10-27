@@ -63,7 +63,7 @@ func TestConfigInvalid(t *testing.T) {
 	h := newHarness(t)
 	h.setConfig(headSHA, "runners:\n  - name: cpu\n    cloud: gcp\n")
 	job := h.queue()
-	wantSkip(t, h, job, "config_invalid", ".cirun.yml")
+	wantSkip(t, h, job, "config_invalid", "airship.yaml")
 }
 
 // A pull request, from a fork too, reads the file at its own commit, as
@@ -102,7 +102,7 @@ runners:
     gpu: nvidia-tesla-t4
     instance_type: g5.xlarge
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-gpu]
+    labels: [airship-gpu]
 `
 
 const accessConfig = `
@@ -120,8 +120,8 @@ access_control:
 func TestOrganizationRunnerAccess(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.gh.SetFile("acme/.cirun", "", runnerconfig.GlobalFile, []byte(globalConfig))
-	h.gh.SetFile("acme/.cirun", "", runnerconfig.AccessFile, []byte(accessConfig))
+	h.gh.SetFile("acme/.airship", "", runnerconfig.GlobalFile, []byte(globalConfig))
+	h.gh.SetFile("acme/.airship", "", runnerconfig.AccessFile, []byte(accessConfig))
 
 	cases := []struct {
 		name, event, actor string
@@ -141,7 +141,7 @@ func TestOrganizationRunnerAccess(t *testing.T) {
 			ID: run, RunAttempt: 1, Event: tc.event, Repository: github.Repository{ID: repoID},
 			HeadRepository: &github.Repository{ID: repoID}, Actor: &github.Actor{Login: tc.actor},
 		})
-		job := h.newJob("cirun-gpu")
+		job := h.newJob("airship-gpu")
 		job.RunID = run
 		h.event("queued", job, true)
 		row := h.job(job.ID)
@@ -162,15 +162,15 @@ func TestOrganizationRunnerAccess(t *testing.T) {
 	}
 }
 
-// A broken .access.yml closes organization runners rather than opening
+// A broken access.yaml closes organization runners rather than opening
 // them to every repository.
 func TestOrganizationAccessFailsClosed(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.gh.SetFile("acme/.cirun", "", runnerconfig.GlobalFile, []byte(globalConfig))
-	h.gh.SetFile("acme/.cirun", "", runnerconfig.AccessFile, []byte("version: 2\n"))
+	h.gh.SetFile("acme/.airship", "", runnerconfig.GlobalFile, []byte(globalConfig))
+	h.gh.SetFile("acme/.airship", "", runnerconfig.AccessFile, []byte("version: 2\n"))
 
-	job := h.queue("cirun-gpu")
+	job := h.queue("airship-gpu")
 	wantSkip(t, h, job, "unsatisfiable_labels", "closed")
 }
 
@@ -180,7 +180,7 @@ runners:
     cloud: aws
     instance_type: c7i.large
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-cpu]
+    labels: [airship-cpu]
     idle:
       replicas: 2
 `
@@ -438,7 +438,7 @@ func TestOneLineRunner(t *testing.T) {
 	h.setConfig(headSHA, "") // no config file anywhere
 	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, nil)
 
-	label := "cirun-aws-m7g-xlarge-ubuntu2404-spot--42"
+	label := "airship-aws-m7g-xlarge-ubuntu2404-spot--42"
 	h.queue(label)
 	launched := h.launch()
 	if len(launched) != 1 {
@@ -460,7 +460,7 @@ func TestOneLineRunnerForForks(t *testing.T) {
 	h.setRun("pull_request", 555, "mallory")
 	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, nil)
 
-	h.queue("cirun-aws-t3-large")
+	h.queue("airship-aws-t3-large")
 	if launched := h.launch(); len(launched) != 1 || launched[0].Launch.Machine.InstanceType != "t3.large" {
 		t.Fatalf("one-line launch for a fork = %+v", launched)
 	}
@@ -472,14 +472,14 @@ runners:
     cloud: aws
     instance_type: c7i.large
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-shared]
+    labels: [airship-shared]
     idle:
       replicas: 1
   - name: gpu
     cloud: aws
     instance_type: g5.xlarge
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-gpu]
+    labels: [airship-gpu]
     idle:
       replicas: 1
 `
@@ -495,19 +495,19 @@ access_control:
     policies: [ml]
 `
 
-// Idle runners in .cirun.global.yml register on the organization, each in
+// Idle runners in airship.global.yaml register on the organization, each in
 // a runner group limited to the activated repositories its policies allow,
 // and a job in such a repository takes one.
 func TestOrganizationIdleRunners(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.gh.AddRepository(installationID, github.Repository{ID: 77, FullName: "acme/.cirun", Private: true, DefaultBranch: "main"})
+	h.gh.AddRepository(installationID, github.Repository{ID: 77, FullName: "acme/.airship", Private: true, DefaultBranch: "main"})
 	h.gh.AddRepository(installationID, github.Repository{ID: 10, FullName: "acme/other", Private: true, DefaultBranch: "main"})
 	if _, err := h.q.ActivateRepository(h.ctx, db.ActivateRepositoryParams{ID: 10, InstallationID: installationID, FullName: "acme/other", Private: true, DefaultBranch: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, []byte(orgPoolConfig))
-	h.gh.SetFile("acme/.cirun", "main", runnerconfig.AccessFile, []byte(orgPoolAccess))
+	h.gh.SetFile("acme/.airship", "main", runnerconfig.GlobalFile, []byte(orgPoolConfig))
+	h.gh.SetFile("acme/.airship", "main", runnerconfig.AccessFile, []byte(orgPoolAccess))
 	h.gh.SetTeamMember("acme", "ml", "alice", true)
 	h.setConfig(headSHA, "")
 	h.gh.SetFile(repoName, headSHA, runnerconfig.RepoFile, nil)
@@ -552,7 +552,7 @@ func TestOrganizationIdleRunners(t *testing.T) {
 
 	// A job in an allowed repository takes the gpu pool runner, and the
 	// pool refills.
-	job := h.queue("cirun-gpu")
+	job := h.queue("airship-gpu")
 	var reserved int
 	if err := h.pool.QueryRow(h.ctx, "select count(*) from runners where trigger_job_id = $1 and pool_id is not null", job.ID).Scan(&reserved); err != nil {
 		t.Fatal(err)
@@ -583,13 +583,13 @@ func TestOrganizationIdleRunners(t *testing.T) {
 	}
 }
 
-// A .cirun.global.yml that stops parsing keeps the organization's pools,
+// An airship.global.yaml that stops parsing keeps the organization's pools,
 // as a repository's file does: a typo must not drop warm capacity.
 func TestOrganizationConfigTypoKeepsPools(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.gh.AddRepository(installationID, github.Repository{ID: 77, FullName: "acme/.cirun", Private: true, DefaultBranch: "main"})
-	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, []byte(orgPoolConfig))
+	h.gh.AddRepository(installationID, github.Repository{ID: 77, FullName: "acme/.airship", Private: true, DefaultBranch: "main"})
+	h.gh.SetFile("acme/.airship", "main", runnerconfig.GlobalFile, []byte(orgPoolConfig))
 	installation, err := h.q.GetInstallation(h.ctx, installationID)
 	if err != nil {
 		t.Fatal(err)
@@ -601,7 +601,7 @@ func TestOrganizationConfigTypoKeepsPools(t *testing.T) {
 		t.Fatalf("organization pools = %d, %v", len(pools), err)
 	}
 
-	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, []byte("runners: [oops"))
+	h.gh.SetFile("acme/.airship", "main", runnerconfig.GlobalFile, []byte("runners: [oops"))
 	if err := h.svc.RefreshOrganizationConfig(h.ctx, installation); err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +614,7 @@ func TestOrganizationConfigTypoKeepsPools(t *testing.T) {
 	}
 
 	// Removing the file removes the pools.
-	h.gh.SetFile("acme/.cirun", "main", runnerconfig.GlobalFile, nil)
+	h.gh.SetFile("acme/.airship", "main", runnerconfig.GlobalFile, nil)
 	if err := h.svc.RefreshOrganizationConfig(h.ctx, installation); err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +633,7 @@ runners:
     cloud: aws
     instance_type: t3.large
     machine_image: ami-0f9c44e98edf38a2b
-    labels: [cirun-win]
+    labels: [airship-win]
     extra_config:
       provision_via: pull_from_api
       run_as: interactive
@@ -643,7 +643,7 @@ runners:
       BlockDeviceMappings:
         - {DeviceName: /dev/sda1, VolumeSize: 120, VolumeType: gp3, Throughput: 500}
 `)
-	h.queue("cirun-win")
+	h.queue("airship-win")
 	launched := h.launch()
 	if len(launched) != 1 {
 		t.Fatalf("launches = %d", len(launched))

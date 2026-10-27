@@ -91,7 +91,7 @@ export function Teams() {
         To give someone access, add them to the GitHub organization. To let them
         change settings, make them an organization owner. Who may launch
         organization-wide runners is decided per repository in{" "}
-        <code className="font-mono">.access.yml</code>.
+        <code className="font-mono">access.yaml</code>.
       </p>
     </>
   );

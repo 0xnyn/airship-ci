@@ -1,8 +1,8 @@
-// Package runnerconfig parses runners-as-code: the .cirun.yml file in a
-// repository, and the organization-wide .cirun.global.yml and .access.yml
-// files in the organization's .cirun repository.
+// Package runnerconfig parses runners-as-code: the airship.yaml file in a
+// repository, and the organization-wide airship.global.yaml and access.yaml
+// files in the organization's .airship repository.
 //
-// The format is Cirun's: a list of runners, each with a cloud, machine
+// The format follows Cirun's model under Airship's names: a list of runners, each with a cloud, machine
 // shape and labels. List values for instance_type, machine_image, region
 // and preemptible describe fallbacks, tried in order when a launch fails.
 //
@@ -23,24 +23,28 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// File names and conventions, as Cirun defines them.
+// File names and conventions.
 const (
 	// RepoFile is read from the repository a job runs in.
-	RepoFile = ".cirun.yml"
+	RepoFile = "airship.yaml"
 	// GlobalRepo is the organization repository holding shared files.
-	GlobalRepo = ".cirun"
+	GlobalRepo = ".airship"
 	// GlobalFile defines runners every activated repository may use.
-	GlobalFile = ".cirun.global.yml"
+	GlobalFile = "airship.global.yaml"
 	// AccessFile restricts who may launch the global runners.
-	AccessFile = ".access.yml"
+	AccessFile = "access.yaml"
 	// LabelPrefix starts every label a config file defines. Only jobs that
 	// ask for such a label cause config files to be read, so ordinary jobs
 	// cost no GitHub API calls.
-	LabelPrefix = "cirun-"
+	LabelPrefix = "airship-"
 	// SuffixSeparator splits a runs-on label into the label a config file
 	// defines and a suffix, such as the run ID, that makes the runner unique
-	// to one workflow run: cirun-gpu--${{ github.run_id }}.
+	// to one workflow run: airship-gpu--${{ github.run_id }}.
 	SuffixSeparator = "--"
+	// ProductLabel is registered on every runner, as Cirun registers
+	// cirun.io, so a job can ask for any Airship runner alongside its
+	// config label.
+	ProductLabel = "airship"
 	// MaxFileBytes bounds every config file.
 	MaxFileBytes = 64 << 10
 )
@@ -83,7 +87,7 @@ const (
 
 var (
 	namePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
-	labelPattern       = regexp.MustCompile(`^cirun-[a-z0-9][a-z0-9._-]{0,62}$`)
+	labelPattern       = regexp.MustCompile(`^airship-[a-z0-9][a-z0-9._-]{0,62}$`)
 	jobLabelPattern    = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 	instancePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
 	amiPattern         = regexp.MustCompile(`^ami-[0-9a-f]{8,17}$`)
@@ -107,7 +111,7 @@ var (
 	gpuFamilyPattern = regexp.MustCompile(`^(g[0-9]|gr[0-9]|p[0-9]|inf[0-9]|trn[0-9]|dl[0-9])`)
 )
 
-// File is a parsed .cirun.yml or .cirun.global.yml.
+// File is a parsed airship.yaml or airship.global.yaml.
 type File struct {
 	Runners []Runner
 }

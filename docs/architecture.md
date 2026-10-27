@@ -3,7 +3,7 @@
 Airship runs GitHub Actions jobs on ephemeral machines in the customer's
 cloud account: EC2 instances on AWS, Compute Engine instances on Google
 Cloud, sandboxes in a Daytona organization. It holds the customer's
-credentials (sealed), reads `.cirun.yml`
+credentials (sealed), reads `airship.yaml`
 from activated repositories, and launches, watches and terminates
 instances itself. This is Cirun's model; the first version of this project
 ran an agent in the customer's account instead, and the differences below
@@ -13,7 +13,7 @@ are the result of moving to Cirun's.
            webhooks (workflow_job, push, installation, installation_repositories, repository)
    GitHub  ───────────────────────────────────────────►  Control plane
      ▲  ▲        REST: JIT configs, runner/job lookups,      ├─ api: webhooks, dashboard API, developer API, runner API
-     │  │        file reads, redelivery, PRs on .cirun       ├─ launcher (every replica)
+     │  │        file reads, redelivery, PRs on .airship       ├─ launcher (every replica)
      │  └────────────────────────────────────────────────────┤─ reconciler (one leader via advisory lock)
      │                                                        ├─ Postgres: the only state
      │ runner registers with its JIT config                   └─ Next.js dashboard
@@ -42,8 +42,8 @@ All Go code lives in `apps/api`.
   `daytona/daytonatest`, a fake of its API and of the toolbox API inside a
   sandbox); `cloud/bootscript` renders the Linux, Windows and Daytona boot
   scripts; `cloud/fake` is what fleet tests launch on.
-- `internal/runnerconfig` parses `.cirun.yml`, `.cirun.global.yml` and
-  `.access.yml` (pure, no I/O).
+- `internal/runnerconfig` parses `airship.yaml`, `airship.global.yaml` and
+  `access.yaml` (pure, no I/O).
 - `internal/secrets` seals cloud credentials under `CREDENTIALS_KEY`, each
   blob bound to its row; the variable may list several keys for rotation.
 - `cmd/cacheproxy` and `internal/cacheproxy` run on runner machines; see
@@ -269,8 +269,8 @@ once:
   with backoff. The reconciler also asks GitHub about jobs queued for 10
   minutes without news, two per installation per pass.
 - **Idle runners** are `idle_pools`, rebuilt from the default branch's
-  file on push (and hourly): a repository's `.cirun.yml` gives repository
-  pools, the organization's `.cirun.global.yml` organization pools whose
+  file on push (and hourly): a repository's `airship.yaml` gives repository
+  pools, the organization's `airship.global.yaml` organization pools whose
   runners register on the organization in a runner group of their own.
   Pool runners register with the definition's plain labels and have no
   trigger job; a queued job whose labels a pool's runners carry reserves
@@ -283,15 +283,15 @@ once:
 
 ## What a job reads
 
-1. Only jobs with a `cirun-` label cost anything; others are ignored.
+1. Only jobs with a `airship-` label cost anything; others are ignored.
 2. The repository must be activated (public ones with public access
    allowed): a config file never launches anything in a repository nobody
    activated.
-3. The run attempt is fetched to learn who started it, for `.access.yml`.
-   `.cirun.yml` is read at the job's commit.
+3. The run attempt is fetched to learn who started it, for `access.yaml`.
+   `airship.yaml` is read at the job's commit.
 4. One-line labels that no definition covers become runners of their own.
-   Organization runners from `.cirun/.cirun.global.yml` are tried after
-   the repository's and filtered by `.access.yml`; a broken `.access.yml`
+   Organization runners from `.airship/airship.global.yaml` are tried after
+   the repository's and filtered by `access.yaml`; a broken `access.yaml`
    closes every organization runner.
 5. Each attempt needs the installation's connected cloud; without one the
    job is skipped with `no_cloud`. Connecting a cloud, activating the
@@ -367,9 +367,9 @@ once:
 
 ## Differences from Cirun
 
-Kept: the file format and names, fallback and suffix rules, idle runners
+Kept: the file format (under Airship's names), fallback and suffix rules, idle runners
 per repository and per organization, organization runners with
-`.access.yml`, one-line labels (for forks too), files read at the job's
+`access.yaml`, one-line labels (for forks too), files read at the job's
 commit, `provision_via`, the developer API, Windows fields, S3-backed
 caching with one namespace per account bucket.
 
@@ -400,12 +400,16 @@ Different, on purpose:
   launches without the cache proxy (and records a warning). This matches Cirun, whose caching
   docs say auto mode is "Currently Linux runners on AWS only"; a Cloud
   Storage backing would be an addition, not parity.
-- **Product name.** Runners are named `airship-...`, instances are tagged
-  `airship:*`, the cache bucket is `airship-cache-*`, and the dashboard
-  says Airship. Everything a workflow or `.cirun.yml` touches is Cirun's.
+- **Names.** The file is `airship.yaml`, labels start with `airship-`,
+  the organization repository is `.airship` with `airship.global.yaml`;
+  runners are named `airship-...`, instances are tagged `airship:*`, the
+  cache bucket is `airship-cache-*`. Cirun's names (`.cirun.yml`, `cirun-`,
+  `.cirun`) are not read, so moving from Cirun is a rename. The fields,
+  semantics and the access file's format are the same, and the `/api/v1` developer
+  API answers cirun-py.
 - **Organization idle runners** register in a runner group per definition
   that is visible only to the activated repositories the definition's
-  `.access.yml` policies allow (Cirun's docs do not say how they are
+  `access.yaml` policies allow (Cirun's docs do not say how they are
   scoped). Per-person policy rules cannot apply to a runner booted before
   any job exists.
 - **`SubnetId`, `SecurityGroupIds`, `IamInstanceProfile`** in

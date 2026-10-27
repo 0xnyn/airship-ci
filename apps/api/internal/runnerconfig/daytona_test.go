@@ -18,7 +18,7 @@ runners:
     region: [eu, us]
     gpu: h100
     preemptible: [true, false]
-    labels: [cirun-sandbox]
+    labels: [airship-sandbox]
     extra_config:
       cache: true
       docker: true
@@ -52,7 +52,7 @@ runners:
   - name: a
     cloud: daytona
     instance_type: 2vcpu-4gb
-    labels: [cirun-a]
+    labels: [airship-a]
     extra_config: {domain_allow_list: "github.com, *.githubusercontent.com,GITHUB.com"}
 `).Runners[0].Daytona
 	if domains == nil || domains.DomainAllowList != "github.com,*.githubusercontent.com" || domains.NetworkAllowList != "" {
@@ -64,7 +64,7 @@ runners:
 
 	plain := mustParse(t, `
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a]}
 `).Runners[0]
 	v := plain.Variants[0]
 	if v.Region != "" || v.CPU != 2 || v.MemoryGB != 4 || v.Image != "" || v.Disk.SizeGB != DaytonaDefaultDiskGB || v.Disk.Type != "" || plain.Daytona != nil || plain.GPUType != "" {
@@ -72,13 +72,13 @@ runners:
 	}
 	aliased := mustParse(t, `
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: ubuntu2404, labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: ubuntu2404, labels: [airship-a]}
 `).Runners[0]
 	if aliased.Variants[0].Image != "ubuntu:24.04" {
 		t.Errorf("alias = %q", aliased.Variants[0].Image)
 	}
 	for _, image := range []string{"ubuntu:22.04", "debian:13-slim", "ghcr.io/acme/ci:v1.2.3", "localhost:5000/ci:dev", "ubuntu@sha256:" + strings.Repeat("ab", 32)} {
-		mustParse(t, "runners:\n  - {name: a, cloud: daytona, instance_type: 1vcpu-2gb, machine_image: "+image+", labels: [cirun-a]}\n")
+		mustParse(t, "runners:\n  - {name: a, cloud: daytona, instance_type: 1vcpu-2gb, machine_image: "+image+", labels: [airship-a]}\n")
 	}
 	if ArchForInstanceType(CloudDaytona, "8vcpu-16gb") != "x64" || HasGPU(CloudDaytona, "8vcpu-16gb") {
 		t.Error("daytona shapes are x64 and carry no GPU of their own")
@@ -89,103 +89,103 @@ func TestDaytonaRejects(t *testing.T) {
 	cases := map[string]struct{ src, want string }{
 		"shape or snapshot": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: "c7i.large!", labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: "c7i.large!", labels: [airship-a]}
 `, "not a sandbox shape"},
 		"shape too big": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 999vcpu-8gb, labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 999vcpu-8gb, labels: [airship-a]}
 `, "more than"},
 		"image without tag": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: ubuntu, labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: ubuntu, labels: [airship-a]}
 `, "with a tag or digest"},
 		"latest image": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: "ubuntu:latest", labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: "ubuntu:latest", labels: [airship-a]}
 `, "not latest"},
 		"ami on daytona": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: ami-0c55b159cbfafe1f0, labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: ami-0c55b159cbfafe1f0, labels: [airship-a]}
 `, "container image"},
 		"windows image": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: "mcr.microsoft.com/windows/servercore:ltsc2022", labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: "mcr.microsoft.com/windows/servercore:ltsc2022", labels: [airship-a]}
 `, "Windows sandboxes are not supported"},
 		"snapshot with image": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: ci-golden, machine_image: "ubuntu:22.04", labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: ci-golden, machine_image: "ubuntu:22.04", labels: [airship-a]}
 `, "fixes the image"},
 		"snapshot with disk": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: ci-golden, labels: [cirun-a], extra_config: {disk: 20}}
+  - {name: a, cloud: daytona, instance_type: ci-golden, labels: [airship-a], extra_config: {disk: 20}}
 `, "fixes the disk"},
 		"region": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, region: "US East", labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, region: "US East", labels: [airship-a]}
 `, "not a Daytona region"},
 		"gpu name": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, gpu: nvidia-tesla-t4, labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, gpu: nvidia-tesla-t4, labels: [airship-a]}
 `, "not a Daytona GPU type"},
 		"spot without gpu": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, preemptible: true, labels: [cirun-a]}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, preemptible: true, labels: [airship-a]}
 `, "GPU sandboxes only"},
 		"provision_via": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {provision_via: pull_from_api}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {provision_via: pull_from_api}}
 `, "provision_via is not supported on daytona"},
 		"windows settings": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {run_as: interactive}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {run_as: interactive}}
 `, "Windows settings do not apply"},
 		"aws key": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {SubnetId: subnet-0123456789abcdef0}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {SubnetId: subnet-0123456789abcdef0}}
 `, "SubnetId is an AWS setting; this runner's cloud is daytona"},
 		"gcp key": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {project_id: acme-ci-123456}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {project_id: acme-ci-123456}}
 `, "project_id is a GCP setting; this runner's cloud is daytona"},
 		"daytona key on aws": {`
 runners:
-  - {name: a, cloud: aws, instance_type: c7i.large, labels: [cirun-a], extra_config: {docker: true}}
+  - {name: a, cloud: aws, instance_type: c7i.large, labels: [airship-a], extra_config: {docker: true}}
 `, "docker is a Daytona setting; this runner's cloud is aws"},
 		"daytona key on gcp": {`
 runners:
-  - {name: a, cloud: gcp, instance_type: e2-medium, labels: [cirun-a], extra_config: {disk: 20}}
+  - {name: a, cloud: gcp, instance_type: e2-medium, labels: [airship-a], extra_config: {disk: 20}}
 `, "disk is a Daytona setting; this runner's cloud is gcp"},
 		"disk size": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {disk: 99999}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {disk: 99999}}
 `, "disk must be between"},
 		"volume mount": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {volumes: [{volume: v, mount_path: "relative/path"}]}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {volumes: [{volume: v, mount_path: "relative/path"}]}}
 `, "mount_path must be an absolute path"},
 		"volume twice": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {volumes: [{volume: v, mount_path: /mnt/a}, {volume: w, mount_path: /mnt/a}]}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {volumes: [{volume: v, mount_path: /mnt/a}, {volume: w, mount_path: /mnt/a}]}}
 `, "mounted twice"},
 		"cidr": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {network_allow_list: "github.com"}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {network_allow_list: "github.com"}}
 `, "not an IPv4 CIDR"},
 		"domain": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {domain_allow_list: "http://github.com"}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {domain_allow_list: "http://github.com"}}
 `, "not a domain"},
 		"both allow lists": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {network_allow_list: "140.82.112.0/20", domain_allow_list: "github.com"}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {network_allow_list: "140.82.112.0/20", domain_allow_list: "github.com"}}
 `, "not both"},
 		"ipv6 cidr": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {network_allow_list: "2606:50c0::/32"}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {network_allow_list: "2606:50c0::/32"}}
 `, "IPv4 CIDR"},
 		"too many cidrs": {`
 runners:
-  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [cirun-a], extra_config: {network_allow_list: "10.0.0.0/24,10.0.1.0/24,10.0.2.0/24,10.0.3.0/24,10.0.4.0/24,10.0.5.0/24,10.0.6.0/24,10.0.7.0/24,10.0.8.0/24,10.0.9.0/24,10.0.10.0/24"}}
+  - {name: a, cloud: daytona, instance_type: 2vcpu-4gb, labels: [airship-a], extra_config: {network_allow_list: "10.0.0.0/24,10.0.1.0/24,10.0.2.0/24,10.0.3.0/24,10.0.4.0/24,10.0.5.0/24,10.0.6.0/24,10.0.7.0/24,10.0.8.0/24,10.0.9.0/24,10.0.10.0/24"}}
 `, "at most 10 entries"},
 	}
 	for name, tc := range cases {
@@ -204,26 +204,26 @@ runners:
 func TestDaytonaLabels(t *testing.T) {
 	f := mustParse(t, `
 runners:
-  - {name: box, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: "ghcr.io/acme/ci:1", labels: [cirun-box]}
-  - {name: gpu, cloud: daytona, instance_type: 2vcpu-4gb, gpu: H100, labels: [cirun-gpu]}
+  - {name: box, cloud: daytona, instance_type: 2vcpu-4gb, machine_image: "ghcr.io/acme/ci:1", labels: [airship-box]}
+  - {name: gpu, cloud: daytona, instance_type: 2vcpu-4gb, gpu: H100, labels: [airship-gpu]}
 `)
 	var candidates []Candidate
 	for _, r := range f.Runners {
 		candidates = append(candidates, Candidate{Source: SourceRepository, Runner: r})
 	}
-	attempts := Plan([]string{"self-hosted", "linux", "x64", "daytona", "cirun-box"}, candidates)
+	attempts := Plan([]string{"self-hosted", "linux", "x64", "daytona", "airship-box"}, candidates)
 	if len(attempts) != 1 || attempts[0].Runner.Name != "box" {
 		t.Fatalf("linux box: %+v", attempts)
 	}
-	for _, want := range []string{"self-hosted", "x64", "daytona", "cpu", "cirun-box"} {
+	for _, want := range []string{"self-hosted", "x64", "daytona", "cpu", "airship-box"} {
 		if !contains(attempts[0].Labels, want) {
 			t.Errorf("labels %v lack %s", attempts[0].Labels, want)
 		}
 	}
-	if attempts := Plan([]string{"windows", "cirun-box"}, candidates); len(attempts) != 0 {
+	if attempts := Plan([]string{"windows", "airship-box"}, candidates); len(attempts) != 0 {
 		t.Errorf("a windows job matched a daytona runner: %+v", attempts)
 	}
-	if attempts := Plan([]string{"gpu", "cirun-gpu"}, candidates); len(attempts) != 1 || !contains(attempts[0].Labels, "gpu") {
+	if attempts := Plan([]string{"gpu", "airship-gpu"}, candidates); len(attempts) != 1 || !contains(attempts[0].Labels, "gpu") {
 		t.Errorf("gpu: %+v", attempts)
 	}
 }

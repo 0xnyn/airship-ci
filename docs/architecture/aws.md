@@ -212,7 +212,7 @@ a quarter MiB/s of throughput per IOPS.
 a Docker build, a large cache restore, a monorepo checkout — gp3's default
 125 MiB/s is usually the ceiling you are hitting, not the network and not
 the CPU. `VolumeType: gp3`, `Iops: 6000`, `Throughput: 1000` is the single
-highest-value line in most `.cirun.yml` files.
+highest-value line in most `airship.yaml` files.
 
 ---
 
@@ -368,5 +368,5 @@ minutes of download into seconds.
   including why a launch failed or why a cache was unavailable.
 
 Regions are yours to choose, per runner definition, so data residency is a
-`region:` line in `.cirun.yml`. The control plane stores job metadata only;
+`region:` line in `airship.yaml`. The control plane stores job metadata only;
 nothing from inside a job leaves your account unless your job sends it.

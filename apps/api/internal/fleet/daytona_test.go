@@ -14,7 +14,7 @@ runners:
     instance_type: 4vcpu-8gb
     machine_image: "ghcr.io/acme/ci:2026.10"
     region: eu
-    labels: [cirun-box]
+    labels: [airship-box]
     extra_config:
       docker: true
       disk: 20
@@ -26,7 +26,7 @@ runners:
     instance_type: ci-golden
     gpu: H100
     preemptible: true
-    labels: [cirun-golden]
+    labels: [airship-golden]
 `
 
 // A Daytona definition launches a sandbox shaped as the config says, in
@@ -40,8 +40,8 @@ func TestDaytonaRunnersLaunchAsSandboxes(t *testing.T) {
 	h.connectDaytona("us")
 	h.setConfig(headSHA, daytonaConfig)
 
-	h.queue("cirun-box")
-	h.queue("cirun-golden")
+	h.queue("airship-box")
+	h.queue("airship-golden")
 	if _, err := h.svc.LaunchOnce(h.ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestDaytonaRunnersLaunchAsSandboxes(t *testing.T) {
 		t.Errorf("golden launch = %+v, machine %+v, daytona %+v", golden, golden.Machine, g)
 	}
 	boxRunner, _ := h.gh.RunnerByJIT(box.Boot.JITConfig)
-	for _, want := range []string{"self-hosted", "x64", "daytona", "cpu", "cirun-box"} {
+	for _, want := range []string{"self-hosted", "x64", "daytona", "cpu", "airship-box"} {
 		if !slices.Contains(boxRunner.Labels, want) {
 			t.Errorf("registered labels %v lack %s", boxRunner.Labels, want)
 		}

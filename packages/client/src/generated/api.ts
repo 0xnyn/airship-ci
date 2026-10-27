@@ -10,7 +10,7 @@ export interface paths {
             cookie?: never;
         };
         /** Fetch a runner's boot script (provision_via: pull_from_api) */
-        get: operations["cirunRunnerProvision"];
+        get: operations["compatRunnerProvision"];
         put?: never;
         post?: never;
         delete?: never;
@@ -26,10 +26,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the organization's .access.yml (Cirun-compatible) */
-        get: operations["cirunGetAccessControl"];
-        /** Open a pull request changing .access.yml (Cirun-compatible) */
-        put: operations["cirunUpdateAccessControl"];
+        /** Read the organization's access.yaml (Cirun-compatible) */
+        get: operations["compatGetAccessControl"];
+        /** Open a pull request changing access.yaml (Cirun-compatible) */
+        put: operations["compatUpdateAccessControl"];
         post?: never;
         delete?: never;
         options?: never;
@@ -45,10 +45,10 @@ export interface paths {
             cookie?: never;
         };
         /** List connected clouds (Cirun-compatible) */
-        get: operations["cirunListClouds"];
+        get: operations["compatListClouds"];
         put?: never;
         /** Connect a cloud (Cirun-compatible) */
-        post: operations["cirunCloudConnect"];
+        post: operations["compatCloudConnect"];
         delete?: never;
         options?: never;
         head?: never;
@@ -63,10 +63,10 @@ export interface paths {
             cookie?: never;
         };
         /** List repositories (Cirun-compatible) */
-        get: operations["cirunListRepositories"];
+        get: operations["compatListRepositories"];
         put?: never;
         /** Activate or deactivate a repository (Cirun-compatible) */
-        post: operations["cirunSetRepository"];
+        post: operations["compatSetRepository"];
         delete?: never;
         options?: never;
         head?: never;
@@ -598,7 +598,7 @@ export interface components {
         AccessControlFile: {
             /** @description The file's content */
             access_yml: components["schemas"]["AccessDocument"];
-            /** @description Whether the .cirun repository has an .access.yml */
+            /** @description Whether the .airship repository has an access.yaml */
             found: boolean;
         };
         AccessControlUpdate: {
@@ -1040,15 +1040,15 @@ export interface components {
             type: "Organization" | "User";
         };
         OrganizationRunnerConfig: {
-            /** @description Whether the organization has a .cirun.global.yml */
+            /** @description Whether the organization has an airship.global.yaml */
             found: boolean;
             /** @description Why the files cannot be used */
             problem: string | null;
-            /** @description Whether .access.yml limits who can use the runners */
+            /** @description Whether access.yaml limits who can use the runners */
             restricted: boolean;
             /** @description Organization runner definitions */
             runners: components["schemas"]["ConfigRunner"][] | null;
-            /** @description Blob SHA of .cirun.global.yml */
+            /** @description Blob SHA of airship.global.yaml */
             sha: string | null;
         };
         Overview: {
@@ -1130,7 +1130,7 @@ export interface components {
             mode: "fixed" | "schedule" | "usage";
             /** @description Runner definition name */
             name: string;
-            /** @description Repository whose .cirun.yml defines it, or the organization */
+            /** @description Repository whose airship.yaml defines it, or the organization */
             repository: string;
             /**
              * Format: int32
@@ -1154,7 +1154,7 @@ export interface components {
         Repository: {
             /** @description Whether the app can still access the repository */
             accessible: boolean;
-            /** @description Whether its .cirun.yml launches runners */
+            /** @description Whether its airship.yaml launches runners */
             activated: boolean;
             /**
              * Format: date-time
@@ -1163,7 +1163,7 @@ export interface components {
             activatedAt: string | null;
             /** @description Serve jobs while the repository is public */
             allowPublic: boolean;
-            /** @description The default branch's .cirun.yml as last read; absent until activated */
+            /** @description The default branch's airship.yaml as last read; absent until activated */
             config?: components["schemas"]["ConfigState"];
             /** @description Branch idle runner config is read from */
             defaultBranch: string;
@@ -1193,7 +1193,7 @@ export interface components {
             };
             /** @description Repository name, with or without the organization */
             repository: string;
-            /** @description Runner names from .cirun.global.yml */
+            /** @description Runner names from airship.global.yaml */
             resources: string[] | null;
             /** @description Repository roles allowed */
             roles?: string[] | null;
@@ -1345,7 +1345,7 @@ export interface components {
              * @description Which file this is
              * @enum {string}
              */
-            file: ".cirun.yml" | ".cirun.global.yml" | ".access.yml";
+            file: "airship.yaml" | "airship.global.yaml" | "access.yaml";
         };
     };
     responses: never;
@@ -1356,7 +1356,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    cirunRunnerProvision: {
+    compatRunnerProvision: {
         parameters: {
             query: {
                 /** @description The runner's name, from the instance's Name tag */
@@ -1389,7 +1389,7 @@ export interface operations {
             };
         };
     };
-    cirunGetAccessControl: {
+    compatGetAccessControl: {
         parameters: {
             query?: never;
             header?: never;
@@ -1418,7 +1418,7 @@ export interface operations {
             };
         };
     };
-    cirunUpdateAccessControl: {
+    compatUpdateAccessControl: {
         parameters: {
             query?: never;
             header?: never;
@@ -1451,7 +1451,7 @@ export interface operations {
             };
         };
     };
-    cirunListClouds: {
+    compatListClouds: {
         parameters: {
             query?: never;
             header?: never;
@@ -1480,7 +1480,7 @@ export interface operations {
             };
         };
     };
-    cirunCloudConnect: {
+    compatCloudConnect: {
         parameters: {
             query?: never;
             header?: never;
@@ -1513,7 +1513,7 @@ export interface operations {
             };
         };
     };
-    cirunListRepositories: {
+    compatListRepositories: {
         parameters: {
             query?: never;
             header?: never;
@@ -1542,7 +1542,7 @@ export interface operations {
             };
         };
     };
-    cirunSetRepository: {
+    compatSetRepository: {
         parameters: {
             query?: never;
             header?: never;

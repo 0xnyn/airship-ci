@@ -33,11 +33,11 @@ const (
 	repoID         = int64(9)
 	repoName       = "acme/widgets"
 	headSHA        = "head0000"
-	cpuLabel       = "cirun-cpu"
+	cpuLabel       = "airship-cpu"
 	region         = "us-east-1"
 )
 
-// baseConfig is the repository's .cirun.yml in most tests: one runner with
+// baseConfig is the repository's airship.yaml in most tests: one runner with
 // two instance types to fall back through.
 const baseConfig = `
 runners:
@@ -45,7 +45,7 @@ runners:
     cloud: aws
     instance_type: [c7i.large, m7i.large]
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-cpu]
+    labels: [airship-cpu]
     extra_config:
       env_vars:
         GREETING: hello

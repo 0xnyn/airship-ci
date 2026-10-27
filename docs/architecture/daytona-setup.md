@@ -129,8 +129,8 @@ sandboxes could not be deleted.
 ## Step 6 — Activate repositories and commit a config
 
 Activation works exactly as on the other clouds: **Repositories →** toggle
-on, public repositories need the separate public-access choice, and a
-`.cirun.yml` in a repository nobody activated launches nothing.
+on, public repositories need the separate public-access choice, and an
+`airship.yaml` in a repository nobody activated launches nothing.
 
 ```yaml
 runners:
@@ -139,7 +139,7 @@ runners:
     instance_type: [4vcpu-8gb, 2vcpu-4gb]    # shapes, tried in order
     machine_image: ubuntu2404                # or any image with a tag or digest
     region: us
-    labels: [cirun-build]
+    labels: [airship-build]
     extra_config:
       disk: 10
       docker: true                           # jobs that use containers
@@ -147,20 +147,20 @@ runners:
   - name: golden
     cloud: daytona
     instance_type: ci-golden                 # a snapshot: image and size are its own
-    labels: [cirun-golden]
+    labels: [airship-golden]
 
   - name: gpu
     cloud: daytona
     instance_type: 8vcpu-32gb
     gpu: H100
     preemptible: true                        # spot: GPU sandboxes only
-    labels: [cirun-gpu]
+    labels: [airship-gpu]
 ```
 
 ```yaml
 jobs:
   test:
-    runs-on: cirun-build--${{ github.run_id }}
+    runs-on: airship-build--${{ github.run_id }}
 ```
 
 Three Daytona-specific notes:
@@ -183,7 +183,7 @@ Three Daytona-specific notes:
 | Airship → **Jobs** | The job queued within a second or two, with its planned shape |
 | Airship → **Runners** | `pending → launching → running → busy`, instance ID the sandbox's ID |
 | Daytona dashboard → Sandboxes | One sandbox named after the runner, labelled `airship-installation`, `airship-runner-id`, `airship-repository`, `airship-boot: started` |
-| GitHub → the job log | `Machine name` is the sandbox ID; labels `self-hosted`, `x64`, `daytona`, `cpu`, `cirun-build--…` |
+| GitHub → the job log | `Machine name` is the sandbox ID; labels `self-hosted`, `x64`, `daytona`, `cpu`, `airship-build--…` |
 | Daytona dashboard after the job | Gone. Not stopped: deleted |
 | Airship → **Events** | Every launch failure and degradation, with Daytona's own message |
 

@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-// Organization runners: idle pools from .cirun.global.yml register on the
+// Organization runners: idle pools from airship.global.yaml register on the
 // organization, in a runner group limited to the repositories that may
 // use them. Needs the app's "Self-hosted runners: write" organization
 // permission.

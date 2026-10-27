@@ -10,15 +10,15 @@ import (
 func TestOneLineFamilies(t *testing.T) {
 	t.Parallel()
 	for label, want := range map[string]string{
-		"cirun-aws-spot-large":               "",
-		"cirun-aws-ubuntu2204-large":         "",
-		"cirun-aws-x-metal":                  "",
-		"cirun-aws-c7i-flex-large":           "c7i-flex.large",
-		"cirun-aws-u7i-12tb-224xlarge":       "u7i-12tb.224xlarge",
-		"cirun-aws-u-6tb1-112xlarge":         "u-6tb1.112xlarge",
-		"cirun-aws-mac2-m2-metal":            "mac2-m2.metal",
-		"cirun-aws-m7i-metal-24xl-spot":      "m7i.metal-24xl",
-		"cirun-aws-t3-large-ubuntu2404-spot": "t3.large",
+		"airship-aws-spot-large":               "",
+		"airship-aws-ubuntu2204-large":         "",
+		"airship-aws-x-metal":                  "",
+		"airship-aws-c7i-flex-large":           "c7i-flex.large",
+		"airship-aws-u7i-12tb-224xlarge":       "u7i-12tb.224xlarge",
+		"airship-aws-u-6tb1-112xlarge":         "u-6tb1.112xlarge",
+		"airship-aws-mac2-m2-metal":            "mac2-m2.metal",
+		"airship-aws-m7i-metal-24xl-spot":      "m7i.metal-24xl",
+		"airship-aws-t3-large-ubuntu2404-spot": "t3.large",
 	} {
 		runner, ok := OneLine(label)
 		got := ""
@@ -41,27 +41,27 @@ runners:
   - name: a
     cloud: aws
     instance_type: c7i.large
-    labels: [cirun-a]
+    labels: [airship-a]
   - name: custom
     cloud: aws
     instance_type: c7i.large
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-custom]
+    labels: [airship-custom]
 `)
 	candidates := []Candidate{{Source: SourceRepository, Runner: f.Runners[0]}, {Source: SourceRepository, Runner: f.Runners[1]}}
-	if plan := Plan([]string{"cirun-a", "cirun-a--1"}, candidates); len(plan) != 1 {
+	if plan := Plan([]string{"airship-a", "airship-a--1"}, candidates); len(plan) != 1 {
 		t.Fatalf("label and its suffixed form = %d attempts, want 1", len(plan))
 	}
-	if plan := Plan([]string{"cirun-a", "windows"}, candidates); len(plan) != 0 {
+	if plan := Plan([]string{"airship-a", "windows"}, candidates); len(plan) != 0 {
 		t.Fatalf("windows on the default Ubuntu image = %d attempts, want 0", len(plan))
 	}
-	if plan := Plan([]string{"cirun-a", "linux"}, candidates); len(plan) != 1 {
+	if plan := Plan([]string{"airship-a", "linux"}, candidates); len(plan) != 1 {
 		t.Fatalf("linux on the default Ubuntu image = %d attempts, want 1", len(plan))
 	}
-	if plan := Plan([]string{"cirun-custom", "windows"}, candidates); len(plan) != 1 {
+	if plan := Plan([]string{"airship-custom", "windows"}, candidates); len(plan) != 1 {
 		t.Fatalf("windows on a custom AMI = %d attempts, want 1 (unknown until it boots)", len(plan))
 	}
-	if plan := Plan([]string{"cirun-a", "x86_64"}, candidates); len(plan) != 0 {
+	if plan := Plan([]string{"airship-a", "x86_64"}, candidates); len(plan) != 0 {
 		t.Fatalf("x86_64 is not a label GitHub runners carry; plan = %d", len(plan))
 	}
 }
@@ -69,7 +69,7 @@ runners:
 func TestInstanceTypeShape(t *testing.T) {
 	t.Parallel()
 	for value, ok := range map[string]bool{"c7i.large": true, "u-6tb1.112xlarge": true, "m7i.metal-24xl": true, "5.5": false, "c7i.": false, "c7i": false} {
-		_, err := Parse(RepoFile, []byte("runners:\n  - name: a\n    cloud: aws\n    instance_type: \""+value+"\"\n    labels: [cirun-a]\n"))
+		_, err := Parse(RepoFile, []byte("runners:\n  - name: a\n    cloud: aws\n    instance_type: \""+value+"\"\n    labels: [airship-a]\n"))
 		if (err == nil) != ok {
 			t.Errorf("instance_type %q: err = %v, want ok=%v", value, err, ok)
 		}

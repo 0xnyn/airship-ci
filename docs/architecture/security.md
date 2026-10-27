@@ -20,12 +20,12 @@ adversarially.
 │ your job logs         │   │ API tokens (hashed)     │   │                           │
 │                       │   │                         │   │                           │
 │ Airship can:          │   │ A job cannot reach      │   │ Airship can:              │
-│  read .cirun.yml      │   │ this. There is no       │   │  launch a machine         │
+│  read airship.yaml      │   │ this. There is no       │   │  launch a machine         │
 │  read job/runner      │   │ inbound path from a     │   │  list machines it tagged  │
 │    metadata           │   │ runner except the two   │   │  destroy machines it      │
 │  register/remove      │   │ runner endpoints, and   │   │    tagged                 │
 │    runners            │   │ those answer only to a  │   │  create one bucket and    │
-│  open a PR on .cirun  │   │ live runner's own token │   │    one security group     │
+│  open a PR on .airship  │   │ live runner's own token │   │    one security group     │
 │    (if you grant it)  │   │                         │   │                           │
 └───────────────────────┘   └─────────────────────────┘   └───────────────────────────┘
        ▲                             │                            ▲
@@ -112,7 +112,7 @@ not create**.
 | Property | Detail |
 | --- | --- |
 | Single-use | A JIT configuration, consumed by one registration, good for one job |
-| Scoped | To the repository — or, for organization idle pools, to a runner group visible only to the repositories that pool's `.access.yml` policies allow |
+| Scoped | To the repository — or, for organization idle pools, to a runner group visible only to the repositories that pool's `access.yaml` policies allow |
 | Minted before the machine | And its GitHub runner ID stored first, so nothing can boot without a stored registration to clean up |
 | Removed after | Two minutes after the runner finishes, and **only if GitHub says the runner is not busy**. A busy runner means the machine exists after all, and the runner is revived rather than orphaned |
 | Re-checked before launch | Registration takes a round trip; if the job was cancelled or started elsewhere in that window, no machine is created and the registration is removed at once |
@@ -126,7 +126,7 @@ not create**.
 | A GitHub org **owner** | Connect clouds, activate repositories, set `max_runners`, create API tokens | Being an owner. Roles are re-checked with GitHub hourly, so removing someone revokes access within the hour |
 | An org **member** | Read the dashboard | Read-only |
 | Anyone who can **push to an activated repository** | Choose machine types, regions and disk sizes for that branch's jobs | `max_runners`, the 8-hour machine lifetime, the attempt cap. This is the same authority they already have over what a workflow *does* |
-| A **fork pull request** on a public repository | Nothing, unless that repository was activated **with public access allowed** — a separate, explicit choice | `.access.yml`, `max_runners`, and your judgement about what else is on those runners |
+| A **fork pull request** on a public repository | Nothing, unless that repository was activated **with public access allowed** — a separate, explicit choice | `access.yaml`, `max_runners`, and your judgement about what else is on those runners |
 | A **holder of an `asa_` token** | Everything the developer API offers for one installation | The token's installation scope. Tokens are revocable in the dashboard |
 | A **live runner's `asr_` token** | Fetch cache credentials for that installation's bucket, and nothing else | Dies when the runner finishes |
 
@@ -223,7 +223,7 @@ it — including a fork pull request's code on a public repository activated
 for public access. Treat it exactly as you would a repository secret.
 
 **5. Any image the account can launch is allowed.**
-As on Cirun, there is no image allowlist. A `.cirun.yml` can name any AMI or
+As on Cirun, there is no image allowlist. An `airship.yaml` can name any AMI or
 Compute Engine image your credential can boot, or on Daytona any container
 image Daytona can pull (with a tag or digest; `latest` is refused so a
 definition says what it runs) or any snapshot of the organization.
@@ -284,7 +284,7 @@ Straight answers for a security review:
 
 **Where is my data?** Job metadata in the control plane's Postgres. Job
 *content* — code, secrets, logs, artifacts, caches — stays in GitHub and in
-your cloud account, in the region your `.cirun.yml` names.
+your cloud account, in the region your `airship.yaml` names.
 
 **Who at Airship can see it?** Whoever administers the control plane
 deployment, as with any hosted service. If that is not acceptable, run the
@@ -299,10 +299,10 @@ operate on. On AWS, you can condition its terminate permission so it can
 only ever destroy Airship's own instances.
 
 **Can you read my repository?** Only what the GitHub App's permissions
-allow: `.cirun.yml`, `.cirun.global.yml`, `.access.yml`, and job and runner
+allow: `airship.yaml`, `airship.global.yaml`, `access.yaml`, and job and runner
 metadata. Contents is a read permission; write and pull-request permissions
 are optional and only used by the access-control API when you ask it to open
-a PR against your `.cirun` repository.
+a PR against your `.airship` repository.
 
 **What about certifications?** We do not claim any certification in this
 document. Ask us directly and we will tell you exactly where we are rather

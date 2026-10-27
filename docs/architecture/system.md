@@ -2,8 +2,8 @@
 
 **What this is.** Airship runs GitHub Actions jobs on ephemeral virtual
 machines inside *your* cloud account, or on ephemeral sandboxes in your
-Daytona organization. One job, one machine, destroyed when the job ends. You connect a cloud credential once, commit a `.cirun.yml`,
-and write `runs-on: cirun-<label>`.
+Daytona organization. One job, one machine, destroyed when the job ends. You connect a cloud credential once, commit an `airship.yaml`,
+and write `runs-on: airship-<label>`.
 
 **Audience.** Engineers and architects evaluating Airship. Each document in
 the set reads on its own; this one is the map.
@@ -24,7 +24,7 @@ the set reads on its own; this one is the map.
 | [security.md](security.md) | Trust boundaries, credential handling, job isolation, and the exposures we state plainly |
 | [operations.md](operations.md) | Running the control plane: deployment, HA, scaling, key rotation, incident runbook |
 
-Reference material that sits underneath this set: [`../cirun-yml.md`](../cirun-yml.md)
+Reference material that sits underneath this set: [`../airship-yaml.md`](../airship-yaml.md)
 (the config file format), [`../caching.md`](../caching.md) (the cache
 accelerator), [`../architecture.md`](../architecture.md) (the internal
 engineering notes, including every lifecycle invariant in full).
@@ -116,9 +116,9 @@ a change to the scheduler.
 A typical timeline, from GitHub's webhook to a terminated machine:
 
 ```
- 0.0s   GitHub           workflow_job: queued, labels [cirun-build--1234]
+ 0.0s   GitHub           workflow_job: queued, labels [airship-build--1234]
  0.0s   webhook          signature checked, installation resolved
- 0.1s   plan             read .cirun.yml at the job's commit; build the
+ 0.1s   plan             read airship.yaml at the job's commit; build the
                          fallback chain (machine shapes × regions × spot)
  0.1s   runners row      state=pending, spec frozen, labels recorded
  0.1s   launcher         claim under max_runners (row lock on installation)
@@ -237,7 +237,7 @@ is in [`../architecture.md`](../architecture.md).
 | Idle pool backoff | 10m after 3 failures | A pool whose launches keep failing stops retrying |
 | One VM per job | always | No machine is reused, so no job inherits another's state — and no machine lingers between jobs unless you asked for a pool |
 
-Nothing in a `.cirun.yml` can exceed `max_runners`. That is the number to
+Nothing in an `airship.yaml` can exceed `max_runners`. That is the number to
 set before you hand the file to a team.
 
 ---
@@ -266,9 +266,9 @@ still has the other half. Pools count toward `max_runners`.
 
 Pools are read from the **default branch** only, since they exist before
 any job does; a push to the default branch rebuilds them within a reconcile
-pass. Organization-wide pools live in a `.cirun/.cirun.global.yml`
+pass. Organization-wide pools live in a `.airship/airship.global.yaml`
 repository and register on the organization in a runner group of their own,
-visible to the repositories their `.access.yml` policies allow.
+visible to the repositories their `access.yaml` policies allow.
 
 ---
 
@@ -276,13 +276,13 @@ visible to the repositories their `.access.yml` policies allow.
 
 | File | Where | Read at | Governs |
 | --- | --- | --- | --- |
-| `.cirun.yml` | each activated repository, root | the job's own commit | machine shapes, regions, disks, env, cache, idle pools |
-| `.cirun.global.yml` | the `.cirun` repository | default branch | organization-wide runners and pools |
-| `.access.yml` | the `.cirun` repository | default branch | who may use which organization runner |
+| `airship.yaml` | each activated repository, root | the job's own commit | machine shapes, regions, disks, env, cache, idle pools |
+| `airship.global.yaml` | the `.airship` repository | default branch | organization-wide runners and pools |
+| `access.yaml` | the `.airship` repository | default branch | who may use which organization runner |
 
 Three rules shape what a file can do:
 
-- **Only labels starting with `cirun-` are looked up.** Jobs on other labels
+- **Only labels starting with `airship-` are looked up.** Jobs on other labels
   cost no API calls and no money.
 - **A file only acts in an activated repository.** Activation is an explicit
   admin action per repository; public repositories need a second, separate
@@ -298,7 +298,7 @@ entry of each. Two runners sharing a label are one fallback chain in file
 order. Capacity failures start the chain over; a missing image or an
 unavailable instance type stops once every attempt has been tried.
 
-Full reference: [`../cirun-yml.md`](../cirun-yml.md).
+Full reference: [`../airship-yaml.md`](../airship-yaml.md).
 
 ---
 
@@ -340,7 +340,7 @@ Full reference: [`../cirun-yml.md`](../cirun-yml.md).
 | An instance disappears | The runner is `lost` and its job retried if it was still queued; a busy runner's job ends as GitHub reports it |
 | A machine is stopped by hand | It runs no job and still costs its disk, so the scan treats it as gone and removes it |
 | Your credential is revoked | Launches fail with a credential error on the dashboard's Events page; existing machines still hit their own deadlines |
-| `.cirun.yml` is broken | The job is skipped with a reason that names the field. Nothing launches |
+| `airship.yaml` is broken | The job is skipped with a reason that names the field. Nothing launches |
 | A region is out of capacity | The next fallback attempt, then the next subnet/zone, then the chain again — up to the attempt cap |
 | Postgres is lost | This is the one unsurvivable failure. See [operations.md](operations.md) for backup and what `CREDENTIALS_KEY` loss means |
 

@@ -9,7 +9,7 @@ import (
 )
 
 // registration is where a runner is registered with GitHub: a repository,
-// or the organization (idle pool runners from .cirun.global.yml). Every
+// or the organization (idle pool runners from airship.global.yaml). Every
 // GitHub call about a runner goes through it, so the two scopes cannot be
 // mixed up.
 type registration struct {

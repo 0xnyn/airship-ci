@@ -12,7 +12,7 @@ runners:
     cloud: aws
     instance_type: c6gn.4xlarge
     region: eu-west-1
-    labels: [cirun-build]
+    labels: [airship-build]
     extra_config:
       cache: true
       BlockDeviceMappings:

@@ -137,7 +137,7 @@ type Querier interface {
 	// Queued jobs that were skipped for a reason that no longer holds, such
 	// as a cloud that has since been connected, so they can be planned again.
 	ListSkippedQueuedJobs(ctx context.Context, arg ListSkippedQueuedJobsParams) ([]Job, error)
-	// Organizations whose .cirun.global.yml should be read again for idle
+	// Organizations whose airship.global.yaml should be read again for idle
 	// runners: pushed to, or not read for a while.
 	ListStaleOrganizationConfigs(ctx context.Context, arg ListStaleOrganizationConfigsParams) ([]Installation, error)
 	// Queued jobs Airship should run that it has heard nothing about for a

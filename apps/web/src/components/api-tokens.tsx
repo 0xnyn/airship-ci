@@ -52,7 +52,7 @@ import { RelativeTime } from "./time";
 
 const API_TOKENS = "/v1/orgs/{org}/api-tokens";
 
-/** The API keys page: tokens for scripts and Cirun's client. */
+/** The API keys page: tokens for scripts and command line clients. */
 export function APIKeys() {
   const { isAdmin } = useOrg();
 
@@ -99,12 +99,13 @@ function Usage() {
         Using a key
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        The API speaks the same routes as Cirun, so its command line client
-        works as is. Point it at this deployment and use the token as the key.
+        Send the key as a bearer token. The routes are the ones Cirun's command
+        line client speaks, so cirun-py works as is: point it at this deployment
+        and use the key.
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
-        <CodeBlock label="Copy cirun-py example" value={cirun} />
         <CodeBlock label="Copy curl example" value={curl} />
+        <CodeBlock label="Copy cirun-py example" value={cirun} />
       </div>
     </section>
   );
@@ -297,9 +298,9 @@ function TokenSecretDialog({
     return null;
   }
   const example = [
-    `export CIRUN_API_ENDPOINT=${ENV.NEXT_PUBLIC_API_URL}/api/v1`,
-    `export CIRUN_API_KEY=${secret.token}`,
-    "cirun repo add OWNER/REPO",
+    `curl -X POST ${ENV.NEXT_PUBLIC_API_URL}/api/v1/repo \\`,
+    `  -H "Authorization: Bearer ${secret.token}" -H "Content-Type: application/json" \\`,
+    `  -d '{"repository": "OWNER/REPO", "active": true}'`,
   ].join("\n");
 
   return (
@@ -314,7 +315,7 @@ function TokenSecretDialog({
         </DialogHeader>
         <CodeBlock label="Copy key" value={secret.token} />
         <p className="text-muted-foreground text-xs">
-          Activate a repository with Cirun's client:
+          Activate a repository with it:
         </p>
         <CodeBlock label="Copy command" value={example} />
       </DialogContent>

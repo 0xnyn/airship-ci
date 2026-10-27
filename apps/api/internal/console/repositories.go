@@ -29,10 +29,10 @@ type Repository struct {
 	// Accessible is false for an activated repository the app can no
 	// longer see.
 	Accessible  bool         `doc:"Whether the app can still access the repository"  json:"accessible"`
-	Activated   bool         `doc:"Whether its .cirun.yml launches runners"           json:"activated"`
+	Activated   bool         `doc:"Whether its airship.yaml launches runners"           json:"activated"`
 	AllowPublic bool         `doc:"Serve jobs while the repository is public"         json:"allowPublic"`
 	ActivatedAt *time.Time   `doc:"When it was activated"                             json:"activatedAt"`
-	Config      *ConfigState `doc:"The default branch's .cirun.yml as last read; absent until activated" json:"config,omitempty"`
+	Config      *ConfigState `doc:"The default branch's airship.yaml as last read; absent until activated" json:"config,omitempty"`
 }
 
 // ConfigState is the result of reading a config file.
@@ -178,7 +178,7 @@ func (h *handlers) deactivateRepository(ctx context.Context, in *repositoryInput
 // Pool is an idle runner pool from an idle: section.
 type Pool struct {
 	ID         uuid.UUID  `doc:"Pool ID"                                         format:"uuid" json:"id"`
-	Repository string     `doc:"Repository whose .cirun.yml defines it, or the organization" json:"repository"`
+	Repository string     `doc:"Repository whose airship.yaml defines it, or the organization" json:"repository"`
 	Name       string     `doc:"Runner definition name"                          json:"name"`
 	Mode       string     `doc:"How the pool's size is decided"                  enum:"fixed,schedule,usage" json:"mode"`
 	Desired    int        `doc:"Idle runners the pool wants now"                 json:"desired"`
@@ -239,7 +239,7 @@ func (h *handlers) listPools(ctx context.Context, in *orgInput) (*poolListOutput
 		case len(spec.Schedule) > 0:
 			mode = "schedule"
 		}
-		repository := "organization (.cirun.global.yml)"
+		repository := "organization (airship.global.yaml)"
 		if p.RepositoryID != nil {
 			repository = names[*p.RepositoryID]
 		}
@@ -255,7 +255,7 @@ func (h *handlers) listPools(ctx context.Context, in *orgInput) (*poolListOutput
 
 // ValidateConfig is a config file to check.
 type ValidateConfig struct {
-	File    string `doc:"Which file this is" enum:".cirun.yml,.cirun.global.yml,.access.yml" json:"file"`
+	File    string `doc:"Which file this is" enum:"airship.yaml,airship.global.yaml,access.yaml" json:"file"`
 	Content string `doc:"The file's content" json:"content" maxLength:"65536"`
 }
 
@@ -356,12 +356,12 @@ func idleSummary(idle *runnerconfig.Idle) string {
 	}
 }
 
-// OrganizationRunnerConfig is the organization's .cirun repository as
+// OrganizationRunnerConfig is the organization's .airship repository as
 // jobs see it now.
 type OrganizationRunnerConfig struct {
-	Found      bool           `doc:"Whether the organization has a .cirun.global.yml" json:"found"`
-	SHA        *string        `doc:"Blob SHA of .cirun.global.yml"                   json:"sha"`
-	Restricted bool           `doc:"Whether .access.yml limits who can use the runners" json:"restricted"`
+	Found      bool           `doc:"Whether the organization has an airship.global.yaml" json:"found"`
+	SHA        *string        `doc:"Blob SHA of airship.global.yaml"                   json:"sha"`
+	Restricted bool           `doc:"Whether access.yaml limits who can use the runners" json:"restricted"`
 	Problem    *string        `doc:"Why the files cannot be used"                      json:"problem"`
 	Runners    []ConfigRunner `doc:"Organization runner definitions"                   json:"runners"`
 }
@@ -379,7 +379,7 @@ func (h *handlers) organizationConfig(ctx context.Context, in *orgInput) (*organ
 	if err != nil {
 		slog.WarnContext(ctx, "read organization config", slog.Any("error", err))
 
-		return nil, huma.Error502BadGateway("could not read the organization's .cirun repository from GitHub; try again in a moment")
+		return nil, huma.Error502BadGateway("could not read the organization's .airship repository from GitHub; try again in a moment")
 	}
 	out := OrganizationRunnerConfig{Found: cfg.Found, Restricted: cfg.Restricted, Runners: summarizeRunners(cfg.Runners)}
 	if cfg.SHA != "" {

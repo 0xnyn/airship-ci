@@ -413,7 +413,7 @@ func (s *Service) refreshConfigs(ctx context.Context) error {
 	return nil
 }
 
-// RefreshRepositoryConfig reads a repository's .cirun.yml on its default
+// RefreshRepositoryConfig reads a repository's airship.yaml on its default
 // branch and makes its pools match. A file that does not parse keeps the
 // pools it had: a typo should not drop warm capacity.
 func (s *Service) RefreshRepositoryConfig(ctx context.Context, repo db.Repository) error {
@@ -482,7 +482,7 @@ func (s *Service) RefreshRepositoryConfig(ctx context.Context, repo db.Repositor
 
 // HandlePush notes that a push to an activated repository's default branch
 // may have changed its config, and that one to the organization's
-// .cirun repository may have changed every repository's.
+// .airship repository may have changed every repository's.
 func (s *Service) HandlePush(ctx context.Context, event github.PushEvent) error {
 	if event.Installation == nil {
 		return nil

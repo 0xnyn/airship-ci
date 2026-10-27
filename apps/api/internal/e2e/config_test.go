@@ -19,12 +19,12 @@ runners:
     cloud: aws
     instance_type: c7i.large
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-build]
+    labels: [airship-build]
     idle:
       replicas: 1
 `
 
-// A repository's .cirun.yml, from activation to an idle pool to a job and
+// A repository's airship.yaml, from activation to an idle pool to a job and
 // back to zero, driven through the dashboard API, webhooks and the real
 // launcher.
 func TestRunnerConfigEndToEnd(t *testing.T) {
@@ -40,12 +40,12 @@ func TestRunnerConfigEndToEnd(t *testing.T) {
 
 	// The editor checks a file before it is committed.
 	check := e.call(http.MethodPost, "/v1/orgs/acme/runner-config/validate", map[string]any{
-		"file": ".cirun.yml", "content": strings.ReplaceAll(poolConfig, "c7i.large", "[c7i.large, m7i.large]\n    region: [us-east-1, us-west-2, eu-west-1]"),
+		"file": "airship.yaml", "content": strings.ReplaceAll(poolConfig, "c7i.large", "[c7i.large, m7i.large]\n    region: [us-east-1, us-west-2, eu-west-1]"),
 	}, http.StatusOK)
 	if check["valid"] != false || !strings.Contains(check["problem"].(map[string]any)["path"].(string), "instance_type") {
 		t.Fatalf("mismatched fallback lists passed validation: %v", check)
 	}
-	check = e.call(http.MethodPost, "/v1/orgs/acme/runner-config/validate", map[string]any{"file": ".cirun.yml", "content": poolConfig}, http.StatusOK)
+	check = e.call(http.MethodPost, "/v1/orgs/acme/runner-config/validate", map[string]any{"file": "airship.yaml", "content": poolConfig}, http.StatusOK)
 	if check["valid"] != true || check["runners"].([]any)[0].(map[string]any)["idle"] != "1 always idle" {
 		t.Fatalf("validation = %v", check)
 	}
@@ -73,7 +73,7 @@ func TestRunnerConfigEndToEnd(t *testing.T) {
 	// A suffixed job gets its own runner, registered with its suffix.
 	e.gh.SetFile("acme/api", "abc123", runnerconfig.RepoFile, []byte(poolConfig))
 	e.gh.SetRunAttempt("acme/api", github.RunAttempt{ID: 3, RunAttempt: 1, Event: "push", Repository: repo, HeadRepository: &repo, Actor: &github.Actor{Login: "alice"}})
-	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"cirun-build--3"}, Status: "queued", CreatedAt: time.Now()}
+	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"airship-build--3"}, Status: "queued", CreatedAt: time.Now()}
 	e.webhook("queued", job)
 	eventually(t, "on-demand runner launched", func() bool { return len(e.aws.Instances()) == 2 })
 	var labels [][]string
@@ -81,7 +81,7 @@ func TestRunnerConfigEndToEnd(t *testing.T) {
 	for _, instance := range e.aws.Instances() {
 		registration, _ := e.gh.RunnerByJIT(instance.Launch.Boot.JITConfig)
 		labels = append(labels, registration.Labels)
-		if slices.Contains(registration.Labels, "cirun-build--3") {
+		if slices.Contains(registration.Labels, "airship-build--3") {
 			suffixed++
 		}
 	}
@@ -135,7 +135,7 @@ func TestProvisionViaAPI(t *testing.T) {
 	e.call(http.MethodPut, "/v1/orgs/acme/repositories/5/activation", map[string]any{}, http.StatusOK)
 	token := e.call(http.MethodPost, "/v1/orgs/acme/api-tokens", map[string]any{"name": "image"}, http.StatusCreated)["token"].(string)
 
-	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"cirun-build"}, Status: "queued", CreatedAt: time.Now()}
+	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"airship-build"}, Status: "queued", CreatedAt: time.Now()}
 	e.webhook("queued", job)
 	eventually(t, "runner launched", func() bool { return len(e.aws.Instances()) == 1 })
 	instance := e.aws.Instances()[0]
@@ -167,7 +167,7 @@ func TestCacheGrantEndpoint(t *testing.T) {
 	e.connectAWS()
 	e.call(http.MethodPut, "/v1/orgs/acme/repositories/5/activation", map[string]any{}, http.StatusOK)
 
-	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"cirun-build"}, Status: "queued", CreatedAt: time.Now()}
+	job := github.WorkflowJob{ID: 90, RunID: 3, RunAttempt: 1, HeadSHA: "abc123", Name: "build", Labels: []string{"airship-build"}, Status: "queued", CreatedAt: time.Now()}
 	e.webhook("queued", job)
 	eventually(t, "runner launched", func() bool { return len(e.aws.Instances()) == 1 })
 	boot := e.aws.Instances()[0].Launch.Boot.Cache

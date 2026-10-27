@@ -15,7 +15,7 @@ runners:
     instance_type: n1-standard-4
     region: europe-west4-b
     gpu: nvidia-tesla-t4
-    labels: [cirun-pinned]
+    labels: [airship-pinned]
     extra_config:
       project_id: acme-runners-1
       enable_public_ip: false
@@ -23,7 +23,7 @@ runners:
   - name: anywhere
     cloud: gcp
     instance_type: t2a-standard-4
-    labels: [cirun-anywhere]
+    labels: [airship-anywhere]
 `
 
 // A GCP definition launches with the zone it names (or the credential's
@@ -36,8 +36,8 @@ func TestGCPRunnersLaunchInTheirZoneAndProject(t *testing.T) {
 	h.connectGCP("acme-ci-123456", "us-central1-b")
 	h.setConfig(headSHA, gcpConfig)
 
-	h.queue("cirun-pinned")
-	h.queue("cirun-anywhere")
+	h.queue("airship-pinned")
+	h.queue("airship-anywhere")
 	if _, err := h.svc.LaunchOnce(h.ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestGCPRunnersLaunchInTheirZoneAndProject(t *testing.T) {
 		t.Errorf("runner regions = %v", regions)
 	}
 	pinnedRunner, _ := h.gh.RunnerByJIT(pinned.Boot.JITConfig)
-	for _, want := range []string{"self-hosted", "x64", "gcp", "gpu", "cirun-pinned"} {
+	for _, want := range []string{"self-hosted", "x64", "gcp", "gpu", "airship-pinned"} {
 		if !slices.Contains(pinnedRunner.Labels, want) {
 			t.Errorf("registered labels %v lack %s", pinnedRunner.Labels, want)
 		}

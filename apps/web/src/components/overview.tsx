@@ -205,7 +205,7 @@ function GettingStarted({
         "Define runners in code and point a workflow at one of their labels.",
       done: false,
       href: `/${org.login}/repositories`,
-      title: "Commit a .cirun.yml",
+      title: "Commit an airship.yaml",
     },
   ];
 
@@ -374,10 +374,10 @@ function Usage() {
     machine_image: ubuntu2404
     preemptible: true
     labels:
-      - cirun-build`;
+      - airship-build`;
   const workflow = `jobs:
   build:
-    runs-on: cirun-build--\${{ github.run_id }}
+    runs-on: airship-build--\${{ github.run_id }}
     steps:
       - uses: actions/checkout@v5`;
   return (
@@ -386,14 +386,14 @@ function Usage() {
         Define a runner and use it
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        Commit a <code className="font-mono">.cirun.yml</code> at the root of an
-        activated repository, then set{" "}
+        Commit an <code className="font-mono">airship.yaml</code> at the root of
+        an activated repository, then set{" "}
         <code className="font-mono">runs-on</code> to one of its labels. The{" "}
         <code className="font-mono">--run_id</code> suffix keeps each run on its
         own machine.
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
-        <CodeBlock label="Copy .cirun.yml" value={config} />
+        <CodeBlock label="Copy airship.yaml" value={config} />
         <CodeBlock label="Copy workflow snippet" value={workflow} />
       </div>
     </section>

@@ -75,7 +75,7 @@ func init() {
 func NewAPI(mux *http.ServeMux, deps Deps) huma.API {
 	cfg := huma.DefaultConfig(Title, deps.Version)
 	cfg.Info.Description = "Airship runs GitHub Actions jobs on ephemeral machines in your own cloud account, " +
-		"configured by a .cirun.yml in each repository. The TypeScript client in packages/client is generated from this document."
+		"configured by an airship.yaml in each repository. The TypeScript client in packages/client is generated from this document."
 	// Drop the $schema property and Link header Huma adds to every response;
 	// they leak into the generated TypeScript types without helping callers.
 	cfg.CreateHooks = nil

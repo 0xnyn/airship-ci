@@ -118,7 +118,7 @@ type Attempt struct {
 // when the runner it would launch could not take the job (an arm64 job
 // label on an x64 machine, say). An empty plan means nothing matches.
 //
-// A job that suffixes its labels (cirun-build--<run id>) gets a runner
+// A job that suffixes its labels (airship-build--<run id>) gets a runner
 // registered with those labels only, so GitHub can hand it nothing but a
 // job from that run; otherwise the runner carries the definition's labels
 // and any job asking for them may take it.
@@ -172,7 +172,7 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 // Cirun labels them), the definition's labels and the job's own config
 // labels. The OS label is left to the runner, which knows what it runs on.
 func registeredLabels(cloud string, arch string, gpu bool, defined, asked []string) []string {
-	labels := []string{"self-hosted", arch, cloud, "cpu"}
+	labels := []string{"self-hosted", arch, cloud, "cpu", ProductLabel}
 	if gpu {
 		labels[3] = "gpu"
 	}

@@ -18,13 +18,13 @@ func TestLocationsAgreeWithTheConfigValidator(t *testing.T) {
 		"us-east-1", "us-central1-bb", "europe", "us-central1-", "US-CENTRAL1",
 	} {
 		_, _, providerOK := SplitLocation(location)
-		_, err := runnerconfig.Parse(".cirun.yml", []byte(`
+		_, err := runnerconfig.Parse("airship.yaml", []byte(`
 runners:
   - name: r
     cloud: gcp
     instance_type: n1-standard-4
     region: "`+location+`"
-    labels: [cirun-r]
+    labels: [airship-r]
 `))
 		if validatorOK := err == nil; validatorOK != providerOK {
 			t.Errorf("%q: validator accepts = %v, provider accepts = %v (%v)", location, validatorOK, providerOK, err)

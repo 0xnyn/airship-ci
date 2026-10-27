@@ -165,7 +165,7 @@ runners:
     cloud: aws
     instance_type: c7i.large
     machine_image: ami-0123456789abcdef0
-    labels: [cirun-build]
+    labels: [airship-build]
 `
 
 func TestJobLifecycleEndToEnd(t *testing.T) {
@@ -190,7 +190,7 @@ func TestJobLifecycleEndToEnd(t *testing.T) {
 	e.call(http.MethodPut, "/v1/orgs/acme/repositories/5/activation", map[string]any{}, http.StatusOK)
 
 	// A workflow asks for the label.
-	job := github.WorkflowJob{ID: 77, RunID: 1, RunAttempt: 1, HeadSHA: "abc123", Name: "test", Labels: []string{"self-hosted", "cirun-build--1"}, Status: "queued", CreatedAt: time.Now()}
+	job := github.WorkflowJob{ID: 77, RunID: 1, RunAttempt: 1, HeadSHA: "abc123", Name: "test", Labels: []string{"self-hosted", "airship-build--1"}, Status: "queued", CreatedAt: time.Now()}
 	e.webhook("queued", job)
 
 	var instance fake.Instance

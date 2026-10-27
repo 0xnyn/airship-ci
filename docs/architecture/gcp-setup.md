@@ -85,7 +85,7 @@ gcloud projects add-iam-policy-binding "$PROJECT" \
 
 `roles/compute.admin` covers everything Airship does, including routers. In
 a dedicated CI project this is a reasonable end state and is what the
-`.cirun.yml` reference assumes for cross-project launches.
+`airship.yaml` reference assumes for cross-project launches.
 
 ### Option B — least privilege
 
@@ -219,7 +219,7 @@ not be deleted.
 ## Step 8 — Activate repositories and commit a config
 
 Activation works exactly as on AWS: **Repositories →** toggle on, public
-repositories need the separate public-access choice, and a `.cirun.yml` in
+repositories need the separate public-access choice, and an `airship.yaml` in
 a repository nobody activated launches nothing.
 
 ```yaml
@@ -229,7 +229,7 @@ runners:
     instance_type: [n2-standard-8, n2d-standard-8]
     machine_image: ubuntu-2204-lts
     region: us-central1              # any zone with capacity
-    labels: [cirun-build]
+    labels: [airship-build]
     extra_config:
       baseDisk: {diskSizeGb: 100, diskType: pd-ssd}
       enable_public_ip: false        # egress via the Cloud NAT Airship makes
@@ -240,13 +240,13 @@ runners:
     gpu: nvidia-tesla-t4
     region: us-central1-b            # pinned: GPU availability is zonal
     preemptible: true
-    labels: [cirun-gpu]
+    labels: [airship-gpu]
 ```
 
 ```yaml
 jobs:
   test:
-    runs-on: cirun-build--${{ github.run_id }}
+    runs-on: airship-build--${{ github.run_id }}
 ```
 
 Two GCP-specific notes:
@@ -266,7 +266,7 @@ Two GCP-specific notes:
 | Airship → **Jobs** | The job queued within a second or two, with its planned machine |
 | Airship → **Runners** | `pending → launching → running → busy`, instance ID shown as `zone/name` |
 | `gcloud compute instances list --filter="labels.airship-installation:*"` | One instance, labelled, network tag `airship-runner`, no service account unless you asked for one |
-| GitHub → the job log | Labels `self-hosted`, `x64`, `gcp`, `cpu`, `cirun-build--…` |
+| GitHub → the job log | Labels `self-hosted`, `x64`, `gcp`, `cpu`, `airship-build--…` |
 | `gcloud compute instances list` after the job | Gone. Not `TERMINATED` — deleted, disks and all |
 | Airship → **Events** | Every launch failure and degradation, with Google's own message |
 

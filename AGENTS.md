@@ -1,13 +1,14 @@
 # Airship
 
 Self-hosted GitHub Actions runners on the customer's AWS, Google Cloud or
-Daytona account, built to
-Cirun's model and file format (`.cirun.yml`, `cirun-` labels, the `.cirun`
-organization repository, cirun-py's API): a Go control plane that holds
+Daytona account, built to Cirun's model under Airship's own names
+(`airship.yaml`, `airship-` labels, the `.airship` organization repository;
+Cirun's names are not read) plus a developer API cirun-py can drive: a Go
+control plane that holds
 the customer's sealed access key and launches EC2 instances itself, a
 Next.js dashboard, and a cache proxy that runs on each machine. Read
 `docs/architecture.md` before changing the runner lifecycle or anything in
-`internal/fleet`, and `docs/cirun-yml.md` for what the config format must
+`internal/fleet`, and `docs/airship-yaml.md` for what the config format must
 keep doing. Check the Cirun docs in `../reference/cirun/docs` before
 changing user-facing behaviour: parity with them is the goal.
 
@@ -21,6 +22,7 @@ generated from it and must never be edited by hand.
 | --- | --- |
 | `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client |
 | `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
+| `apps/home` | Marketing site: Astro 7, static, Tailwind 4, on :4000. `pnpm --filter @airship/home og` re-renders the OG video and image from `og/card.html` (needs ffmpeg) |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
 | `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
 | `packages/typescript-config` | Shared `tsconfig` presets |
@@ -97,7 +99,7 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   state; never read-then-write. Capacity (`installations.max_runners`) is
   enforced under a row lock on the installation.
 - Config files are parsed in `internal/runnerconfig` (pure, no I/O) and
-  planned in `internal/fleet/config.go`; see `docs/cirun-yml.md` for the
+  planned in `internal/fleet/config.go`; see `docs/airship-yaml.md` for the
   format and `docs/architecture.md` for the trust rules.
 - Cloud credentials are sealed with `internal/secrets` and opened only for
   the duration of a provider call; never log or return them.

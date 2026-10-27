@@ -249,11 +249,11 @@ why:
 | --- | --- |
 | Repository → Administration: read & write | Register and remove repository runners |
 | Repository → Actions: read | Look up jobs and runs |
-| Repository → Contents: read | Read `.cirun.yml` at a job's commit |
+| Repository → Contents: read | Read `airship.yaml` at a job's commit |
 | Repository → Metadata: read | Required by GitHub |
-| Organization → Members: read | Tell admins from members; team rules in `.access.yml` |
-| Organization → Self-hosted runners: read & write | Organization-wide idle runners in `.cirun.global.yml` |
-| *(optional)* Contents: write, Pull requests: write | Only so the access-control API can open PRs against the `.cirun` repository |
+| Organization → Members: read | Tell admins from members; team rules in `access.yaml` |
+| Organization → Self-hosted runners: read & write | Organization-wide idle runners in `airship.global.yaml` |
+| *(optional)* Contents: write, Pull requests: write | Only so the access-control API can open PRs against the `.airship` repository |
 
 If you are running your own control plane, you create the app yourself —
 callback URL, webhook URL, secret and event subscriptions are listed in
@@ -292,13 +292,13 @@ terminated.
 ## Step 6 — Activate repositories *(GitHub org admin)*
 
 **Repositories →** toggle each one on. This is deliberately a separate,
-explicit step: a `.cirun.yml` in a repository nobody activated launches
+explicit step: an `airship.yaml` in a repository nobody activated launches
 nothing, so a committed config file can never start spending money on its
 own.
 
 Public repositories need a **second** choice, "allow public access", because
 their fork pull requests run untrusted code on your machines. That is the
-gate; `.access.yml` and `max_runners` are the bounds.
+gate; `access.yaml` and `max_runners` are the bounds.
 
 ```bash
 cirun repo add acme/api        # same thing from the CLI
@@ -308,7 +308,7 @@ cirun repo add acme/api        # same thing from the CLI
 
 ## Step 7 — Commit a config and a workflow *(any developer)*
 
-`.cirun.yml` at the repository root:
+`airship.yaml` at the repository root:
 
 ```yaml
 runners:
@@ -317,7 +317,7 @@ runners:
     instance_type: [c7i.2xlarge, c7i.2xlarge, m7i.2xlarge]
     preemptible:   [true,        false,       false]
     region: eu-west-1
-    labels: [cirun-build]
+    labels: [airship-build]
     extra_config:
       BlockDeviceMappings:
         - VolumeSize: 100
@@ -335,7 +335,7 @@ to a different family; 100 GiB of fast gp3; S3-backed cache acceleration.
 ```yaml
 jobs:
   test:
-    runs-on: cirun-build--${{ github.run_id }}
+    runs-on: airship-build--${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
       - run: nproc && free -g && df -h /
@@ -350,7 +350,7 @@ and so cannot carry its ID.
 checker that validates a file and shows the machines it would plan —
 cheaper than a push.
 
-Only labels starting with `cirun-` are looked up at all. Jobs on
+Only labels starting with `airship-` are looked up at all. Jobs on
 `ubuntu-latest` cost nothing and are untouched, so you can migrate one
 workflow at a time.
 
@@ -365,7 +365,7 @@ Push, then watch in this order:
 | Airship → **Jobs** | The job appears as queued within a second or two of GitHub's webhook, with the definition and machine shape it planned |
 | Airship → **Runners** | A runner moving `pending → launching → running → busy`, with its instance ID |
 | EC2 console, filter tag `airship:installation` | One instance, `Name` = the runner's name, your tags on it and its volume, no inbound security group rules |
-| GitHub → the job log | Steps running on a self-hosted runner, with labels `self-hosted`, `x64`, `aws`, `cpu`, `cirun-build--…` |
+| GitHub → the job log | Steps running on a self-hosted runner, with labels `self-hosted`, `x64`, `aws`, `cpu`, `airship-build--…` |
 | GitHub → Settings → Actions → Runners | The runner present during the job, gone a couple of minutes after |
 | EC2 console again | The instance terminated within seconds of the job finishing |
 | Airship → **Events** | The whole story, including anything that silently degraded — a cache that was unavailable, for instance |
@@ -387,8 +387,8 @@ the behaviour everything else rests on.
 | Set `max_runners` for real | Under your vCPU quota. It is the one number that bounds total spend |
 | Bake a custom AMI | The single biggest cold-start win: runner tarball at `/opt/actions-runner` with a matching `.version`, plus your toolchain and Docker images. The boot script then skips the download and the apt install |
 | Add idle pools where latency matters | `idle: {replicas: 2}` for the repository everyone waits on, or `schedule:` windows matching your working hours. Pools count toward `max_runners` |
-| Move shared definitions to the organization | A `.cirun` repository with `.cirun.global.yml`, so teams stop copying machine shapes between repositories |
-| Restrict the expensive ones | `.access.yml` policies on GPU and large-instance runners, by team, repository role or login |
+| Move shared definitions to the organization | A `.airship` repository with `airship.global.yaml`, so teams stop copying machine shapes between repositories |
+| Restrict the expensive ones | `access.yaml` policies on GPU and large-instance runners, by team, repository role or login |
 | Turn on caching deliberately | Read the scope caveat in [aws.md](aws.md#caching) first: one bucket per organization, no per-branch isolation |
 | Keep public repositories off shared runners | Or activate them with public access knowingly, and keep them away from cache runners and instance profiles |
 | Watch the bill by tag | Cost Explorer grouped by `airship:repository` needs no extra instrumentation |
@@ -402,10 +402,10 @@ the behaviour everything else rests on.
 | --- | --- | --- |
 | Job stays queued, Jobs page says **Not activated** | The repository was never activated | Activate it. Jobs still queued are planned again automatically |
 | **No cloud** | No AWS credential on the installation | Connect one. Jobs skipped for this reason are re-planned on connect |
-| **No runner serves the labels** | No definition covers every `cirun-` label of the job | Check the label spelling and that the definition is in the file *at the job's commit* |
-| **Config problem** | `.cirun.yml` does not parse | The detail names the field. Use the dashboard's checker |
+| **No runner serves the labels** | No definition covers every `airship-` label of the job | Check the label spelling and that the definition is in the file *at the job's commit* |
+| **Config problem** | `airship.yaml` does not parse | The detail names the field. Use the dashboard's checker |
 | **Public repository** | Public repo not activated for public access | Activate it that way, knowing fork PRs then run on your machines |
-| **Access denied** | `.access.yml` does not admit this person, repository or event | Check the policy; a broken `.access.yml` closes *every* organization runner until fixed |
+| **Access denied** | `access.yaml` does not admit this person, repository or event | Check the policy; a broken `access.yaml` closes *every* organization runner until fixed |
 | Launch fails: *this region has no default VPC* | Exactly that | `aws ec2 create-default-vpc`, or set `SubnetId` |
 | Launch fails: `VcpuLimitExceeded`, `InstanceLimitExceeded` | Service quota | Raise the quota; lower `max_runners` meanwhile |
 | Launch fails: `InsufficientInstanceCapacity` repeatedly | The AZ or the whole region is short of that shape | Airship already rotates AZs and falls back; add shapes to `instance_type`, or a second `region` |

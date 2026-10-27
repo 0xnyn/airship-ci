@@ -1,7 +1,7 @@
 /** Why Airship did not run a job that asked for one of its labels. */
 export const skipReasonLabel: Record<string, string> = {
-  access_denied: "The organization's .access.yml does not allow this run",
-  config_invalid: "The repository's .cirun.yml has a problem",
+  access_denied: "The organization's access.yaml does not allow this run",
+  config_invalid: "The repository's airship.yaml has a problem",
   installation_suspended: "The GitHub App installation is suspended",
   no_cloud: "No cloud is connected",
   public_repository: "Public repository; public access is not allowed",
@@ -11,11 +11,11 @@ export const skipReasonLabel: Record<string, string> = {
 
 /** Which file a runner definition came from. */
 export const sourceLabel: Record<string, string> = {
-  organization: ".cirun.global.yml",
-  repository: ".cirun.yml",
+  organization: "airship.global.yaml",
+  repository: "airship.yaml",
 };
 
-/** GCP zones offered as a default; any zone or region works in `.cirun.yml`. */
+/** GCP zones offered as a default; any zone or region works in `airship.yaml`. */
 export const gcpLocations = [
   "us-central1-a",
   "us-central1-b",
@@ -37,7 +37,7 @@ export const gcpLocations = [
   "australia-southeast1-a",
 ] as const;
 
-/** AWS regions offered as a default; any region works in `.cirun.yml`. */
+/** AWS regions offered as a default; any region works in `airship.yaml`. */
 export const awsRegions = [
   "us-east-1",
   "us-east-2",
@@ -57,5 +57,5 @@ export const awsRegions = [
   "sa-east-1",
 ] as const;
 
-/** Daytona regions offered as a default; any region of the organization works in `.cirun.yml`. */
+/** Daytona regions offered as a default; any region of the organization works in `airship.yaml`. */
 export const daytonaRegions = ["us", "eu"] as const;

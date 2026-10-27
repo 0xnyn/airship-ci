@@ -340,7 +340,7 @@ type ListStaleOrganizationConfigsParams struct {
 	MaxResults    int32
 }
 
-// Organizations whose .cirun.global.yml should be read again for idle
+// Organizations whose airship.global.yaml should be read again for idle
 // runners: pushed to, or not read for a while.
 func (q *Queries) ListStaleOrganizationConfigs(ctx context.Context, arg ListStaleOrganizationConfigsParams) ([]Installation, error) {
 	rows, err := q.db.Query(ctx, listStaleOrganizationConfigs, arg.RetryBefore, arg.CheckedBefore, arg.MaxResults)

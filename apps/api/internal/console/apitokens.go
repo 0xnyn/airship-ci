@@ -99,18 +99,18 @@ func registerAPITokens(api huma.API, h *handlers, op func(id, method, path, summ
 
 	// Cirun's developer API paths, so its client (cirun-py) works with
 	// CIRUN_API_ENDPOINT=<airship>/api/v1 and an Airship token.
-	huma.Register(api, tokenOp("cirunListRepositories", http.MethodGet, "/api/v1/repo", "List repositories (Cirun-compatible)", 0), h.apiListRepositories)
-	huma.Register(api, tokenOp("cirunSetRepository", http.MethodPost, "/api/v1/repo", "Activate or deactivate a repository (Cirun-compatible)", 0), h.cirunSetRepository)
-	huma.Register(api, tokenOp("cirunListClouds", http.MethodGet, "/api/v1/cloud-connect", "List connected clouds (Cirun-compatible)", 0), h.apiListClouds)
-	huma.Register(api, tokenOp("cirunCloudConnect", http.MethodPost, "/api/v1/cloud-connect", "Connect a cloud (Cirun-compatible)", 0), h.cirunCloudConnect)
-	huma.Register(api, tokenOp("cirunRunnerProvision", http.MethodGet, "/api/runner-provision", "Fetch a runner's boot script (provision_via: pull_from_api)", 0), h.runnerProvision)
-	huma.Register(api, tokenOp("cirunGetAccessControl", http.MethodGet, "/api/v1/access-control", "Read the organization's .access.yml (Cirun-compatible)", 0), h.getAccessControl)
-	huma.Register(api, tokenOp("cirunUpdateAccessControl", http.MethodPut, "/api/v1/access-control", "Open a pull request changing .access.yml (Cirun-compatible)", 0), h.updateAccessControl)
+	huma.Register(api, tokenOp("compatListRepositories", http.MethodGet, "/api/v1/repo", "List repositories (Cirun-compatible)", 0), h.apiListRepositories)
+	huma.Register(api, tokenOp("compatSetRepository", http.MethodPost, "/api/v1/repo", "Activate or deactivate a repository (Cirun-compatible)", 0), h.compatSetRepository)
+	huma.Register(api, tokenOp("compatListClouds", http.MethodGet, "/api/v1/cloud-connect", "List connected clouds (Cirun-compatible)", 0), h.apiListClouds)
+	huma.Register(api, tokenOp("compatCloudConnect", http.MethodPost, "/api/v1/cloud-connect", "Connect a cloud (Cirun-compatible)", 0), h.compatCloudConnect)
+	huma.Register(api, tokenOp("compatRunnerProvision", http.MethodGet, "/api/runner-provision", "Fetch a runner's boot script (provision_via: pull_from_api)", 0), h.runnerProvision)
+	huma.Register(api, tokenOp("compatGetAccessControl", http.MethodGet, "/api/v1/access-control", "Read the organization's access.yaml (Cirun-compatible)", 0), h.getAccessControl)
+	huma.Register(api, tokenOp("compatUpdateAccessControl", http.MethodPut, "/api/v1/access-control", "Open a pull request changing access.yaml (Cirun-compatible)", 0), h.updateAccessControl)
 }
 
-// AccessControlFile is .access.yml as the developer API returns it.
+// AccessControlFile is access.yaml as the developer API returns it.
 type AccessControlFile struct {
-	Found     bool                        `doc:"Whether the .cirun repository has an .access.yml" json:"found"`
+	Found     bool                        `doc:"Whether the .airship repository has an access.yaml" json:"found"`
 	AccessYML runnerconfig.AccessDocument `doc:"The file's content"                              json:"access_yml"`
 }
 
@@ -133,7 +133,7 @@ func (h *handlers) getAccessControl(ctx context.Context, _ *struct{}) (*accessCo
 // resources, for the listed teams, roles and users.
 type RepositoryResourceAccess struct {
 	Repository string            `doc:"Repository name, with or without the organization" json:"repository" maxLength:"200" minLength:"1"`
-	Resources  []string          `doc:"Runner names from .cirun.global.yml"               json:"resources" maxItems:"100" minItems:"1"`
+	Resources  []string          `doc:"Runner names from airship.global.yaml"               json:"resources" maxItems:"100" minItems:"1"`
 	Action     string            `default:"add" doc:"add grants, remove revokes"          enum:"add,remove" json:"action,omitempty"`
 	Teams      []string          `doc:"Team slugs allowed"                                 json:"teams,omitempty" maxItems:"100"`
 	Roles      []string          `doc:"Repository roles allowed"                           json:"roles,omitempty" maxItems:"20"`
@@ -199,13 +199,13 @@ func accessControlError(err error) error {
 	var cfgErr *runnerconfig.Error
 	switch {
 	case errors.Is(err, fleet.ErrNoOrganization):
-		return huma.Error422UnprocessableEntity("access control needs an organization with a .cirun repository")
+		return huma.Error422UnprocessableEntity("access control needs an organization with a .airship repository")
 	case errors.As(err, &cfgErr):
 		return huma.Error422UnprocessableEntity(err.Error())
 	case github.StatusOf(err) == http.StatusNotFound:
-		return huma.Error404NotFound("the organization has no .cirun repository, or the app is not installed on it")
+		return huma.Error404NotFound("the organization has no .airship repository, or the app is not installed on it")
 	case github.StatusOf(err) == http.StatusForbidden:
-		return huma.Error502BadGateway("GitHub refused to write to the .cirun repository: the app needs Contents and Pull requests write permission on it")
+		return huma.Error502BadGateway("GitHub refused to write to the .airship repository: the app needs Contents and Pull requests write permission on it")
 	case github.StatusOf(err) != 0:
 		slog.Warn("access control change refused by github", slog.Any("error", err))
 
@@ -241,7 +241,7 @@ type cloudConnectInput struct {
 	Body CloudConnect
 }
 
-func (h *handlers) cirunCloudConnect(ctx context.Context, in *cloudConnectInput) (*cloudOutput, error) {
+func (h *handlers) compatCloudConnect(ctx context.Context, in *cloudConnectInput) (*cloudOutput, error) {
 	p := principal(ctx)
 	creds := in.Body.Credentials
 	region := creds["region"]
@@ -559,10 +559,10 @@ type setRepositoryInput struct {
 	Body SetRepository
 }
 
-// cirunSetRepository activates or deactivates by owner/name. Unlike the
+// compatSetRepository activates or deactivates by owner/name. Unlike the
 // Airship routes it is idempotent: deactivating an inactive repository
 // succeeds, as Cirun's does.
-func (h *handlers) cirunSetRepository(ctx context.Context, in *setRepositoryInput) (*repositoryOutput, error) {
+func (h *handlers) compatSetRepository(ctx context.Context, in *setRepositoryInput) (*repositoryOutput, error) {
 	p := principal(ctx)
 	name := in.Body.Repository
 	if owner, rest, ok := strings.Cut(name, "/"); ok {

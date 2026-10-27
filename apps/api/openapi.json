@@ -83,7 +83,7 @@
             "description": "The file's content"
           },
           "found": {
-            "description": "Whether the .cirun repository has an .access.yml",
+            "description": "Whether the .airship repository has an access.yaml",
             "type": "boolean"
           }
         },
@@ -1262,7 +1262,7 @@
         "additionalProperties": false,
         "properties": {
           "found": {
-            "description": "Whether the organization has a .cirun.global.yml",
+            "description": "Whether the organization has an airship.global.yaml",
             "type": "boolean"
           },
           "problem": {
@@ -1273,7 +1273,7 @@
             ]
           },
           "restricted": {
-            "description": "Whether .access.yml limits who can use the runners",
+            "description": "Whether access.yaml limits who can use the runners",
             "type": "boolean"
           },
           "runners": {
@@ -1287,7 +1287,7 @@
             ]
           },
           "sha": {
-            "description": "Blob SHA of .cirun.global.yml",
+            "description": "Blob SHA of airship.global.yaml",
             "type": [
               "string",
               "null"
@@ -1447,7 +1447,7 @@
             "type": "string"
           },
           "repository": {
-            "description": "Repository whose .cirun.yml defines it, or the organization",
+            "description": "Repository whose airship.yaml defines it, or the organization",
             "type": "string"
           },
           "taken": {
@@ -1508,7 +1508,7 @@
             "type": "boolean"
           },
           "activated": {
-            "description": "Whether its .cirun.yml launches runners",
+            "description": "Whether its airship.yaml launches runners",
             "type": "boolean"
           },
           "activatedAt": {
@@ -1525,7 +1525,7 @@
           },
           "config": {
             "$ref": "#/components/schemas/ConfigState",
-            "description": "The default branch's .cirun.yml as last read; absent until activated"
+            "description": "The default branch's airship.yaml as last read; absent until activated"
           },
           "defaultBranch": {
             "description": "Branch idle runner config is read from",
@@ -1600,7 +1600,7 @@
             "type": "string"
           },
           "resources": {
-            "description": "Runner names from .cirun.global.yml",
+            "description": "Runner names from airship.global.yaml",
             "items": {
               "type": "string"
             },
@@ -1974,9 +1974,9 @@
           "file": {
             "description": "Which file this is",
             "enum": [
-              ".cirun.yml",
-              ".cirun.global.yml",
-              ".access.yml"
+              "airship.yaml",
+              "airship.global.yaml",
+              "access.yaml"
             ],
             "type": "string"
           }
@@ -1997,7 +1997,7 @@
     }
   },
   "info": {
-    "description": "Airship runs GitHub Actions jobs on ephemeral machines in your own cloud account, configured by a .cirun.yml in each repository. The TypeScript client in packages/client is generated from this document.",
+    "description": "Airship runs GitHub Actions jobs on ephemeral machines in your own cloud account, configured by an airship.yaml in each repository. The TypeScript client in packages/client is generated from this document.",
     "title": "Airship API",
     "version": "1.0.0"
   },
@@ -2005,7 +2005,7 @@
   "paths": {
     "/api/runner-provision": {
       "get": {
-        "operationId": "cirunRunnerProvision",
+        "operationId": "compatRunnerProvision",
         "parameters": [
           {
             "description": "The runner's name, from the instance's Name tag",
@@ -2064,7 +2064,7 @@
     },
     "/api/v1/access-control": {
       "get": {
-        "operationId": "cirunGetAccessControl",
+        "operationId": "compatGetAccessControl",
         "responses": {
           "200": {
             "content": {
@@ -2092,13 +2092,13 @@
             "apiToken": []
           }
         ],
-        "summary": "Read the organization's .access.yml (Cirun-compatible)",
+        "summary": "Read the organization's access.yaml (Cirun-compatible)",
         "tags": [
           "Developer API"
         ]
       },
       "put": {
-        "operationId": "cirunUpdateAccessControl",
+        "operationId": "compatUpdateAccessControl",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2136,7 +2136,7 @@
             "apiToken": []
           }
         ],
-        "summary": "Open a pull request changing .access.yml (Cirun-compatible)",
+        "summary": "Open a pull request changing access.yaml (Cirun-compatible)",
         "tags": [
           "Developer API"
         ]
@@ -2144,7 +2144,7 @@
     },
     "/api/v1/cloud-connect": {
       "get": {
-        "operationId": "cirunListClouds",
+        "operationId": "compatListClouds",
         "responses": {
           "200": {
             "content": {
@@ -2178,7 +2178,7 @@
         ]
       },
       "post": {
-        "operationId": "cirunCloudConnect",
+        "operationId": "compatCloudConnect",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2224,7 +2224,7 @@
     },
     "/api/v1/repo": {
       "get": {
-        "operationId": "cirunListRepositories",
+        "operationId": "compatListRepositories",
         "responses": {
           "200": {
             "content": {
@@ -2258,7 +2258,7 @@
         ]
       },
       "post": {
-        "operationId": "cirunSetRepository",
+        "operationId": "compatSetRepository",
         "requestBody": {
           "content": {
             "application/json": {

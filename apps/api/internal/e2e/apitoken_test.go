@@ -172,13 +172,13 @@ func TestCirunCompatibleAPI(t *testing.T) {
 	}
 }
 
-// `cirun access-control add-repo-to-resources` edits .access.yml through a
-// pull request against the organization's .cirun repository.
+// `cirun access-control add-repo-to-resources` edits access.yaml through a
+// pull request against the organization's .airship repository.
 func TestAccessControlAPI(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.gh.AddRepository(1, github.Repository{ID: 7, FullName: "acme/.cirun", Private: true, DefaultBranch: "main"})
-	e.gh.SetFile("acme/.cirun", "main", ".cirun.global.yml", []byte("runners:\n  - {name: gpu, cloud: aws, instance_type: g5.xlarge, labels: [cirun-gpu]}\n"))
+	e.gh.AddRepository(1, github.Repository{ID: 7, FullName: "acme/.airship", Private: true, DefaultBranch: "main"})
+	e.gh.SetFile("acme/.airship", "main", "airship.global.yaml", []byte("runners:\n  - {name: gpu, cloud: aws, instance_type: g5.xlarge, labels: [airship-gpu]}\n"))
 	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
 	token := e.call(http.MethodPost, "/v1/orgs/acme/api-tokens", map[string]any{"name": "cirun-py"}, http.StatusCreated)["token"].(string)
 
@@ -195,24 +195,24 @@ func TestAccessControlAPI(t *testing.T) {
 		}},
 	}, http.StatusOK)
 	url, _ := granted["pull_request_url"].(string)
-	if !strings.HasPrefix(url, "https://github.com/acme/.cirun/pull/") {
+	if !strings.HasPrefix(url, "https://github.com/acme/.airship/pull/") {
 		t.Fatalf("grant = %v", granted)
 	}
 	pulls := e.gh.PullRequests()
 	if len(pulls) != 1 || pulls[0].Base != "main" || !strings.HasPrefix(pulls[0].Head, "airship/access-control-") {
 		t.Fatalf("pull requests = %+v", pulls)
 	}
-	content, ok := e.gh.FileAt("acme/.cirun", pulls[0].Head, ".access.yml")
+	content, ok := e.gh.FileAt("acme/.airship", pulls[0].Head, "access.yaml")
 	if !ok || !strings.Contains(string(content), "repo: api") || !strings.Contains(string(content), "- ml") || !strings.Contains(string(content), "pull_request: true") || !strings.Contains(string(content), "resource: gpu") {
-		t.Fatalf("proposed .access.yml:\n%s", content)
+		t.Fatalf("proposed access.yaml:\n%s", content)
 	}
 	// The default branch is untouched until the pull request is merged.
-	if _, exists := e.gh.FileAt("acme/.cirun", "main", ".access.yml"); exists {
+	if _, exists := e.gh.FileAt("acme/.airship", "main", "access.yaml"); exists {
 		t.Fatal("the default branch was written directly")
 	}
 
 	// Merged: a revoke starts from the merged file.
-	e.gh.SetFile("acme/.cirun", "main", ".access.yml", content)
+	e.gh.SetFile("acme/.airship", "main", "access.yaml", content)
 	revoked := e.script(token, http.MethodPut, "/api/v1/access-control", map[string]any{
 		"repository_resource_access": []map[string]any{{"repository": "api", "resources": []string{"gpu"}, "action": "remove"}},
 	}, http.StatusOK)

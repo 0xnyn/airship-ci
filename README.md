@@ -1,13 +1,12 @@
 # Airship
 
 Self-hosted GitHub Actions runners on your own AWS account, configured as
-code. Airship is built to work the way [Cirun](https://docs.cirun.io) does:
-connect your cloud once, activate a repository, commit a `.cirun.yml`, and
-write `runs-on: cirun-<label>--${{ github.run_id }}`. Every job gets a fresh
-EC2 instance that is destroyed when the job ends.
+code. Connect your cloud once, activate a repository, commit an
+`airship.yaml`, and write `runs-on: airship-<label>--${{ github.run_id }}`.
+Every job gets a fresh EC2 instance that is destroyed when the job ends.
 
 ```yaml
-# .cirun.yml
+# airship.yaml
 runners:
   - name: build
     cloud: aws
@@ -15,7 +14,7 @@ runners:
     machine_image: ami-0123456789abcdef0
     region: us-east-1
     preemptible: [true, false]
-    labels: [cirun-build]
+    labels: [airship-build]
     extra_config:
       cache: true                              # S3-backed actions/cache
 ```
@@ -24,21 +23,21 @@ runners:
 # .github/workflows/ci.yml
 jobs:
   test:
-    runs-on: cirun-build--${{ github.run_id }}
+    runs-on: airship-build--${{ github.run_id }}
 ```
 
-What is here, with Cirun's names and behaviour:
+What is here:
 
-- `.cirun.yml` per repository: fallback lists for instance type, image,
+- `airship.yaml` per repository: fallback lists for instance type, image,
   region and spot; `extra_config` for EBS volumes (`BlockDeviceMappings`),
   `env_vars`, `cache`, `provision_via: pull_from_api`, Windows
   (`run_as: interactive`, `runner_user`, `runner_path`); `gpu`.
-- One-line runners: `cirun-aws-c7g-xlarge-ubuntu2404-spot--${{ github.run_id }}`.
+- One-line runners: `airship-aws-c7g-xlarge-ubuntu2404-spot--${{ github.run_id }}`.
 - `--suffix` labels for unique runners per job.
 - Idle runners: `replicas`, `schedule` and `usage_based`, per repository
   or organization-wide.
-- Organization runners in a `.cirun` repository (`.cirun.global.yml`) with
-  `.access.yml` policies.
+- Organization runners in a `.airship` repository (`airship.global.yaml`) with
+  `access.yaml` policies.
 - Developer API compatible with [cirun-py](https://github.com/AktechLabs/cirun-py):
   `repo`, `cloud-connect`, `access-control`, `runner-provision`.
 - Caching: `extra_config.cache: true` runs a proxy on the machine that serves
@@ -49,10 +48,15 @@ What is here, with Cirun's names and behaviour:
 
 Only AWS is implemented. The cloud provider is an interface
 (`apps/api/internal/cloud`) so another can be added. See
-[docs/cirun-yml.md](docs/cirun-yml.md) for the file reference,
+[docs/airship-yaml.md](docs/airship-yaml.md) for the file reference,
 [docs/caching.md](docs/caching.md) for the cache, and
-[docs/architecture.md](docs/architecture.md) for how it works and what is
-deliberately different from Cirun.
+[docs/architecture.md](docs/architecture.md) for how it works.
+
+Coming from [Cirun](https://docs.cirun.io)? The format is the same under
+Airship's names: rename `.cirun.yml` to `airship.yaml`, `cirun-` labels to
+`airship-`, and the `.cirun` organization repository to `.airship`
+(`.cirun.global.yml` becomes `airship.global.yaml` and `.access.yml`
+`access.yaml`). cirun-py works against the developer API unchanged.
 
 ## Layout
 
@@ -111,15 +115,15 @@ Create an app at **GitHub → Settings → Developer settings → GitHub Apps**:
   tunnel --url localhost:8080`) and use that as `PUBLIC_URL`.
 - **Repository permissions**: Administration read & write (to register and
   remove repository runners), Actions read (to look up jobs and runs),
-  Contents read (to read `.cirun.yml`; write if the access-control API
-  should open pull requests on `.cirun`), Pull requests write (same),
+  Contents read (to read `airship.yaml`; write if the access-control API
+  should open pull requests on `.airship`), Pull requests write (same),
   Metadata read.
 - **Organization permissions**: Members read (to tell admins from members,
-  and for team rules in `.access.yml`), Self-hosted runners read & write
-  (for idle runners defined in `.cirun.global.yml`, which register on the
+  and for team rules in `access.yaml`), Self-hosted runners read & write
+  (for idle runners defined in `airship.global.yaml`, which register on the
   organization in runner groups).
 - **Subscribe to events**: Workflow job, Push (to refresh idle runners when
-  `.cirun.yml` changes), Repository (renames and visibility changes).
+  `airship.yaml` changes), Repository (renames and visibility changes).
 
 Then set `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `GITHUB_WEBHOOK_SECRET` and `GITHUB_PRIVATE_KEY_FILE` (or
@@ -133,7 +137,7 @@ management on `airship-cache-*` and `sts:GetFederationToken` (the exact
 policy is in [docs/caching.md](docs/caching.md)). Credentials are verified
 with STS, sealed with `CREDENTIALS_KEY` and never shown again. Runners
 launch in the region a definition names, or the default region you pick
-(Cirun's default is `eu-west-1`), into the region's default VPC with an
+(`eu-west-1` unless you change it), into the region's default VPC with an
 egress-only security group Airship creates.
 
 ## Scripts

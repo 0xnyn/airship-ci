@@ -113,7 +113,7 @@ where memberships.installation_id = $1
 order by memberships.role, lower(users.login);
 
 -- name: ListStaleOrganizationConfigs :many
--- Organizations whose .cirun.global.yml should be read again for idle
+-- Organizations whose airship.global.yaml should be read again for idle
 -- runners: pushed to, or not read for a while.
 select * from installations
 where deleted_at is null and account_type = 'Organization'

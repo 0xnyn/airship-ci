@@ -263,7 +263,7 @@ Create it at **GitHub → Settings → Developer settings → GitHub Apps**:
 | --- | --- |
 | Callback URL | `{PUBLIC_URL}/v1/auth/github/callback` |
 | Webhook URL | `{PUBLIC_URL}/v1/github/webhook`, with a random secret |
-| Repository permissions | Administration **read & write**, Actions **read**, Contents **read** (write only if the access-control API should open PRs on `.cirun`), Pull requests **write** (same), Metadata **read** |
+| Repository permissions | Administration **read & write**, Actions **read**, Contents **read** (write only if the access-control API should open PRs on `.airship`), Pull requests **write** (same), Metadata **read** |
 | Organization permissions | Members **read**, Self-hosted runners **read & write** |
 | Subscribe to events | **Workflow job**, **Push**, **Repository** |
 

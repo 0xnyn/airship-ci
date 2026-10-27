@@ -57,7 +57,7 @@ const EXAMPLE = `runners:
     machine_image: ubuntu2404
     region: eu-west-1
     preemptible: [true, false]
-    labels: [cirun-build]
+    labels: [airship-build]
     extra_config:
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
@@ -73,10 +73,11 @@ export function Repositories() {
       <PageHeader
         description={
           <>
-            Airship only reads the <code className="font-mono">.cirun.yml</code>{" "}
-            of repositories you activate here, so a file alone never launches a
-            machine. Jobs in an activated repository that ask for a{" "}
-            <code className="font-mono">cirun-</code> label get a fresh runner
+            Airship only reads the{" "}
+            <code className="font-mono">airship.yaml</code> of repositories you
+            activate here, so a file alone never launches a machine. Jobs in an
+            activated repository that ask for a{" "}
+            <code className="font-mono">airship-</code> label get a fresh runner
             each.
           </>
         }
@@ -152,7 +153,7 @@ function ConnectGitHub() {
 
   return (
     <Step
-      description="The app is installed on this organization. Grant it access to every repository whose jobs should run here, including the .cirun repository if you define organization runners."
+      description="The app is installed on this organization. Grant it access to every repository whose jobs should run here, including the .airship repository if you define organization runners."
       number={1}
       title="Connect GitHub"
     >
@@ -219,7 +220,7 @@ function Activate() {
 
   return (
     <Step
-      description="Enter a repository to activate Airship on it. Its runners are defined in a .cirun.yml at the root of the repository, read at each job's commit."
+      description="Enter a repository to activate Airship on it. Its runners are defined in an airship.yaml at the root of the repository, read at each job's commit."
       number={2}
       title="Activate a repository"
     >
@@ -310,7 +311,7 @@ function ActivatedList() {
         <TableRow>
           <TableHead>Repository</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>.cirun.yml on the default branch</TableHead>
+          <TableHead>airship.yaml on the default branch</TableHead>
           <TableHead className="text-right">Checked</TableHead>
           <TableHead className="w-0 text-right">Active</TableHead>
         </TableRow>
@@ -457,7 +458,7 @@ function ActivateDialog({
       setAllowPublic(false);
       toast.success(
         activated.config?.error
-          ? `Activated ${activated.fullName}, but its .cirun.yml has a problem`
+          ? `Activated ${activated.fullName}, but its airship.yaml has a problem`
           : `Activated ${activated.fullName}`
       );
       await invalidatePath(queryClient, REPOSITORIES, POOLS);
@@ -482,9 +483,9 @@ function ActivateDialog({
           <DialogHeader>
             <DialogTitle>Activate {repo.fullName}?</DialogTitle>
             <DialogDescription>
-              Jobs asking for a <code className="font-mono">cirun-</code> label
-              will launch the machines its{" "}
-              <code className="font-mono">.cirun.yml</code> defines, in your
+              Jobs asking for a <code className="font-mono">airship-</code>{" "}
+              label will launch the machines its{" "}
+              <code className="font-mono">airship.yaml</code> defines, in your
               connected cloud account, and its idle pools start right away. Pull
               requests from forks always use the file on the default branch,
               never their own.
@@ -602,7 +603,7 @@ function OrganizationConfig() {
   if (config.isError) {
     return (
       <EmptyRow>
-        {errorMessage(config.error, "Could not read the .cirun repository")}
+        {errorMessage(config.error, "Could not read the .airship repository")}
       </EmptyRow>
     );
   }
@@ -611,8 +612,8 @@ function OrganizationConfig() {
     return (
       <EmptyRow>
         No organization runners. Create a repository named{" "}
-        <code className="font-mono">.cirun</code> with a{" "}
-        <code className="font-mono">.cirun.global.yml</code> to share runner
+        <code className="font-mono">.airship</code> with a{" "}
+        <code className="font-mono">airship.global.yaml</code> to share runner
         definitions across repositories, and give the app access to it.
       </EmptyRow>
     );
@@ -622,8 +623,8 @@ function OrganizationConfig() {
       {problem ? <p className="text-destructive text-xs">{problem}</p> : null}
       <p className="text-muted-foreground text-xs">
         {restricted
-          ? ".access.yml decides which repositories and people can use these runners."
-          : "There is no .access.yml, so every activated repository can use these runners."}
+          ? "access.yaml decides which repositories and people can use these runners."
+          : "There is no access.yaml, so every activated repository can use these runners."}
       </p>
       <RunnerSummary runners={runners} />
     </div>
@@ -671,14 +672,14 @@ function RunnerSummary({
 type ConfigFile = Schemas["ValidateConfig"]["file"];
 
 const fileOptions = [
-  { label: ".cirun.yml", value: ".cirun.yml" },
-  { label: ".cirun.global.yml", value: ".cirun.global.yml" },
-  { label: ".access.yml", value: ".access.yml" },
+  { label: "airship.yaml", value: "airship.yaml" },
+  { label: "airship.global.yaml", value: "airship.global.yaml" },
+  { label: "access.yaml", value: "access.yaml" },
 ] as const satisfies readonly { label: string; value: ConfigFile }[];
 
 function Validator() {
   const { org } = useOrg();
-  const [file, setFile] = useState<ConfigFile>(".cirun.yml");
+  const [file, setFile] = useState<ConfigFile>("airship.yaml");
   const [content, setContent] = useState(EXAMPLE);
   const validate = $api.useMutation(
     "post",

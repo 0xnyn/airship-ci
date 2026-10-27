@@ -13,11 +13,11 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 )
 
-// Organization idle runners come from idle: sections in .cirun.global.yml.
+// Organization idle runners come from idle: sections in airship.global.yaml.
 // They register on the organization, in a runner group per definition
 // that is visible only to the activated repositories allowed to use it
 // (every activated repository, or those named in the definition's
-// .access.yml policies). Per-person rules cannot apply to a runner booted
+// access.yaml policies). Per-person rules cannot apply to a runner booted
 // before any job exists; the group is the boundary.
 
 const (
@@ -31,7 +31,7 @@ func runnerGroupName(definition string) string {
 	return "airship-" + definition
 }
 
-// refreshOrganizationConfigs rereads .cirun.global.yml for organizations
+// refreshOrganizationConfigs rereads airship.global.yaml for organizations
 // pushed to, activated in, or not read for a while, and updates their
 // pools and runner groups.
 func (s *Service) refreshOrganizationConfigs(ctx context.Context) error {
@@ -51,7 +51,7 @@ func (s *Service) refreshOrganizationConfigs(ctx context.Context) error {
 	return nil
 }
 
-// RefreshOrganizationConfig reads the organization's .cirun.global.yml
+// RefreshOrganizationConfig reads the organization's airship.global.yaml
 // and makes its pools and runner groups match.
 func (s *Service) RefreshOrganizationConfig(ctx context.Context, installation db.Installation) error {
 	if err := s.q.TouchOrganizationConfig(ctx, installation.ID); err != nil {
@@ -129,7 +129,7 @@ func (s *Service) RefreshOrganizationConfig(ctx context.Context, installation db
 }
 
 // allowedRepositories are the activated repositories a definition's idle
-// runners may serve: all of them, or those its .access.yml policies name.
+// runners may serve: all of them, or those its access.yaml policies name.
 func allowedRepositories(org orgFiles, definition string, repos []db.Repository) []int64 {
 	out := []int64{}
 	for _, repo := range repos {

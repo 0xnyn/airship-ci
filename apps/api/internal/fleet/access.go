@@ -14,19 +14,19 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/runnerconfig"
 )
 
-// AccessControl is the organization's .access.yml as it is now.
+// AccessControl is the organization's access.yaml as it is now.
 type AccessControl struct {
-	// Found is false when the .cirun repository has no .access.yml.
+	// Found is false when the .airship repository has no access.yaml.
 	Found    bool
 	Document runnerconfig.AccessDocument
 	SHA      string
 }
 
 // ErrNoOrganization is returned when access control is asked of a personal
-// account, which has no .cirun repository.
+// account, which has no .airship repository.
 var ErrNoOrganization = errors.New("access control needs an organization")
 
-// GitHubWriter is what editing .access.yml needs beyond GitHub.
+// GitHubWriter is what editing access.yaml needs beyond GitHub.
 type GitHubWriter interface {
 	GetRepository(ctx context.Context, installationID int64, repo github.Repo) (github.Repository, error)
 	GetBranchSHA(ctx context.Context, installationID int64, repo github.Repo, branch string) (string, error)
@@ -60,7 +60,7 @@ func (a AppGitHub) CreatePullRequest(ctx context.Context, inst int64, repo githu
 	return a.App.Installation(inst).CreatePullRequest(ctx, repo, title, body, head, base)
 }
 
-// ReadAccessControl reads the organization's .access.yml.
+// ReadAccessControl reads the organization's access.yaml.
 func (s *Service) ReadAccessControl(ctx context.Context, installation db.Installation) (AccessControl, error) {
 	if installation.AccountType != "Organization" {
 		return AccessControl{}, ErrNoOrganization
@@ -81,15 +81,15 @@ func (s *Service) ReadAccessControl(ctx context.Context, installation db.Install
 	return AccessControl{Found: true, Document: doc, SHA: file.SHA}, nil
 }
 
-// AccessControlUpdate is the outcome of editing .access.yml.
+// AccessControlUpdate is the outcome of editing access.yaml.
 type AccessControlUpdate struct {
 	PullRequest github.PullRequest
 	Branch      string
 	Document    runnerconfig.AccessDocument
 }
 
-// UpdateAccessControl applies changes to .access.yml and opens a pull
-// request against the .cirun repository with the result, as Cirun's API
+// UpdateAccessControl applies changes to access.yaml and opens a pull
+// request against the .airship repository with the result, as Cirun's API
 // does. Nothing takes effect until the pull request is merged.
 func (s *Service) UpdateAccessControl(ctx context.Context, installation db.Installation, changes []runnerconfig.AccessChange) (AccessControlUpdate, error) {
 	writer, ok := s.github.(GitHubWriter)

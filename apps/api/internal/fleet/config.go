@@ -208,7 +208,7 @@ func resolveClouds(wants []want, creds []db.CloudCredential) (Plan, string) {
 	return nil, "connect " + strings.Join(slices.Compact(missing), ", ") + " under Cloud in the dashboard"
 }
 
-// checkAccess drops organization runners the organization's .access.yml
+// checkAccess drops organization runners the organization's access.yaml
 // does not let this run use. denied explains the first refusal.
 func (s *Service) checkAccess(ctx context.Context, installationID int64, repo github.Repo, run github.RunAttempt, org orgFiles, attempts []runnerconfig.Attempt) ([]runnerconfig.Attempt, string, error) {
 	if org.access == nil {
@@ -303,9 +303,9 @@ type runnerFile struct {
 	problem string
 }
 
-// orgFiles is an organization's .cirun repository: its runners and
+// orgFiles is an organization's .airship repository: its runners and
 // access rules. problem explains a file that could not be used, which then
-// counts as empty, except that a broken .access.yml closes every runner
+// counts as empty, except that a broken access.yaml closes every runner
 // rather than opening them.
 type orgFiles struct {
 	file    runnerconfig.File
@@ -377,7 +377,7 @@ func (s *Service) ForgetConfig(installationID int64, repoFullName string) {
 	delete(c.orgs, installationID)
 }
 
-// readRunnerFile reads a repository's .cirun.yml at ref. pinned says ref
+// readRunnerFile reads a repository's airship.yaml at ref. pinned says ref
 // is a commit, whose content never changes.
 func (s *Service) readRunnerFile(ctx context.Context, installationID int64, repo github.Repo, path, ref string, pinned bool) (runnerFile, error) {
 	key := strings.ToLower(repo.FullName()) + "@" + ref + ":" + path
@@ -405,7 +405,7 @@ func (s *Service) readRunnerFile(ctx context.Context, installationID int64, repo
 	return out, nil
 }
 
-// orgConfig reads the organization's .cirun repository.
+// orgConfig reads the organization's .airship repository.
 func (s *Service) orgConfig(ctx context.Context, installation db.Installation) (orgFiles, error) {
 	if installation.AccountType != "Organization" {
 		return orgFiles{}, nil

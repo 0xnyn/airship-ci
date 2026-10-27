@@ -76,7 +76,7 @@ export function Runners() {
       {runners.isSuccess && items.length === 0 ? (
         <EmptyRow>
           {filter === "active"
-            ? "No runners are active. One starts when a job asks for a cirun- label in an activated repository."
+            ? "No runners are active. One starts when a job asks for a airship- label in an activated repository."
             : "No runners yet."}
         </EmptyRow>
       ) : null}

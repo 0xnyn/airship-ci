@@ -33,7 +33,7 @@ create table installations (
     -- Cap on live runners across every repository, so no config file can
     -- run up an unbounded cloud bill.
     max_runners integer not null default 50 check (max_runners between 1 and 10000),
-    -- The organization's .cirun/.cirun.global.yml as last read, for its
+    -- The organization's .airship/airship.global.yaml as last read, for its
     -- idle runners; stale after a push to that repository.
     org_config_sha text,
     org_config_error text,
@@ -102,7 +102,7 @@ create table api_tokens (
 
 create index api_tokens_installation_id_idx on api_tokens (installation_id);
 
--- Repositories an admin activated. A .cirun.yml can choose machines in the
+-- Repositories an admin activated. An airship.yaml can choose machines in the
 -- customer's cloud account, so only activated repositories' files are read.
 create table repositories (
     id bigint primary key,
@@ -115,7 +115,7 @@ create table repositories (
     allow_public boolean not null default false,
     activated_by uuid references users (id) on delete set null,
     activated_at timestamptz not null default now(),
-    -- The default branch's .cirun.yml as last read: idle pools come from
+    -- The default branch's airship.yaml as last read: idle pools come from
     -- it, and the dashboard shows its problems.
     config_sha text,
     config_error text,
@@ -129,8 +129,8 @@ create index repositories_installation_idx on repositories (installation_id, low
 create index repositories_stale_idx on repositories (config_checked_at) where config_stale;
 
 -- An idle pool: runners kept booted and registered ahead of demand, from
--- an idle: section of a repository's .cirun.yml on its default branch, or
--- of the organization's .cirun.global.yml (repository_id null). Repository
+-- an idle: section of a repository's airship.yaml on its default branch, or
+-- of the organization's airship.global.yaml (repository_id null). Repository
 -- pool runners register on that repository; organization pool runners
 -- register on the organization in a runner group limited to the
 -- repositories allowed to use them.
@@ -169,11 +169,11 @@ create table runners (
     installation_id bigint not null references installations (id) on delete cascade,
     -- The config runner name it was launched as.
     definition text not null,
-    -- Where the definition came from: the repository's .cirun.yml or the
-    -- organization's .cirun.global.yml.
+    -- Where the definition came from: the repository's airship.yaml or the
+    -- organization's airship.global.yaml.
     source text not null check (source in ('repository', 'organization')),
     -- Where the runner is registered: on repository_id, or on the
-    -- organization (idle pool runners from .cirun.global.yml, which any
+    -- organization (idle pool runners from airship.global.yaml, which any
     -- repository in their runner group may take; repository_id is then 0).
     scope text not null default 'repository' check (scope in ('repository', 'organization')),
     cloud text not null check (cloud in ('aws')),

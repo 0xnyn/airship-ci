@@ -27,7 +27,7 @@ func (s *Service) ListInstallationRepositories(ctx context.Context, installation
 	return repos, nil
 }
 
-// ActivateRepository lets a repository's .cirun.yml launch runners, and
+// ActivateRepository lets a repository's airship.yaml launch runners, and
 // reads its config straight away so its pools start and its problems show.
 // The repository is looked up on GitHub by ID, so only one the
 // installation can access can be activated. by is the user who did it;
@@ -103,15 +103,15 @@ func (s *Service) resyncOrganization(ctx context.Context, installationID int64) 
 	}
 }
 
-// OrganizationConfig is the organization's .cirun repository as jobs see
+// OrganizationConfig is the organization's .airship repository as jobs see
 // it now.
 type OrganizationConfig struct {
-	// Found is false when there is no .cirun.global.yml (or the app
-	// cannot read the .cirun repository).
+	// Found is false when there is no airship.global.yaml (or the app
+	// cannot read the .airship repository).
 	Found   bool
 	SHA     string
 	Runners []runnerconfig.Runner
-	// Restricted is set when .access.yml governs the runners.
+	// Restricted is set when access.yaml governs the runners.
 	Restricted bool
 	Problem    string
 }

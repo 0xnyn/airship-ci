@@ -77,7 +77,7 @@ type GitHub interface {
 	RepoRoles(ctx context.Context, installationID int64, repo github.Repo, user string) ([]string, error)
 	ListRepositories(ctx context.Context, installationID int64) ([]github.Repository, error)
 	GetRepositoryByID(ctx context.Context, installationID int64, id int64) (github.Repository, error)
-	// Organization runners, for idle pools from .cirun.global.yml.
+	// Organization runners, for idle pools from airship.global.yaml.
 	GenerateOrgJITConfig(ctx context.Context, installationID int64, org, name string, groupID int64, labels []string) (github.JITConfig, error)
 	GetOrgRunner(ctx context.Context, installationID int64, org string, runnerID int64) (github.Runner, error)
 	FindOrgRunnerByName(ctx context.Context, installationID int64, org, name string) (github.Runner, bool, error)

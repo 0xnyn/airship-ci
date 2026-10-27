@@ -60,7 +60,7 @@ const cloudCopy: Record<
         Create an IAM user with the AmazonEC2FullAccess policy, generate an
         access key for it, and paste the key here. Runners get an EC2 instance
         each, in the default VPC of the region a{" "}
-        <code className="font-mono">.cirun.yml</code> names, or the default
+        <code className="font-mono">airship.yaml</code> names, or the default
         region below.
       </>
     ),
@@ -74,9 +74,9 @@ const cloudCopy: Record<
       <>
         Create an organization API key with the sandbox permissions and paste it
         here. Runners get a Daytona sandbox each, built from the container image
-        a <code className="font-mono">.cirun.yml</code> names (or started from
-        one of your snapshots), in the region it names or the default region
-        below. Daytona has no object storage, so{" "}
+        an <code className="font-mono">airship.yaml</code> names (or started
+        from one of your snapshots), in the region it names or the default
+        region below. Daytona has no object storage, so{" "}
         <code className="font-mono">cache: true</code> launches without the
         cache proxy.
       </>
@@ -92,8 +92,8 @@ const cloudCopy: Record<
         Create a service account with the Compute Admin role, enable the Compute
         Engine API, download a JSON key for it and paste the file here. Runners
         get a Compute Engine instance each, in the zone a{" "}
-        <code className="font-mono">.cirun.yml</code> names (or any zone of the
-        region it names), or the default zone below.
+        <code className="font-mono">airship.yaml</code> names (or any zone of
+        the region it names), or the default zone below.
       </>
     ),
     location: "Default zone",

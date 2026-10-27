@@ -10,7 +10,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// Access is a parsed .access.yml: which repositories, and which people in
+// Access is a parsed access.yaml: which repositories, and which people in
 // them, may launch each organization runner. A runner with no
 // access_control entry is open to every activated repository.
 type Access struct {
@@ -38,7 +38,7 @@ func (p Policy) Open() bool {
 	return len(p.Teams) == 0 && len(p.Roles) == 0 && len(p.Users) == 0
 }
 
-// AccessDocument is .access.yml as written: the shape the developer API
+// AccessDocument is access.yaml as written: the shape the developer API
 // reads and edits. It is Cirun's format exactly.
 type AccessDocument struct {
 	Version       int              `json:"version"        yaml:"version"`
@@ -71,7 +71,7 @@ var (
 
 const maxPolicies = 500
 
-// ParseAccess reads and validates an .access.yml file.
+// ParseAccess reads and validates an access.yaml file.
 func ParseAccess(data []byte) (Access, error) {
 	doc, err := DecodeAccess(data)
 	if err != nil {
@@ -81,7 +81,7 @@ func ParseAccess(data []byte) (Access, error) {
 	return doc.Compile()
 }
 
-// DecodeAccess reads .access.yml without validating its rules.
+// DecodeAccess reads access.yaml without validating its rules.
 func DecodeAccess(data []byte) (AccessDocument, error) {
 	if len(data) > MaxFileBytes {
 		return AccessDocument{}, &Error{File: AccessFile, Detail: fmt.Sprintf("file is %d bytes; the limit is %d", len(data), MaxFileBytes)}

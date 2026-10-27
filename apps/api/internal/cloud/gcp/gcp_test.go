@@ -581,8 +581,8 @@ func TestImages(t *testing.T) {
 		GuestOsFeatures: []*computepb.GuestOsFeature{{Type: proto.String("WINDOWS")}},
 	})
 	f.server.AddMachineImage(project, &computepb.MachineImage{Name: proto.String("golden")})
-	f.server.AddProject("cirun-labs")
-	f.server.AddImage("cirun-labs", &computepb.Image{Name: proto.String("cirun-nvidia"), Architecture: proto.String("X86_64")})
+	f.server.AddProject("airship-labs")
+	f.server.AddImage("airship-labs", &computepb.Image{Name: proto.String("airship-nvidia"), Architecture: proto.String("X86_64")})
 
 	cases := map[string]struct {
 		image, wantSource string
@@ -594,9 +594,9 @@ func TestImages(t *testing.T) {
 		"public family": {"ubuntu-2204-lts", "ubuntu-2204-jammy-v20260101", false, false},
 		"own family":    {"ci-base", "ci-base-v3", false, false},
 		"own image":     {"ci-base-v3", "ci-base-v3", false, false},
-		"scoped":        {"cirun-labs:cirun-nvidia", "cirun-nvidia", false, false},
-		"path":          {"projects/cirun-labs/global/images/cirun-nvidia", "cirun-nvidia", false, false},
-		"self link":     {"https://www.googleapis.com/compute/v1/projects/cirun-labs/global/images/cirun-nvidia", "cirun-nvidia", false, false},
+		"scoped":        {"airship-labs:airship-nvidia", "airship-nvidia", false, false},
+		"path":          {"projects/airship-labs/global/images/airship-nvidia", "airship-nvidia", false, false},
+		"self link":     {"https://www.googleapis.com/compute/v1/projects/airship-labs/global/images/airship-nvidia", "airship-nvidia", false, false},
 		"windows":       {"win-runner", "win-runner", false, true},
 		"machine image": {project + ":golden", "golden", true, false},
 		"machine path":  {"projects/" + project + "/global/machineImages/golden", "golden", true, false},

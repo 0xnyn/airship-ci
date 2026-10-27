@@ -271,7 +271,7 @@ runners:
     instance_type: 4vcpu-8gb                 # a shape: vCPUs and GB of memory
     machine_image: "ghcr.io/acme/ci:2026.10" # a container image, tag or digest
     region: us
-    labels: [cirun-build]
+    labels: [airship-build]
     extra_config:
       disk: 10                               # GB; default 10
       docker: true
@@ -279,7 +279,7 @@ runners:
   - name: golden
     cloud: daytona
     instance_type: ci-golden                 # a snapshot you made in Daytona
-    labels: [cirun-golden]                   # image, cpu, memory and disk are its own
+    labels: [airship-golden]                   # image, cpu, memory and disk are its own
 ```
 
 | Field | Daytona meaning |

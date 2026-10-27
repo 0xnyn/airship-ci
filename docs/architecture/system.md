@@ -385,7 +385,7 @@ We are precise about this, because "it compiles" is not "it works".
 | A launch on real EC2 | The opt-in `TestAgainstLiveAWS` launches and terminates one instance when credentials are set. The first real deployment exercises exactly the `RunInstances` call moto accepted |
 | A launch in a real GCP project | The GCP provider should be treated as unexercised against Google, however thorough the fake. The opt-in `TestAgainstLiveGCP` launches one `e2-micro` and deletes it. See [gcp.md](gcp.md) for the specific things to watch on a first launch |
 | A Windows machine | The scripts parse; no Windows VM has booted them |
-| A GPU sandbox that started, or a sandbox in a dedicated Daytona region | Both requests were sent and refused for this organization (no GPU credits; no image builds in the region). The provider's handling of a started GPU sandbox is the one Daytona path not yet seen. See [daytona.md](daytona.md) |
+| A GPU sandbox that started, a sandbox in a dedicated Daytona region, or a sandbox-level allow list | Every request was sent and refused for this organization (no GPU credits; a dedicated region of Windows hosts only, which connect now refuses up front; a tier below 3 for allow lists). Each needs a paid change to the organization. The provider's handling of a started GPU sandbox and an accepted allow list are the Daytona paths not yet seen. See [daytona.md](daytona.md) |
 
 ---
 

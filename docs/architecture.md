@@ -553,9 +553,24 @@ Different, on purpose:
   reported it. This is why a terminated busy runner is not the same as a
   cancelled job: the job ends when GitHub gives up on the runner, not
   when the sandbox goes.
+  The organization's own capability list
+  (`GET /organizations/<id>/available-sandbox-classes`) was read: `us`
+  hosts containers, `us-west-4` hosts Windows only, and a GPU-capable
+  container region exists that is not accepted as a `target` (`Region
+  not found`). A GPU create was sent to it and to `us`, built from an
+  image so that the GPU was not a "resource with a snapshot"; both were
+  refused for credits. A Windows sandbox from Daytona's `windows-small`
+  snapshot in `us-west-4` was requested and refused for the tier
+  (`Windows sandboxes are not available for Tier 1 and Tier 2
+  organizations`). Verify now reads that class list, so a region that
+  hosts no containers is refused at connect time with the regions that
+  do, instead of failing every launch.
   **Not run:** a GPU sandbox that actually started (the organization has
-  no GPU credits), and a sandbox in a dedicated region (this
-  organization's hosts no containers).
+  no GPU credits), a sandbox in a dedicated region (this organization's
+  hosts no containers), and a sandbox-level allow list (Tier 3 and up).
+  Each needs a paid change to the Daytona organization; the requests are
+  built and the refusals pinned, so what remains unseen is Daytona's
+  answer when it accepts.
 - **JIT config in user data.** Anyone in the account who can call
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in

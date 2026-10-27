@@ -242,15 +242,70 @@ func (p *Provider) Verify(ctx context.Context, raw []byte, region string) (cloud
 		return cloud.Identity{}, fmt.Errorf("verify credentials: %w", err)
 	}
 	ids := make([]string, 0, len(regions))
+	found := false
 	for _, r := range regions {
-		if r.Id == region {
-			return cloud.Identity{AccountID: *key.OrganizationId, Principal: key.Name}, nil
-		}
+		found = found || r.Id == region
 		ids = append(ids, r.Id)
 	}
 	slices.Sort(ids)
+	if !found {
+		return cloud.Identity{}, fmt.Errorf("region %q is not available to the organization; its regions are %s", region, strings.Join(ids, ", "))
+	}
+	if err := c.checkLinuxRegion(ctx, *key.OrganizationId, region, ids); err != nil {
+		return cloud.Identity{}, err
+	}
 
-	return cloud.Identity{}, fmt.Errorf("region %q is not available to the organization; its regions are %s", region, strings.Join(ids, ", "))
+	return cloud.Identity{AccountID: *key.OrganizationId, Principal: key.Name}, nil
+}
+
+// checkLinuxRegion refuses a region that hosts no container sandboxes for
+// the organization. A region can be in the organization's list and still
+// serve only another class (a dedicated region of Windows hosts, say), in
+// which case every launch there would fail with "No runners are configured
+// in region ... for sandbox class 'container'"; better refused once, at
+// connect time, with the regions that do work. Only regions from the
+// organization's region list are offered: the class list can name a
+// region that is not accepted as a target (ours lists a GPU region that
+// way). A Daytona without the classes endpoint (an older self-hosted one)
+// is not refused.
+func (c *clients) checkLinuxRegion(ctx context.Context, organizationID, region string, regions []string) error {
+	classCtx, cancel := withTimeout(ctx)
+	defer cancel()
+	classes, resp, err := c.api.OrganizationsAPI.ListAvailableSandboxClasses(classCtx, organizationID).Execute()
+	if err = wrap("list sandbox classes", resp, err); err != nil {
+		if isNotFound(err) {
+			return nil
+		}
+		if isAuthError(err) {
+			return fmt.Errorf("%w: %s", cloud.ErrBadCredentials, errorMessage(err))
+		}
+
+		return fmt.Errorf("verify credentials: %w", err)
+	}
+	var there []string
+	linux := make([]string, 0, len(classes))
+	for _, cl := range classes {
+		if cl.SandboxClass != apiclient.SANDBOXCLASS_CONTAINER {
+			if cl.RegionId == region {
+				there = append(there, string(cl.SandboxClass))
+			}
+
+			continue
+		}
+		if cl.RegionId == region {
+			return nil
+		}
+		if slices.Contains(regions, cl.RegionId) {
+			linux = append(linux, cl.RegionId)
+		}
+	}
+	slices.Sort(linux)
+	slices.Sort(there)
+	if len(there) == 0 {
+		return fmt.Errorf("region %q hosts no Linux sandboxes for the organization; regions that do: %s", region, strings.Join(linux, ", "))
+	}
+
+	return fmt.Errorf("region %q hosts only %s sandboxes for the organization, and Airship runners are Linux containers; regions with Linux sandboxes: %s", region, strings.Join(there, " and "), strings.Join(linux, ", "))
 }
 
 // List implements cloud.Provider. Every sandbox labelled for the

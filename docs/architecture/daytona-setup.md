@@ -35,7 +35,9 @@ region, each as a clear permanent error; no GPU sandbox has started.
 Sign in at `app.daytona.io`, create an organization for CI (or choose one),
 and note its tier limits under the organization's settings. If your
 organization has a dedicated region, note its ID: it appears in the region
-list Airship checks at connect time and works as a `region:` value.
+list Airship checks at connect time and works as a `region:` value, as long
+as it hosts the `container` sandbox class (a region of Windows hosts is
+refused at connect time, naming the regions that run Linux).
 
 ---
 
@@ -223,6 +225,7 @@ minutes the scan deletes it as a leak.
 | Connect fails: *the key lacks the write:sandboxes permission* | A key created without it | Step 2 |
 | Connect fails: *the key belongs to no organization* | A personal key | Create an organization key |
 | Connect fails: *region "x" is not available to the organization; its regions are us, eu* | A typo, or a dedicated region of another organization | Use one of the listed regions |
+| Connect fails: *region "us-west-4" hosts only windows sandboxes for the organization, and Airship runners are Linux containers; regions with Linux sandboxes: us* | The region is yours but hosts another sandbox class | Use a region from the list; a Windows job belongs on EC2 or Compute Engine |
 | Launch fails: *exceeds maximum allowed per sandbox* | A shape above your tier's per-sandbox limit | Smaller shape, or a higher tier. This is permanent, not a wait |
 | Launch fails with a quota or limit message and retries | The organization is at its concurrent limit | Expected; lower `max_runners` or raise the tier |
 | Launch fails: *daytona could not build the image* | The image does not exist, has no such tag, or Daytona cannot pull it | Check the reference; private registries need a Daytona registry entry |

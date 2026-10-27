@@ -68,6 +68,12 @@ type Server struct {
 	ExpiresAt time.Time
 	// Regions the organization can use.
 	Regions []string
+	// Classes, when set, lists the sandbox classes each region hosts
+	// (region -> classes); unset, every region hosts "container".
+	Classes map[string][]string
+	// ClassesMissing answers the sandbox-classes endpoint with 404, as a
+	// Daytona without it would.
+	ClassesMissing bool
 	// BadKeys are rejected with 401.
 	BadKeys map[string]bool
 
@@ -210,6 +216,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.apiKey(w, auth)
 	case path == "/regions" && r.Method == http.MethodGet:
 		s.regions(w)
+	case strings.HasPrefix(path, "/organizations/") && strings.HasSuffix(path, "/available-sandbox-classes") && r.Method == http.MethodGet:
+		s.sandboxClasses(w, strings.TrimSuffix(strings.TrimPrefix(path, "/organizations/"), "/available-sandbox-classes"))
 	case path == "/sandbox" && r.Method == http.MethodPost:
 		s.createSandbox(w, r)
 	case path == "/sandbox" && r.Method == http.MethodGet:
@@ -249,6 +257,38 @@ func (s *Server) regions(w http.ResponseWriter) {
 	out := []map[string]any{}
 	for _, id := range s.Regions {
 		out = append(out, map[string]any{"id": id, "name": id, "regionType": "shared", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) sandboxClasses(w http.ResponseWriter, organizationID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ClassesMissing {
+		fail(w, http.StatusNotFound, "Cannot GET /api/organizations/"+organizationID+"/available-sandbox-classes")
+
+		return
+	}
+	if organizationID != s.OrganizationID {
+		fail(w, http.StatusForbidden, "Forbidden")
+
+		return
+	}
+	out := []map[string]any{}
+	if s.Classes == nil {
+		for _, id := range s.Regions {
+			out = append(out, map[string]any{"regionId": id, "sandboxClass": "container", "gpuAvailable": false})
+		}
+	}
+	ids := make([]string, 0, len(s.Classes))
+	for id := range s.Classes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		for _, class := range s.Classes[id] {
+			out = append(out, map[string]any{"regionId": id, "sandboxClass": class, "gpuAvailable": class == "gpu-container"})
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

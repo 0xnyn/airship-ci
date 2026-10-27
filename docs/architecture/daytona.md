@@ -359,7 +359,9 @@ list, two minutes at the HTTP client.
 | API key expiry | Daytona keys can expire. Verification refuses an expired key; one that expires later fails every launch from then on, so reconnect with a new key before that date |
 | GPU credits | A GPU sandbox needs GPU credits (spot credits for `preemptible: true`) in the organization's wallet; without them Daytona refuses the create and Airship moves to the next fallback. With them, spot GPU sandboxes may wait in Daytona's queue and be destroyed when it times out; Airship retries on the next attempt |
 | Network tier | Tier 1 and 2 cannot set a sandbox-level allow list; Tier 3 and 4 can, strictly. `GET /organizations/<id>/usage` shows the per-region quotas Daytona enforces |
-| Dedicated regions | Appear in the organization's region list and work as a `region:` value, but snapshots are per region and image builds may be unavailable there; the shared `us` and `eu` are always there |
+| Dedicated regions and sandbox classes | A region in the organization's list may host a sandbox class other than `container` (`GET /organizations/<id>/available-sandbox-classes` says which: ours lists `us` for containers, `us-west-4` for Windows only, and a GPU-capable region that is not a valid `target`). Connecting with a region that hosts no containers is refused with the regions that do. Snapshots are per region and image builds may be unavailable in a dedicated one; the shared `us` and `eu` are always there |
+| Windows and `linux-vm` sandboxes | Daytona also offers Windows Server 2025 sandboxes (`windows-small` to `windows-xlarge`) and KVM Linux VMs (`daytona-vm-*`), but Windows is refused for Tier 1 and 2 organizations (`Windows sandboxes are not available for Tier 1 and Tier 2 organizations`) and the VM class is not in this organization's class list. Airship runs Linux containers on Daytona; a Windows job belongs on an EC2 or Compute Engine image |
+| GPU capacity | `GET /organizations/<id>/gpu-capacity` reports Daytona's fleet per type on demand and spot (hundreds of H100 and RTX-PRO-6000, a few dozen H200, RTX-4090 and RTX-5090, no B300 or MI355X when we looked); it is the fleet, not the organization's quota, and a sandbox still needs GPU credits |
 
 ---
 
@@ -369,7 +371,7 @@ list, two minutes at the HTTP client.
    <image>`) before the sandbox starts; a build that takes longer than
    four minutes fails the launch as retryable, and the next attempt finds
    the cached build.
-2. **A GPU sandbox.** The request has been sent and refused for credits;
+2. **A GPU sandbox.** The request has been sent and refused for credits, in the shared region and in the GPU-capable one;
    none has started. The first one that does is the thing to verify, with
    the Events page open, in particular that `nvidia-smi` appears in the
    boot log.

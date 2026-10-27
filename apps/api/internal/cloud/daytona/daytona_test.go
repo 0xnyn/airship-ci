@@ -103,6 +103,33 @@ func TestVerify(t *testing.T) {
 	if _, err := f.provider.Verify(ctx, f.secret, "Not a region"); err == nil {
 		t.Error("malformed region accepted")
 	}
+	// A region in the organization's list that hosts another sandbox class
+	// (our dedicated region hosts Windows only) is refused at connect time,
+	// naming the class and the regions that do run Linux containers.
+	f.server.Regions = []string{"us", "eu", "us-west-4"}
+	// The class list also names a GPU region that is not a valid target
+	// (not in the region list); it must not be offered.
+	f.server.Classes = map[string][]string{"us": {"container"}, "eu": {"container"}, "us-west-4": {"windows"}, "earth": {"container"}}
+	if _, err := f.provider.Verify(ctx, f.secret, "us-west-4"); err == nil || !strings.Contains(err.Error(), "only windows sandboxes") || !strings.Contains(err.Error(), "sandboxes: eu, us") {
+		t.Errorf("windows-only region: %v", err)
+	}
+	if _, err := f.provider.Verify(ctx, f.secret, "earth"); err == nil || !strings.Contains(err.Error(), "not available to the organization") {
+		t.Errorf("region outside the region list: %v", err)
+	}
+	f.server.Classes["us-west-4"] = nil
+	if _, err := f.provider.Verify(ctx, f.secret, "us-west-4"); err == nil || !strings.Contains(err.Error(), "hosts no Linux sandboxes") {
+		t.Errorf("classless region: %v", err)
+	}
+	if _, err := f.provider.Verify(ctx, f.secret, region); err != nil {
+		t.Errorf("container region refused: %v", err)
+	}
+	f.server.ClassesMissing = true
+	if _, err := f.provider.Verify(ctx, f.secret, "us-west-4"); err != nil {
+		t.Errorf("a Daytona without the classes endpoint refused the region: %v", err)
+	}
+	f.server.ClassesMissing = false
+	f.server.Regions = []string{"us", "eu"}
+	f.server.Classes = nil
 	f.server.BadKeys[apiKey] = true
 	if _, err := f.provider.Verify(ctx, f.secret, region); !errors.Is(err, cloud.ErrBadCredentials) {
 		t.Errorf("rejected key: %v", err)
@@ -573,6 +600,10 @@ func TestRealDaytonaMessagesAreClassified(t *testing.T) {
 		{403, "Declarative builds are not available to your organization in region us-west-4.", false},
 		{400, "Snapshot daytona-small is not available in region us-west-4", false},
 		{400, "No runners are configured in region 'us-west-4' for sandbox class 'container'. Try a different region or sandbox class.", false},
+		{400, "Cannot specify Sandbox resources when using a snapshot", false},
+		{400, "each value in gpuType must be one of the following values: H100, H200, B200, B300, RTX-PRO-6000, RTX-4090, RTX-5090, MI355X", false},
+		{403, "Windows sandboxes are not available for Tier 1 and Tier 2 organizations. Contact support@daytona.io to request access.", false},
+		{404, "Region not found", false},
 		{409, "Sandbox with name airship-x already exists", false},
 		{429, "Too Many Requests", true},
 		{503, "Service Unavailable", true},

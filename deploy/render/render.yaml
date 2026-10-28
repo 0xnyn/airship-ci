@@ -32,7 +32,7 @@ services:
         sync: false
       - key: PUBLIC_URL
         value: https://api.example.com
-      - key: WEB_URL
+      - key: DASH_URL
         value: https://app.example.com
       - key: CORS_ORIGINS
         value: https://app.example.com

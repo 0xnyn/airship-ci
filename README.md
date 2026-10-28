@@ -63,7 +63,7 @@ Airship's names: rename `.cirun.yml` to `airship.yaml`, `cirun-` labels to
 | Path | What it is |
 | --- | --- |
 | `apps/api` | Go: the control plane (`cmd/api`), migrations (`cmd/migrate`), the runner-side cache proxy (`cmd/cacheproxy`) |
-| `apps/web` | Next.js 16 dashboard |
+| `apps/dash` | Next.js 16 dashboard |
 | `apps/docs` | User-facing documentation (Mintlify); the API reference is generated from `openapi.json` |
 | `packages/client` | TypeScript client generated from the API's OpenAPI document |
 | `packages/ui` | Shared shadcn/ui components |
@@ -153,7 +153,7 @@ target; each wraps one of the pnpm scripts below. The full guide is
 
 | Command | Does |
 | --- | --- |
-| `pnpm dev` | API with hot reload, web app, live type generation |
+| `pnpm dev` | API with hot reload, dashboard, live type generation |
 | `pnpm generate` | sqlc → openapi.json → TypeScript client |
 | `pnpm lint` / `pnpm format` | Ultracite (Biome) for TypeScript, golangci-lint for Go |
 | `pnpm typecheck` / `pnpm test` / `pnpm build` | Across all packages |
@@ -195,7 +195,7 @@ proxy and its credentials from it), `CREDENTIALS_KEY` must be a base64
 connected cloud), and the GitHub App must be configured. Several API
 replicas can run at once: launchers claim runners with row locks, and the
 reconciler elects a leader through a Postgres advisory lock. Serve the
-dashboard (`apps/web`, `NEXT_PUBLIC_API_URL` set to the API) on the same site
+dashboard (`apps/dash`, `NEXT_PUBLIC_API_URL` set to the API) on the same site
 as the API, e.g. `app.example.com` and `api.example.com`, so the session
 cookie is sent. `NEXT_PUBLIC_API_URL` is inlined when `next build` runs, so
 set it in the build environment; a production build with the `localhost`

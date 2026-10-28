@@ -26,7 +26,7 @@ credentials key, GitHub App) applies here unchanged.
  │  subnet apps (delegated to Container Apps)                                 │
  │   ┌──────────────── Container Apps environment ───────────────────────┐    │
  │   │  airship-api  ×2, ingress :8080, managed cert ──► GitHub, clouds  │    │
- │   │  airship-web  ×1+, ingress :3000, managed cert                    │    │
+ │   │  airship-dash ×1+, ingress :3000, managed cert                    │    │
  │   │  airship-migrate (manual job)                                     │    │
  │   └──────────────────────────────┬────────────────────────────────────┘    │
  │  subnet db (delegated)           │ 5432, TLS, private DNS                  │
@@ -63,7 +63,7 @@ export ACR=airship$SUFFIX           # letters and digits only
 export VAULT=airship-kv-$SUFFIX
 export DB=airship-db-$SUFFIX
 export API_DOMAIN=api.example.com
-export WEB_DOMAIN=app.example.com
+export DASH_DOMAIN=app.example.com
 export VERSION=$(git rev-parse --short HEAD)
 
 az extension add --name containerapp --upgrade
@@ -175,11 +175,11 @@ export REGISTRY=$ACR.azurecr.io
 
 docker build --platform linux/amd64 --build-arg VERSION=$VERSION \
   -t $REGISTRY/airship-api:$VERSION apps/api
-docker build --platform linux/amd64 -f apps/web/Dockerfile \
+docker build --platform linux/amd64 -f apps/dash/Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL=https://$API_DOMAIN \
-  -t $REGISTRY/airship-web:$VERSION .
+  -t $REGISTRY/airship-dash:$VERSION .
 docker push $REGISTRY/airship-api:$VERSION
-docker push $REGISTRY/airship-web:$VERSION
+docker push $REGISTRY/airship-dash:$VERSION
 ```
 
 Without Docker locally, `az acr build` builds in the registry instead and
@@ -249,15 +249,15 @@ az containerapp create -g $RG -n airship-api --environment airship \
   --secrets "$(kv database-url)" "$(kv credentials-key)" "$(kv github-client-secret)" \
             "$(kv github-webhook-secret)" "$(kv github-private-key)" \
   --env-vars \
-    PUBLIC_URL=https://$API_DOMAIN WEB_URL=https://$WEB_DOMAIN CORS_ORIGINS=https://$WEB_DOMAIN \
+    PUBLIC_URL=https://$API_DOMAIN DASH_URL=https://$DASH_DOMAIN CORS_ORIGINS=https://$DASH_DOMAIN \
     GITHUB_APP_SLUG=<app slug> GITHUB_CLIENT_ID=<client id> LOG_LEVEL=info \
     DATABASE_URL=secretref:database-url CREDENTIALS_KEY=secretref:credentials-key \
     GITHUB_CLIENT_SECRET=secretref:github-client-secret \
     GITHUB_WEBHOOK_SECRET=secretref:github-webhook-secret \
     GITHUB_PRIVATE_KEY=secretref:github-private-key
 
-az containerapp create -g $RG -n airship-web --environment airship \
-  --image $REGISTRY/airship-web:$VERSION \
+az containerapp create -g $RG -n airship-dash --environment airship \
+  --image $REGISTRY/airship-dash:$VERSION \
   --registry-server $REGISTRY --registry-identity $IDENTITY --user-assigned $IDENTITY \
   --ingress external --target-port 3000 \
   --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 2
@@ -293,7 +293,7 @@ proving the domain is yours:
 
 ```bash
 az containerapp show -g $RG -n airship-api --query properties.configuration.ingress.fqdn -o tsv
-az containerapp show -g $RG -n airship-web --query properties.configuration.ingress.fqdn -o tsv
+az containerapp show -g $RG -n airship-dash --query properties.configuration.ingress.fqdn -o tsv
 az containerapp show -g $RG -n airship-api --query properties.customDomainVerificationId -o tsv
 ```
 
@@ -301,7 +301,7 @@ az containerapp show -g $RG -n airship-api --query properties.customDomainVerifi
 | --- | --- | --- |
 | `api.example.com` | CNAME | the `airship-api` FQDN |
 | `asuid.api.example.com` | TXT | the verification ID |
-| `app.example.com` | CNAME | the `airship-web` FQDN |
+| `app.example.com` | CNAME | the `airship-dash` FQDN |
 | `asuid.app.example.com` | TXT | the verification ID |
 
 Once they resolve, add the hostnames and bind free managed certificates:
@@ -310,8 +310,8 @@ Once they resolve, add the hostnames and bind free managed certificates:
 az containerapp hostname add -g $RG -n airship-api --hostname $API_DOMAIN
 az containerapp hostname bind -g $RG -n airship-api --hostname $API_DOMAIN \
   --environment airship --validation-method CNAME
-az containerapp hostname add -g $RG -n airship-web --hostname $WEB_DOMAIN
-az containerapp hostname bind -g $RG -n airship-web --hostname $WEB_DOMAIN \
+az containerapp hostname add -g $RG -n airship-dash --hostname $DASH_DOMAIN
+az containerapp hostname bind -g $RG -n airship-dash --hostname $DASH_DOMAIN \
   --environment airship --validation-method CNAME
 ```
 
@@ -331,7 +331,7 @@ curl -s https://$API_DOMAIN/healthz
 
 Then work through the **Verification** items in the
 [production checklist](README.md#production-checklist): webhook deliveries
-in the GitHub App, GitHub sign-in on `https://$WEB_DOMAIN`, and one real
+in the GitHub App, GitHub sign-in on `https://$DASH_DOMAIN`, and one real
 job.
 
 If a revision does not start, `az containerapp revision list -g $RG -n
@@ -351,7 +351,7 @@ export VERSION=$(git rev-parse --short HEAD)
 az containerapp job update -g $RG -n airship-migrate --image $REGISTRY/airship-api:$VERSION
 migrate   # from step 6; must print "migrated" before continuing
 az containerapp update -g $RG -n airship-api --image $REGISTRY/airship-api:$VERSION
-az containerapp update -g $RG -n airship-web --image $REGISTRY/airship-web:$VERSION
+az containerapp update -g $RG -n airship-dash --image $REGISTRY/airship-dash:$VERSION
 ```
 
 In the default single-revision mode, the new revision takes all traffic

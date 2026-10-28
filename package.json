@@ -14,7 +14,7 @@
     "dev": "turbo run dev --filter=!@airship/docs",
     "format": "ultracite fix && turbo run format",
     "generate": "turbo run generate",
-    "postinstall": "varlock codegen --path ./apps/web/",
+    "postinstall": "varlock codegen --path ./apps/dash/",
     "lint": "ultracite check && turbo run lint",
     "prepare": "husky",
     "test": "turbo run test",

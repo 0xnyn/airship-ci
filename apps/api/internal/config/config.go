@@ -27,8 +27,8 @@ type Config struct {
 
 	// PublicURL is where browsers and GitHub reach this api.
 	PublicURL string `env:"PUBLIC_URL" envDefault:"http://localhost:8080"`
-	// WebURL is the dashboard, where sign-in returns to.
-	WebURL string `env:"WEB_URL" envDefault:"http://localhost:3000"`
+	// DashURL is the dashboard, where sign-in returns to.
+	DashURL string `env:"DASH_URL" envDefault:"http://localhost:3000"`
 
 	GitHub GitHub `envPrefix:"GITHUB_"`
 

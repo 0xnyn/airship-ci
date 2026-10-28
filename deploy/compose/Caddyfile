@@ -10,6 +10,6 @@
 	}
 }
 
-{$WEB_DOMAIN} {
-	reverse_proxy web:3000
+{$DASH_DOMAIN} {
+	reverse_proxy dash:3000
 }

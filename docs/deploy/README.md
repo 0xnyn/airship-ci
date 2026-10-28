@@ -54,7 +54,7 @@ above.
                              │                  │
                      ┌───────▼──────┐   ┌───────▼──────┐
                      │ dashboard    │   │ api × 2+     │──► api.github.com
-                     │ apps/web     │   │ apps/api     │──► customers' clouds
+                     │ apps/dash    │   │ apps/api     │──► customers' clouds
                      │ :3000        │   │ :8080        │
                      └──────────────┘   └───────┬──────┘
                                                 │
@@ -67,7 +67,7 @@ above.
 | --- | --- | --- |
 | API | `apps/api/Dockerfile` (context `apps/api`) | distroless, nonroot, `:8080`. Holds `/usr/local/bin/api` (the default entrypoint) and `/usr/local/bin/migrate`. Embeds the cache proxy for `linux/amd64` and `linux/arm64` |
 | Migrations | Same image, entrypoint `/usr/local/bin/migrate`, argument `up` | Run once per release, **before** rolling out the API. Idempotent |
-| Dashboard | `apps/web/Dockerfile` (context: repository root) | Next.js standalone server, nonroot, `:3000`. `NEXT_PUBLIC_API_URL` is a **build argument**, baked in at build time |
+| Dashboard | `apps/dash/Dockerfile` (context: repository root) | Next.js standalone server, nonroot, `:3000`. `NEXT_PUBLIC_API_URL` is a **build argument**, baked in at build time |
 | Postgres | **17 or newer**, managed; 18 recommended | The schema uses `uuidv7()`, built into Postgres 18. On 17 the first migration defines an equivalent. CI tests both |
 
 Build both images:
@@ -75,7 +75,7 @@ Build both images:
 ```bash
 VERSION=$(git rev-parse --short HEAD)
 docker build -t airship-api:$VERSION --build-arg VERSION=$VERSION apps/api
-docker build -t airship-web:$VERSION -f apps/web/Dockerfile \
+docker build -t airship-dash:$VERSION -f apps/dash/Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL=https://api.example.com .
 ```
 
@@ -84,7 +84,7 @@ Most platforms run on `linux/amd64`. On an Apple Silicon machine add
 
 The variables each piece takes are in
 [`deploy/production/api.env.example`](../../deploy/production/api.env.example)
-and [`deploy/production/web.env.example`](../../deploy/production/web.env.example).
+and [`deploy/production/dash.env.example`](../../deploy/production/dash.env.example).
 The full reference, with defaults, is in
 [operations.md, "Configuration"](../architecture/operations.md#configuration).
 
@@ -148,8 +148,8 @@ each item on its platform.
 
 **Configuration**
 
-- [ ] `PUBLIC_URL` and `WEB_URL` are the https custom domains, and
-      `CORS_ORIGINS` is exactly `WEB_URL`.
+- [ ] `PUBLIC_URL` and `DASH_URL` are the https custom domains, and
+      `CORS_ORIGINS` is exactly `DASH_URL`.
 - [ ] `CREDENTIALS_KEY`, `DATABASE_URL`, `GITHUB_CLIENT_SECRET`,
       `GITHUB_WEBHOOK_SECRET` and the private key come from a secret store,
       not plain environment configuration.

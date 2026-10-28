@@ -21,7 +21,7 @@ generated from it and must never be edited by hand.
 | Path | What it is |
 | --- | --- |
 | `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client, Azure SDK for Go (armcompute, armnetwork) |
-| `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
+| `apps/dash` | Next.js 16 dashboard (App Router, React Compiler, Tailwind 4) |
 | `apps/home` | Marketing site: Astro 7, static, plain scoped CSS (tokens in `src/layouts/layout.astro`), on :4000. All copy, links and numbers live in `src/content/` (`site.ts`, `home.ts`, `pricing.ts`, `prices.ts`) and flow into the components as props; graphics are drawn in code (`src/components/graphics`). The social image and video (`public/og`) are rendered from `og/card.html` by `pnpm --filter @airship/home og` (Playwright + ffmpeg); rerun it after changing the card |
 | `apps/docs` | User-facing documentation: Mintlify, MDX, on :4100 (`make docs`). Navigation and theme in `docs.json`. `api-reference/openapi.json` is **generated** from the API's own document by `scripts/openapi.mjs`, which keeps the `/api` paths and rewrites the handlers' wording for an API audience; `scripts/check.mjs` (`pnpm lint`) checks navigation, links, frontmatter and the names the docs may not use. `apps/docs/README.md` has the rules |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
@@ -39,7 +39,7 @@ Go handlers + request/response structs ─► Huma ─► apps/api/openapi.json
                                                        │
                           openapi-typescript ◄─────────┘
                                  │
-packages/client/src/generated/api.ts ─► apps/web ($api.useQuery, api.GET)
+packages/client/src/generated/api.ts ─► apps/dash ($api.useQuery, api.GET)
                                  │
                                  └─► apps/docs/api-reference/openapi.json
                                      (the documented subset, Mintlify renders it)
@@ -60,7 +60,7 @@ Run from the repo root. A `Makefile` wraps the same commands (`make help`;
 | `pnpm db:up` | Start Postgres in Docker |
 | `pnpm db:migrate` | Apply migrations (`db:rollback` undoes one) |
 | `pnpm db:new <name> sql` | Create a new numbered migration |
-| `pnpm dev` | API on :8080 (docs at /docs), web on :3000, live type regeneration |
+| `pnpm dev` | API on :8080 (docs at /docs), dashboard on :3000, live type regeneration |
 | `pnpm generate` | sqlc → openapi.json → TypeScript client |
 | `pnpm lint` | Ultracite (Biome) for TS/JSON/CSS, golangci-lint for Go |
 | `pnpm format` | Auto-fix both |
@@ -81,7 +81,7 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
    `huma.Register` and a unique camelCase `OperationID`. Register the package
    in `internal/server/server.go`.
 4. `pnpm generate` (or just save while `pnpm dev` runs).
-5. Call it from the web app: `$api.useQuery("get", "/v1/things")`,
+5. Call it from the dashboard: `$api.useQuery("get", "/v1/things")`,
    `$api.useMutation("post", "/v1/things")`, or `await unwrap(api.GET(...))`
    in server code.
 
@@ -125,7 +125,7 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   names (`Schemas["Profile"]`), so name them for API consumers.
 - Config is environment variables only (`internal/config`); local values live
   in `apps/api/.env` (copy `.env.example`). `CREDENTIALS_KEY` is required.
-  The web app's env is declared and typed in `apps/web/.env.schema` via varlock.
+  The dashboard's env is declared and typed in `apps/dash/.env.schema` via varlock.
 - Never edit `apps/api/internal/db/*.go` (except `queries/`),
   `apps/api/openapi.json`, `packages/client/src/generated/` or
   `apps/docs/api-reference/openapi.json`.

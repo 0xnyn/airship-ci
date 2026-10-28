@@ -25,10 +25,10 @@ credentials key, GitHub App) applies here unchanged.
  (2 AZs)          │  ALB  :443 (ACM certificate), :80 → 443 │       ▲
                   └───────┬───────────────────────┬─────────┘       │
                           │ host api.*            │ host app.*      │ outbound: GitHub,
- private subnets  ┌───────▼────────┐      ┌───────▼────────┐        │ customers' clouds
- (2 AZs)          │ ECS service    │      │ ECS service    │────────┘
-                  │ airship-api ×2 │      │ airship-web ×2 │
-                  └───────┬────────┘      └────────────────┘
+ private subnets  ┌───────▼────────┐      ┌───────▼─────────┐       │ customers' clouds
+ (2 AZs)          │ ECS service    │      │ ECS service     │───────┘
+                  │ airship-api ×2 │      │ airship-dash ×2 │
+                  └───────┬────────┘      └─────────────────┘
                           │ 5432, TLS
                   ┌───────▼────────┐
                   │ RDS Postgres 18│  Multi-AZ, encrypted, 7-day PITR
@@ -51,7 +51,7 @@ Every command below uses these. Run them in one shell.
 export AWS_REGION=eu-west-1
 export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 export API_DOMAIN=api.example.com
-export WEB_DOMAIN=app.example.com
+export DASH_DOMAIN=app.example.com
 export VERSION=$(git rev-parse --short HEAD)
 export REGISTRY=$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
 ```
@@ -173,16 +173,16 @@ single line with literal `\n`.
 
 ```bash
 aws ecr create-repository --repository-name airship-api --image-scanning-configuration scanOnPush=true
-aws ecr create-repository --repository-name airship-web --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name airship-dash --image-scanning-configuration scanOnPush=true
 aws ecr get-login-password | docker login --username AWS --password-stdin $REGISTRY
 
 docker build --platform linux/amd64 --build-arg VERSION=$VERSION \
   -t $REGISTRY/airship-api:$VERSION apps/api
-docker build --platform linux/amd64 -f apps/web/Dockerfile \
+docker build --platform linux/amd64 -f apps/dash/Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL=https://$API_DOMAIN \
-  -t $REGISTRY/airship-web:$VERSION .
+  -t $REGISTRY/airship-dash:$VERSION .
 docker push $REGISTRY/airship-api:$VERSION
-docker push $REGISTRY/airship-web:$VERSION
+docker push $REGISTRY/airship-dash:$VERSION
 ```
 
 To run on Graviton instead, which is cheaper on Fargate, build with
@@ -219,7 +219,7 @@ Request one certificate for both names and validate it through DNS:
 
 ```bash
 CERT=$(aws acm request-certificate --domain-name $API_DOMAIN \
-  --subject-alternative-names $WEB_DOMAIN --validation-method DNS \
+  --subject-alternative-names $DASH_DOMAIN --validation-method DNS \
   --query CertificateArn --output text)
 aws acm describe-certificate --certificate-arn $CERT \
   --query 'Certificate.DomainValidationOptions[].ResourceRecord'
@@ -237,10 +237,10 @@ ALB=$(aws elbv2 create-load-balancer --name airship --type application \
 API_TG=$(aws elbv2 create-target-group --name airship-api --protocol HTTP --port 8080 \
   --vpc-id $VPC --target-type ip --health-check-path /healthz \
   --query 'TargetGroups[0].TargetGroupArn' --output text)
-WEB_TG=$(aws elbv2 create-target-group --name airship-web --protocol HTTP --port 3000 \
+DASH_TG=$(aws elbv2 create-target-group --name airship-dash --protocol HTTP --port 3000 \
   --vpc-id $VPC --target-type ip --health-check-path /sign-in \
   --query 'TargetGroups[0].TargetGroupArn' --output text)
-for tg in $API_TG $WEB_TG; do
+for tg in $API_TG $DASH_TG; do
   aws elbv2 modify-target-group-attributes --target-group-arn $tg \
     --attributes Key=deregistration_delay.timeout_seconds,Value=30
 done
@@ -252,13 +252,13 @@ HTTPS=$(aws elbv2 create-listener --load-balancer-arn $ALB --protocol HTTPS --po
 aws elbv2 create-rule --listener-arn $HTTPS --priority 10 \
   --conditions Field=host-header,Values=$API_DOMAIN --actions Type=forward,TargetGroupArn=$API_TG
 aws elbv2 create-rule --listener-arn $HTTPS --priority 20 \
-  --conditions Field=host-header,Values=$WEB_DOMAIN --actions Type=forward,TargetGroupArn=$WEB_TG
+  --conditions Field=host-header,Values=$DASH_DOMAIN --actions Type=forward,TargetGroupArn=$DASH_TG
 aws elbv2 create-listener --load-balancer-arn $ALB --protocol HTTP --port 80 \
   --default-actions 'Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}'
 ```
 
 Point both names at it. In Route 53, create an **A record, Alias** to the
-load balancer for each of `$API_DOMAIN` and `$WEB_DOMAIN`. With another DNS
+load balancer for each of `$API_DOMAIN` and `$DASH_DOMAIN`. With another DNS
 provider, create CNAMEs to:
 
 ```bash
@@ -297,8 +297,8 @@ cat > api-task.json <<EOF
     "stopTimeout": 45,
     "environment": [
       {"name": "PUBLIC_URL", "value": "https://$API_DOMAIN"},
-      {"name": "WEB_URL", "value": "https://$WEB_DOMAIN"},
-      {"name": "CORS_ORIGINS", "value": "https://$WEB_DOMAIN"},
+      {"name": "DASH_URL", "value": "https://$DASH_DOMAIN"},
+      {"name": "CORS_ORIGINS", "value": "https://$DASH_DOMAIN"},
       {"name": "GITHUB_APP_SLUG", "value": "<app slug>"},
       {"name": "GITHUB_CLIENT_ID", "value": "<client id>"},
       {"name": "LOG_LEVEL", "value": "info"}
@@ -352,27 +352,27 @@ aws ecs register-task-definition --cli-input-json file://migrate-task.json
 The dashboard needs no secrets; its one setting is baked into the image:
 
 ```bash
-cat > web-task.json <<EOF
+cat > dash-task.json <<EOF
 {
-  "family": "airship-web",
+  "family": "airship-dash",
   "requiresCompatibilities": ["FARGATE"],
   "networkMode": "awsvpc",
   "cpu": "256",
   "memory": "512",
   "executionRoleArn": "$EXECUTION_ROLE",
   "containerDefinitions": [{
-    "name": "web",
-    "image": "$REGISTRY/airship-web:$VERSION",
+    "name": "dash",
+    "image": "$REGISTRY/airship-dash:$VERSION",
     "essential": true,
     "portMappings": [{"containerPort": 3000}],
     "logConfiguration": {
       "logDriver": "awslogs",
-      "options": {"awslogs-group": "/ecs/airship", "awslogs-region": "$AWS_REGION", "awslogs-stream-prefix": "web"}
+      "options": {"awslogs-group": "/ecs/airship", "awslogs-region": "$AWS_REGION", "awslogs-stream-prefix": "dash"}
     }
   }]
 }
 EOF
-aws ecs register-task-definition --cli-input-json file://web-task.json
+aws ecs register-task-definition --cli-input-json file://dash-task.json
 ```
 
 These files contain secret ARNs but no secret values. They are safe to
@@ -409,13 +409,13 @@ aws ecs create-service --cluster airship --service-name airship-api \
   --load-balancers targetGroupArn=$API_TG,containerName=api,containerPort=8080 \
   --health-check-grace-period-seconds 30 --deployment-configuration "$DEPLOY"
 
-aws ecs create-service --cluster airship --service-name airship-web \
-  --task-definition airship-web --desired-count 2 --launch-type FARGATE \
+aws ecs create-service --cluster airship --service-name airship-dash \
+  --task-definition airship-dash --desired-count 2 --launch-type FARGATE \
   --network-configuration "$NETWORK" \
-  --load-balancers targetGroupArn=$WEB_TG,containerName=web,containerPort=3000 \
+  --load-balancers targetGroupArn=$DASH_TG,containerName=dash,containerPort=3000 \
   --health-check-grace-period-seconds 30 --deployment-configuration "$DEPLOY"
 
-aws ecs wait services-stable --cluster airship --services airship-api airship-web
+aws ecs wait services-stable --cluster airship --services airship-api airship-dash
 ```
 
 Two API tasks run the launcher on both and elect one reconciler through a
@@ -433,7 +433,7 @@ curl -s https://$API_DOMAIN/healthz
 
 Then work through the **Verification** items in the
 [production checklist](README.md#production-checklist): webhook deliveries
-in the GitHub App, GitHub sign-in on `https://$WEB_DOMAIN`, and one real
+in the GitHub App, GitHub sign-in on `https://$DASH_DOMAIN`, and one real
 job.
 
 If a task will not start, the reason is in the service's events
@@ -450,13 +450,13 @@ wrong.
 export VERSION=$(git rev-parse --short HEAD)
 # build and push both images (step 4), then:
 sed -i.bak "s#airship-api:[^\"]*#airship-api:$VERSION#" api-task.json migrate-task.json
-sed -i.bak "s#airship-web:[^\"]*#airship-web:$VERSION#" web-task.json
-for f in api migrate web; do aws ecs register-task-definition --cli-input-json file://$f-task.json >/dev/null; done
+sed -i.bak "s#airship-dash:[^\"]*#airship-dash:$VERSION#" dash-task.json
+for f in api migrate dash; do aws ecs register-task-definition --cli-input-json file://$f-task.json >/dev/null; done
 
 migrate   # from step 8; must print 0 before continuing
 aws ecs update-service --cluster airship --service airship-api --task-definition airship-api
-aws ecs update-service --cluster airship --service airship-web --task-definition airship-web
-aws ecs wait services-stable --cluster airship --services airship-api airship-web
+aws ecs update-service --cluster airship --service airship-dash --task-definition airship-dash
+aws ecs wait services-stable --cluster airship --services airship-api airship-dash
 ```
 
 The circuit breaker rolls a service back to the previous task definition if
@@ -488,9 +488,9 @@ Day-to-day operation, alerts worth having and the incident runbook are in
 
 ```bash
 aws ecs update-service --cluster airship --service airship-api --desired-count 0
-aws ecs update-service --cluster airship --service airship-web --desired-count 0
+aws ecs update-service --cluster airship --service airship-dash --desired-count 0
 aws ecs delete-service --cluster airship --service airship-api --force
-aws ecs delete-service --cluster airship --service airship-web --force
+aws ecs delete-service --cluster airship --service airship-dash --force
 aws ecs delete-cluster --cluster airship
 aws elbv2 delete-load-balancer --load-balancer-arn $ALB
 aws rds modify-db-instance --db-instance-identifier airship --no-deletion-protection --apply-immediately

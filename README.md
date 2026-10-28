@@ -146,6 +146,10 @@ egress-only security group Airship creates.
 
 ## Scripts
 
+`make setup` once after cloning, then `make dev`. `make help` lists every
+target; each wraps one of the pnpm scripts below. The full guide is
+[docs/development.md](docs/development.md).
+
 | Command | Does |
 | --- | --- |
 | `pnpm dev` | API with hot reload, web app, live type generation |
@@ -160,6 +164,7 @@ Go tests that use the database need `TEST_DATABASE_URL` (each test creates its
 own database); without it they are skipped locally and fail in CI:
 
 ```bash
+make test   # sets it to the local Postgres
 TEST_DATABASE_URL='postgres://airship:airship@localhost:5432/airship?sslmode=disable' pnpm test
 ```
 
@@ -170,7 +175,8 @@ Step-by-step guides for [AWS](docs/deploy/aws.md) (ECS Fargate and RDS),
 [Azure](docs/deploy/azure.md) (Container Apps and PostgreSQL flexible
 server) and [a single server](docs/deploy/server.md) (Docker Compose and
 Caddy), with the production checklist they share, are in
-[docs/deploy/](docs/deploy/README.md). Postgres 18 or newer is required.
+[docs/deploy/](docs/deploy/README.md). Postgres 17 or newer is required, 18
+recommended.
 In short:
 
 The control plane is one container plus Postgres:

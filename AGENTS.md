@@ -48,7 +48,8 @@ CI fails if any generated file is stale (`pnpm check:generated`).
 
 ## Commands
 
-Run from the repo root.
+Run from the repo root. A `Makefile` wraps the same commands (`make help`;
+`make setup` for a fresh clone, `make test-pg17` for Supabase's Postgres 17).
 
 | Command | Does |
 | --- | --- |

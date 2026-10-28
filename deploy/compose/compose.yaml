@@ -17,6 +17,10 @@ x-api-env: &api-env
   GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?set GITHUB_WEBHOOK_SECRET in .env}
   GITHUB_PRIVATE_KEY_FILE: /run/secrets/github-app.pem
   LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Empty means the API's default.
+  RUNNER_VERSION: ${RUNNER_VERSION:-}
+  RUNNER_MAX_LIFETIME: ${RUNNER_MAX_LIFETIME:-}
+  RUNNER_IDLE_TIMEOUT: ${RUNNER_IDLE_TIMEOUT:-}
 
 services:
   postgres:

@@ -16,7 +16,7 @@
     "typecheck": {},
     "lint": {},
     "test": {
-      "env": ["TEST_DATABASE_URL", "AIRSHIP_DOCKER_TEST"]
+      "env": ["TEST_DATABASE_URL"]
     },
     "format": {
       "cache": false

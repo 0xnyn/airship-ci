@@ -12,8 +12,10 @@ next-env.d.ts
 apps/web/src/env.ts
 
 # Environment: commit .env.schema / .env.example, never real values
-.env
-.env*.local
+.env*
+!.env.example
+!.env.*.example
+!.env.schema
 
 # Tooling
 .turbo
@@ -29,7 +31,3 @@ coverage
 
 # GitHub App private keys
 *.pem
-
-# Environment variables
-.env*
-!.env.example

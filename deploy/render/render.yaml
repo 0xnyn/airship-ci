@@ -1,0 +1,52 @@
+# Render Blueprint for Airship's API. The dashboard runs on Vercel and the
+# database is Supabase or PlanetScale: docs/deploy/render-vercel.md.
+#
+# New → Blueprint, Blueprint path: deploy/render/render.yaml. Render asks
+# for every `sync: false` value when it first creates the service.
+services:
+  - type: web
+    name: airship-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    # Must match the database's region (see the guide). Can't change later.
+    region: frankfurt
+    # Any paid type. The free type spins down, which stops the background
+    # loops, and has no pre-deploy command.
+    plan: starter
+    numInstances: 2
+    # The image has no shell: full path, no sh -c. Replaces the entrypoint.
+    preDeployCommand: /usr/local/bin/migrate up
+    healthCheckPath: /healthz
+    # The API drains for 30 s after SIGTERM.
+    maxShutdownDelaySeconds: 45
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths:
+        - apps/api/**
+    domains:
+      - api.example.com
+    envVars:
+      # Supabase: the session pooler (port 5432), never 6543.
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_URL
+        value: https://api.example.com
+      - key: WEB_URL
+        value: https://app.example.com
+      - key: CORS_ORIGINS
+        value: https://app.example.com
+      - key: LOG_LEVEL
+        value: info
+      - key: CREDENTIALS_KEY
+        sync: false
+      - key: GITHUB_APP_SLUG
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: GITHUB_PRIVATE_KEY
+        sync: false

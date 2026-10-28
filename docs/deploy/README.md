@@ -27,12 +27,17 @@ connect, never with the identity of the platform it runs on.
 | AWS | [aws.md](aws.md) | ECS Fargate behind an ALB | RDS for PostgreSQL | Teams already on AWS; the most control over networking |
 | Google Cloud | [gcp.md](gcp.md) | Cloud Run | Cloud SQL for PostgreSQL | The least to operate |
 | Azure | [azure.md](azure.md) | Container Apps | Azure Database for PostgreSQL flexible server | Teams already on Azure |
+| Render + Vercel | [render-vercel.md](render-vercel.md) | Render web service (dashboard on Vercel) | [Supabase](supabase.md) or [PlanetScale](planetscale.md) | No cloud account to run; dashboards instead of a CLI |
 | One server | [server.md](server.md) | Docker Compose with Caddy | Postgres in a container | Small teams, trials, on-premises |
 
 **PlanetScale instead of the cloud's own Postgres?** Any of the guides above
 works with it. Follow [planetscale.md](planetscale.md) for the database and
 skip the guide's database step. Connect on port 5432, never PgBouncer's
 6432.
+
+**Supabase?** Follow [supabase.md](supabase.md): the session pooler on
+port 5432, never the transaction pooler on 6543, and the Data API switched
+off. Supabase runs Postgres 17, which Airship supports.
 
 Daytona is a place to run runners, not to host services, so it has no guide
 here. Daytona runners work from a control plane on any of the platforms
@@ -63,7 +68,7 @@ above.
 | API | `apps/api/Dockerfile` (context `apps/api`) | distroless, nonroot, `:8080`. Holds `/usr/local/bin/api` (the default entrypoint) and `/usr/local/bin/migrate`. Embeds the cache proxy for `linux/amd64` and `linux/arm64` |
 | Migrations | Same image, entrypoint `/usr/local/bin/migrate`, argument `up` | Run once per release, **before** rolling out the API. Idempotent |
 | Dashboard | `apps/web/Dockerfile` (context: repository root) | Next.js standalone server, nonroot, `:3000`. `NEXT_PUBLIC_API_URL` is a **build argument**, baked in at build time |
-| Postgres | **18 or newer**, managed | Required: the schema uses `uuidv7()`, which Postgres added in 18. Migrations fail on 17 and older |
+| Postgres | **17 or newer**, managed; 18 recommended | The schema uses `uuidv7()`, built into Postgres 18. On 17 the first migration defines an equivalent. CI tests both |
 
 Build both images:
 
@@ -182,7 +187,7 @@ each item on its platform.
 
 **Data**
 
-- [ ] Postgres is version 18 or newer.
+- [ ] Postgres is version 17 or newer (18 where the platform offers it).
 - [ ] Automated Postgres backups with point-in-time recovery are on.
 - [ ] You have restored a backup once, into a scratch database, and opened
       the dashboard against it with the production `CREDENTIALS_KEY`.

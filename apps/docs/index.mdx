@@ -1,0 +1,96 @@
+---
+title: "GitHub Actions runners in your own cloud"
+sidebarTitle: "Introduction"
+description: "Every GitHub Actions job gets a fresh machine in your own cloud account, described by one file in your repository."
+mode: "wide"
+---
+
+Airship is a control plane for GitHub Actions runners. You connect a cloud
+account once, activate a repository, and commit an `airship.yaml` that
+describes the machines you want. From then on, every job that asks for one of
+your labels gets its own machine — launched when the job is queued, destroyed
+when the job ends.
+
+Nothing is installed in your account. There is no autoscaling group to tune,
+no runner image to keep alive, no agent to upgrade. The machines are yours,
+in your regions, on your bill.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: [c7i.2xlarge, m7i.2xlarge]   # tried in order
+    region: eu-west-1
+    labels: [airship-build]
+    extra_config:
+      cache: true
+```
+
+```yaml .github/workflows/ci.yml
+jobs:
+  test:
+    runs-on: airship-build--${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test
+```
+
+That is the whole integration. Jobs on `ubuntu-latest` are untouched, so you
+can move one workflow at a time.
+
+## Why run jobs this way
+
+<Columns cols={2}>
+  <Card title="Machines GitHub does not rent you" icon="cpu">
+    64-core builders, 1 TiB of RAM, Graviton and Arm, GPUs, bare metal,
+    Windows, your own images with the toolchain already baked in.
+  </Card>
+  <Card title="Your cloud's prices, including spot" icon="receipt">
+    You pay your provider directly, at your committed-use and spot rates. Spot
+    capacity with an on-demand fallback is two lines of YAML.
+  </Card>
+  <Card title="One job per machine, always" icon="shield-check">
+    A runner registers for a single job and the machine destroys itself
+    afterwards. No job inherits another's disk, environment or credentials.
+  </Card>
+  <Card title="Caching without a size limit" icon="database">
+    `actions/cache` and everything built on it, served from a bucket in your
+    own account over the local network.
+  </Card>
+  <Card title="Configured as code, per branch" icon="git-branch">
+    A job reads `airship.yaml` at its own commit, so a pull request can try a
+    bigger machine before anyone merges it.
+  </Card>
+  <Card title="Your network, your boundary" icon="network">
+    Private subnets, your own egress rules, no inbound ports, and no SSH key
+    for Airship to hold.
+  </Card>
+</Columns>
+
+## Start here
+
+<Columns cols={2}>
+  <Card title="Quickstart" icon="circle-play" href="/quickstart" arrow>
+    From nothing to a green job on your own hardware, in about fifteen minutes.
+  </Card>
+  <Card title="How it works" icon="route" href="/how-it-works" arrow>
+    What happens between a queued job and a terminated machine, step by step.
+  </Card>
+  <Card title="Connect your cloud" icon="cloud" href="/clouds/overview" arrow>
+    The credential, the permissions and the quotas for AWS, Google Cloud and
+    Azure.
+  </Card>
+  <Card title="airship.yaml reference" icon="file-code" href="/configuration/overview" arrow>
+    Every field, what it accepts, and what each cloud does with it.
+  </Card>
+</Columns>
+
+## What Airship never holds
+
+Your source code, your Actions secrets, your artifacts and your job logs
+never reach the control plane — the runner talks to GitHub directly. Your
+cloud credential never reaches a runner. Airship holds job metadata and a
+sealed credential it opens for the length of one API call.
+
+[Security and trust](/security) is written to be read adversarially, and says
+plainly where the edges are.

@@ -1,0 +1,107 @@
+---
+title: "One-line runners"
+description: "Describe the machine in the label itself, with no config file at all."
+icon: "zap"
+---
+
+In an activated repository with AWS connected, a label can name the machine
+directly. No `airship.yaml`, no commit to it, nothing to review — change one
+line in a workflow and push.
+
+```yaml
+# t2.large, Ubuntu 22.04
+runs-on: airship-aws-t2-large-ubuntu2204--${{ github.run_id }}
+
+# a Graviton c7g.xlarge on spot capacity
+runs-on: airship-aws-c7g-xlarge-spot
+
+# m7i.metal-24xl
+runs-on: airship-aws-m7i-metal-24xl
+```
+
+This is for trying something: *is this build actually faster on 32 cores?*
+Once you know the answer, write it down in `airship.yaml`, where it is
+reviewed, shared and versioned with everything else.
+
+## The label format
+
+```
+airship-aws-<instance-type>[-ubuntu2204|-ubuntu2404][-spot]
+```
+
+<Steps>
+  <Step title="airship-aws-">
+    The prefix. Only AWS has one-line runners.
+  </Step>
+  <Step title="The instance type, with dots as dashes">
+    `t2.large` becomes `t2-large`; `m7i.metal-24xl` becomes `m7i-metal-24xl`.
+    The family has to look like one of EC2's — `c7i`, `c7i-flex`, `u7i-12tb`,
+    `mac2-m2` — so a typo is simply not a one-line runner rather than a
+    launch that fails.
+  </Step>
+  <Step title="Optionally an image">
+    `ubuntu2204` (the default) or `ubuntu2404`.
+  </Step>
+  <Step title="Optionally spot">
+    `spot` asks for spot capacity.
+  </Step>
+</Steps>
+
+The image and `spot` tokens may come in either order, but only at the end. A
+label that puts them elsewhere is not a one-line runner, and the job is
+skipped with *No runner serves the labels*.
+
+## What you get
+
+| | |
+| --- | --- |
+| Region | The connected cloud's default region |
+| Image | Canonical's newest Ubuntu for the architecture |
+| Root volume | 75 GiB |
+| Network | The default VPC, Airship's egress-only security group |
+| Caching | Off |
+| Architecture | From the instance type, as usual |
+
+Everything else — disks, caching, environment variables, private networking,
+idle pools, GPUs — needs a definition in
+[`airship.yaml`](/configuration/overview).
+
+## A definition always wins
+
+If any definition's `labels` include the same label, that definition is used
+instead. So you can introduce `airship.yaml` later without changing a single
+workflow file: name the definition's label after the one-line label you were
+using, and the next job picks it up.
+
+```yaml airship.yaml
+runners:
+  - name: big
+    cloud: aws
+    instance_type: m7i.metal-24xl
+    region: eu-west-1
+    labels: [airship-aws-m7i-metal-24xl]    # takes over from the one-line form
+    extra_config:
+      BlockDeviceMappings:
+        - VolumeSize: 300
+          VolumeType: gp3
+          Iops: 6000
+          Throughput: 1000
+```
+
+<Note>
+  A job that also asks for `windows` is never served by a one-line runner:
+  the Ubuntu images are Linux. Windows needs [a definition naming a Windows
+  image](/configuration/windows).
+</Note>
+
+## Still bounded
+
+One-line runners obey everything else: the repository must be
+[activated](/concepts), [`max_runners`](/organization/capacity) still caps
+concurrency, the machine still destroys itself after one job, and the launch
+still shows up on **Jobs**, **Runners** and **Events**.
+
+What they skip is the review step. On a repository where that matters — a
+public one, or one where people should not be choosing 48xlarge machines
+casually — keep the shapes in `airship.yaml` and use [access
+policies](/organization/access-control) on the expensive ones.

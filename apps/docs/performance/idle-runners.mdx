@@ -1,0 +1,163 @@
+---
+title: "Idle runners"
+description: "Keep machines booted and registered so a job starts in seconds instead of minutes."
+icon: "clock"
+---
+
+A cold machine takes a minute or two to boot, install the runner and register
+with GitHub. `idle:` removes that wait by keeping runners ready in advance.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: c7i.2xlarge
+    region: eu-west-1
+    labels: [airship-build]
+    idle:
+      replicas: 2
+```
+
+It is still **one job per machine**. A pool runner that takes a job is
+replaced straight away, so the pool stays at its size and no machine ever runs
+two jobs.
+
+<Warning>
+  Do not use a `--${{ github.run_id }}` suffix with a pooled label. Idle
+  runners exist before the run does, so they cannot carry its ID and a
+  suffixed label will never match one.
+
+  ```yaml
+  runs-on: airship-build        # pooled: no suffix
+  ```
+</Warning>
+
+## Three shapes, pick exactly one
+
+<Tabs>
+  <Tab title="replicas">
+    A fixed number, always.
+
+    ```yaml
+    idle:
+      replicas: 2
+    ```
+
+    The simplest and the most expensive: two machines are alive and billed
+    around the clock. Right for the one repository everybody waits on.
+  </Tab>
+  <Tab title="schedule">
+    Windows, in a timezone you name. Overlapping windows take the **largest**
+    `replicas`.
+
+    ```yaml
+    idle:
+      schedule:
+        - day: mon-fri
+          time: 9-17              # from 09:00 until 17:00
+          timezone: Europe/Berlin
+          replicas: 4
+        - day: sat-sun
+          time: 0-24
+          replicas: 1
+    ```
+
+    `replicas` is required in every window. Outside every window the pool is
+    empty and jobs launch cold. This is usually the right answer: warm during
+    working hours, nothing overnight.
+  </Tab>
+  <Tab title="usage_based">
+    Warm up when work arrives, and stay warm for a while after.
+
+    ```yaml
+    idle:
+      usage_based:
+        trigger: runner_allocated
+        replicas: 2
+        duration: 30              # minutes after the last job started
+    ```
+
+    Good for bursty repositories: the first job of a burst pays the cold
+    start, and the next half hour of jobs do not.
+  </Tab>
+</Tabs>
+
+## What it costs
+
+Idle machines are running machines: your cloud bills them while they wait.
+The levers:
+
+| | |
+| --- | --- |
+| They count toward `max_runners` | A pool of 4 with a cap of 10 leaves 6 slots for everything else. [Capacity](/organization/capacity) |
+| Spot works | `preemptible: true` on a pooled definition is cheap warmth, at the price of the occasional reclaim |
+| Small is fine | A pool of 1 removes the cold start for the first job of every burst, which is most of the benefit |
+| Schedules beat replicas | Nights and weekends are usually two thirds of the week |
+
+## How a pool is maintained
+
+<Steps>
+  <Step title="Read from the default branch">
+    Unlike everything else in `airship.yaml`, `idle:` is read from the
+    repository's **default branch** — pools exist before any job, so there is
+    no commit to read them from. A push to the default branch updates them
+    within a reconcile pass.
+  </Step>
+  <Step title="Replaced halfway through their lifetime">
+    An idle runner is replaced after half the maximum machine lifetime (four
+    hours by default), so a job that takes one still has the other half before
+    the machine's own deadline.
+  </Step>
+  <Step title="Replaced the moment one is taken">
+    A pool runner that gets a job is replaced immediately, so the pool is back
+    at size before the next job arrives.
+  </Step>
+  <Step title="Paused when launches keep failing">
+    Three failures and the pool pauses for ten minutes, so a bad definition or
+    an exhausted quota does not spin.
+  </Step>
+</Steps>
+
+<Note>
+  A pool runner reserved for a queued job has its wait measured from the
+  moment it was reserved, not from its launch — so a machine that has been
+  warm for hours is not written off as `idle` the instant a job reserves it.
+</Note>
+
+## Organization-wide pools
+
+Idle runners defined in `airship.global.yaml` are shared: they register **on
+the organization**, in a runner group named `airship-<runner name>` visible to
+every activated private repository — or only to the repositories that
+runner's [access policies](/organization/access-control) name. Any such
+repository can take one.
+
+```yaml airship.global.yaml
+runners:
+  - name: shared-build
+    cloud: aws
+    instance_type: c7i.4xlarge
+    region: eu-west-1
+    labels: [airship-shared-build]
+    idle:
+      schedule:
+        - day: mon-fri
+          time: 8-19
+          timezone: Europe/Berlin
+          replicas: 3
+```
+
+This needs the GitHub App's organization **Self-hosted runners** write
+permission. See [Organization-wide runners](/organization/runners).
+
+## Where to see them
+
+The **Runners** page shows pool runners alongside job runners, and the
+dashboard has a pools view with each pool's target and current size. A pool
+that is persistently under its target is almost always a quota or a capacity
+problem — **Events** will have your cloud's message.
+
+<Card title="Shorten the cold start too" icon="layers" href="/performance/custom-images" arrow>
+  A pool hides the cold start; a baked image removes most of it. Together,
+  even an empty pool starts jobs in seconds.
+</Card>

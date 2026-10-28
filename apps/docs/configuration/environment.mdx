@@ -1,0 +1,136 @@
+---
+title: "Environment and identity"
+description: "Setting environment variables for every job, giving a runner a cloud identity, and provisioning from your own image."
+icon: "settings"
+---
+
+## Environment variables
+
+`env_vars` sets variables for every job on the runner — build flags, cache
+directories, registry hosts.
+
+```yaml
+extra_config:
+  env_vars:
+    CARGO_INCREMENTAL: "0"
+    DOCKER_BUILDKIT: "1"
+    GOMODCACHE: /mnt/scratch/gomod
+```
+
+| | |
+| --- | --- |
+| How many | Up to 50 per definition |
+| Reserved | Names starting with `GITHUB_`, `RUNNER_` or `ACTIONS_` are refused |
+| How they travel | Base64, decoded on the machine, so a value is never interpreted as shell or PowerShell |
+
+<Warning>
+  **These are not secret.** They are visible in the launch metadata and to
+  every job on the runner. Secrets belong in GitHub Actions secrets, which
+  never pass through Airship at all.
+</Warning>
+
+A name starting with `GITHUB_`, `RUNNER_` or `ACTIONS_` is refused on purpose:
+a config file must not be able to change how the runner talks to GitHub.
+
+## Cloud identity
+
+By default a runner has **no cloud identity**. Nothing in a job can mint a
+credential from the metadata service, which is what you want for the great
+majority of jobs.
+
+<Tabs>
+  <Tab title="AWS">
+    ```yaml
+    extra_config:
+      IamInstanceProfile: ci-runner     # a name or an ARN
+    ```
+
+    The connected IAM user needs `iam:PassRole` for that role, scoped to it —
+    [the statement is here](/clouds/aws#the-iam-policy).
+  </Tab>
+  <Tab title="Google Cloud">
+    ```yaml
+    extra_config:
+      serviceAccounts:
+        - email: ci-runner@my-project.iam.gserviceaccount.com
+          scopes: [https://www.googleapis.com/auth/devstorage.read_only]
+    ```
+
+    One service account, with the scopes you name. The connected service
+    account needs `roles/iam.serviceAccountUser`.
+  </Tab>
+  <Tab title="Azure">
+    Airship attaches no managed identity, and offers no field for one. Give a
+    job an Azure credential through GitHub Actions secrets, or through OIDC
+    federation from GitHub itself, which needs nothing from Airship.
+  </Tab>
+</Tabs>
+
+<Warning>
+  An attached identity is available to **every step of every job** on that
+  runner — including, on a public repository activated for public access, a
+  fork pull request's code. Treat it exactly as you would a repository secret:
+  scope it narrowly, and keep it off runners that serve untrusted code.
+</Warning>
+
+## Provisioning from your image
+
+By default the boot script travels in the machine's launch metadata. If you
+would rather it did not, `provision_via: pull_from_api` launches the machine
+with **no user data** at all, and your image fetches the script itself:
+
+```yaml
+extra_config:
+  provision_via: pull_from_api
+```
+
+Your image then runs something like this at boot, with a [developer API
+token](/api-reference/introduction) baked in:
+
+```bash
+AIRSHIP_URL=https://api.airshipci.com
+curl -fsS "$AIRSHIP_URL/api/runner-provision?runner_name=$(hostname)" \
+  -H "Authorization: Bearer $AIRSHIP_API_KEY" | base64 -d | sudo bash
+```
+
+The runner's name is on the instance's `Name` tag. The script is handed out
+**once** per runner, so a second request gets nothing.
+
+| | Metadata, the default | `pull_from_api` |
+| --- | --- | --- |
+| Where the single-use registration sits | In the machine's launch metadata, readable for seconds by anyone who can describe the instance | Fetched over TLS by the machine itself |
+| What your image must hold | Nothing | An API token |
+| Who can read it | Whoever has instance-read permission in your account | Whoever can read your image |
+
+Neither is strictly safer; they move the exposure. [Security](/security#known-exposures)
+states both plainly. Most people should leave the default alone.
+
+## What the machine does at boot
+
+Knowing the order helps when you are debugging an image:
+
+<Steps>
+  <Step title="Schedule its own shutdown">
+    Before anything else, so a machine whose script later fails still goes
+    away.
+  </Step>
+  <Step title="Write a one-boot marker">
+    A rebooted machine powers off rather than registering twice.
+  </Step>
+  <Step title="Find or install actions/runner">
+    `/opt/actions-runner` with a matching `.version` file is used as-is.
+    Otherwise it is downloaded and its dependencies installed.
+  </Step>
+  <Step title="Apply env_vars, and the GPU driver if needed">
+    Into the runner's own environment file, so every step sees them.
+  </Step>
+  <Step title="Start the cache proxy, if cache is on">
+    And trust its local certificate authority. [Caching](/performance/caching)
+  </Step>
+  <Step title="Register and run one job">
+    Then power off, whatever the outcome.
+  </Step>
+</Steps>
+
+On Linux the boot log is at `/var/log/cloud-init-output.log`, and the cache
+proxy's own log at `/var/log/airship-cacheproxy.log`.

@@ -5,6 +5,11 @@ packages:
 allowBuilds:
   esbuild: true
   sharp: true
+  # Mintlify's CLI pulls these in. Scarf is install analytics; keytar is a
+  # native keychain binding only `mint login` needs, and the docs are
+  # previewed and checked without signing in.
+  '@scarf/scarf': false
+  keytar: false
 
 # Varlock replaces Next's env loader so .env.schema validates and types env.
 overrides:
@@ -31,3 +36,18 @@ catalog:
 peerDependencyRules:
   allowedVersions:
     openapi-typescript>typescript: "6"
+
+# Written by pnpm: the Mintlify CLI publishes continuously, so its versions
+# are newer than the registry delay this workspace otherwise waits out.
+minimumReleaseAgeExclude:
+  - '@mintlify/cli@4.0.1760'
+  - '@mintlify/common@1.0.1317'
+  - '@mintlify/link-rot@3.0.1554'
+  - '@mintlify/models@0.0.380'
+  - '@mintlify/og@0.0.116'
+  - '@mintlify/package-builder@0.0.106'
+  - '@mintlify/prebuild@1.0.1489'
+  - '@mintlify/previewing@4.0.1572'
+  - '@mintlify/scraping@4.0.1195'
+  - '@mintlify/validation@0.1.948'
+  - mint@4.2.1157

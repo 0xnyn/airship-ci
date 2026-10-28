@@ -1,0 +1,107 @@
+---
+title: "The dashboard"
+description: "What each page shows, and which one to open when something is wrong."
+icon: "layout-dashboard"
+---
+
+The dashboard is at [app.airshipci.com](https://app.airshipci.com), scoped to
+one GitHub organization. Organization owners can change things; members can
+read.
+
+## The pages
+
+<ResponseField name="Overview" type="is anything wrong right now">
+  Jobs and runners at a glance: queued, in progress, succeeded, failed, runner
+  minutes, and the p50 and p90 time jobs spent waiting for a machine. Those
+  last two are the health metric worth watching.
+</ResponseField>
+
+<ResponseField name="Repositories" type="what is switched on">
+  Activate and deactivate repositories, and allow public access where you mean
+  to. Each row shows the `airship.yaml` Airship last read from the default
+  branch, and whether it parsed.
+
+  This page also has the **config checker**: paste a file, see whether it
+  parses and what machines it would plan. Cheaper than a push.
+</ResponseField>
+
+<ResponseField name="Cloud" type="credentials and their state">
+  Connect AWS, Google Cloud and Azure, and see each credential's account, its
+  principal, when it was last verified, and whether it still works. A
+  credential your cloud has started refusing shows here before you notice it
+  in failed launches.
+</ResponseField>
+
+<ResponseField name="Runners" type="machines, live and historical">
+  Every runner with its state, cloud, region, instance type, whether it is
+  spot, whether it came from a pool, its instance ID and the job it took. The
+  first place to look when a job is running but you want to know *where*.
+</ResponseField>
+
+<ResponseField name="Jobs" type="what GitHub asked for, and what happened">
+  Every job Airship was told about: its labels, the runner that served it, and
+  — when none did — the reason why, in plain words.
+  [Troubleshooting](/troubleshooting#why-a-job-was-not-run) covers each reason.
+</ResponseField>
+
+<ResponseField name="Events" type="the activity log">
+  Launches, launch failures with your cloud's own message, configs that
+  stopped parsing, clouds connected and rejected, caches that quietly
+  degraded, runners lost. **Start here when something did not work.** Retained
+  for 30 days.
+</ResponseField>
+
+<ResponseField name="Analytics" type="usage over time">
+  Jobs, runner minutes and queue waits per day and per repository. For cost,
+  your cloud's own bill is the authority — the machine tags make it
+  per-repository without extra work.
+</ResponseField>
+
+<ResponseField name="API keys" type="tokens for automation">
+  Create and revoke developer API tokens. A token is shown **once**, at
+  creation. See the [API reference](/api-reference/introduction).
+</ResponseField>
+
+<ResponseField name="Teams" type="who can see this">
+  The organization members with dashboard access and the role each one holds.
+  Roles come from GitHub and are re-checked hourly.
+</ResponseField>
+
+<ResponseField name="Settings" type="the ceiling">
+  `max_runners`, the cap on live runners across every repository. See
+  [Capacity and limits](/organization/capacity).
+</ResponseField>
+
+## Which page, when
+
+| The question | The page |
+| --- | --- |
+| Why is my job still queued? | **Jobs** — it states the reason |
+| Why did the launch fail? | **Events** — your cloud's own message |
+| Which machine is this job on? | **Runners** — state, instance ID, region |
+| Is my config file valid? | **Repositories** — the checker |
+| Has my credential expired? | **Cloud** — last verified, and its status |
+| Are we at the cap? | **Overview** for queue waits, **Settings** for the cap |
+| Why is CI slower this week? | **Analytics**, then **Events** for degraded caches |
+| Who has access? | **Teams** for people, **API keys** for tokens |
+
+## Events worth recognising
+
+| Kind | Means |
+| --- | --- |
+| `runner.launched` | A machine was created |
+| `runner.launch_failed` | A launch failed; the message is your cloud's |
+| `runner.launch_unconfirmed` | The answer to a launch was lost; it reconciles |
+| `runner.lost` | A machine disappeared without finishing a job |
+| `config.invalid` | An `airship.yaml` stopped parsing; the detail names the field |
+| `cache.unavailable` | A cache-enabled runner launched without acceleration |
+| `job.skipped` | A job asked for an Airship label and will not be served |
+| `cloud.credentials_rejected` | Your cloud refused the credential |
+| `access.updated` | `access.yaml` changed |
+| `repository.activated` | Someone switched a repository on |
+
+<Tip>
+  `cache.unavailable` is the quiet one. A cache-enabled job that loses
+  acceleration still passes — just slowly — so nothing fails and nobody
+  notices until the bill or the clock does. It is worth watching.
+</Tip>

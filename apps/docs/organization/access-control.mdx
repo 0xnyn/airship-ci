@@ -1,0 +1,183 @@
+---
+title: "Access control"
+description: "Restrict who may launch an expensive runner, by repository, team, repository role or login."
+icon: "lock"
+---
+
+An organization runner is open to every activated repository unless you say
+otherwise. `access.yaml`, in the same `.airship` repository as
+[`airship.global.yaml`](/organization/runners), is where you say otherwise.
+
+```yaml access.yaml
+version: 1
+policies:
+  - id: ml-team
+    repo: training            # a repository in this organization
+    teams: [ml]               # team slugs
+    roles: [admin, maintain]  # repository roles
+    users: [alice]            # logins
+    pull_request: false       # pull_request workflows need true
+access_control:
+  - resource: gpu-runner      # a runner name from airship.global.yaml
+    policies: [ml-team]
+```
+
+## How a request is judged
+
+<Steps>
+  <Step title="Does the runner have any policy?">
+    A runner with no `access_control` entry is **open** to every activated
+    repository. Only named runners are restricted.
+  </Step>
+  <Step title="Is this repository named by one of its policies?">
+    A restricted runner can only be launched for a repository one of its
+    policies names. Nothing else is considered until this matches.
+  </Step>
+  <Step title="Is this person admitted by that policy?">
+    The person is matched by `users` (login), `teams` (team slug) or `roles`
+    (their role on the repository). A policy that lists **none** of the three
+    admits everyone on that repository.
+  </Step>
+  <Step title="Is the event allowed?">
+    `pull_request` workflows are refused unless the policy sets
+    `pull_request: true`.
+  </Step>
+</Steps>
+
+Who *the person* is: whoever started the workflow run, or re-ran it.
+
+<Warning>
+  If `access.yaml` does not parse, **every organization runner is closed**
+  until it is fixed — closed, not open. The error is on **Events**, and jobs
+  are skipped with *Access denied*. Protect that branch and review changes to
+  it.
+</Warning>
+
+## Policy fields
+
+<ParamField path="id" type="string" required>
+  A name you refer to in `access_control`.
+</ParamField>
+
+<ParamField path="repo" type="string" required>
+  A repository in this organization, by name. The policy only ever applies to
+  jobs in it.
+</ParamField>
+
+<ParamField path="teams" type="string[]">
+  Team slugs. A member of any one of them is admitted. Needs the GitHub App's
+  organization **Members: read** permission.
+</ParamField>
+
+<ParamField path="roles" type="string[]">
+  Repository roles — `admin`, `maintain`, `write`, `triage`, `read`. Anyone
+  holding one of them on that repository is admitted.
+</ParamField>
+
+<ParamField path="users" type="string[]">
+  GitHub logins, admitted individually.
+</ParamField>
+
+<ParamField path="pull_request" type="boolean" default="false">
+  Whether `pull_request` workflows may use the runner. Leave it false unless
+  you have thought about who can open a pull request.
+</ParamField>
+
+## Patterns
+
+<Tabs>
+  <Tab title="One team's GPU box">
+    ```yaml access.yaml
+    version: 1
+    policies:
+      - id: ml
+        repo: training
+        teams: [ml]
+    access_control:
+      - resource: gpu
+        policies: [ml]
+    ```
+
+    Only the `training` repository, only the `ml` team, and not from a pull
+    request.
+  </Tab>
+  <Tab title="Two repositories, maintainers only">
+    ```yaml access.yaml
+    version: 1
+    policies:
+      - id: api-maintainers
+        repo: api
+        roles: [admin, maintain]
+      - id: web-maintainers
+        repo: web
+        roles: [admin, maintain]
+    access_control:
+      - resource: big-build
+        policies: [api-maintainers, web-maintainers]
+    ```
+
+    A runner's policies are a list, so several repositories share one
+    resource entry.
+  </Tab>
+  <Tab title="Whole repository, pull requests included">
+    ```yaml access.yaml
+    version: 1
+    policies:
+      - id: platform-everyone
+        repo: platform
+        pull_request: true
+    access_control:
+      - resource: shared-build
+        policies: [platform-everyone]
+    ```
+
+    No `teams`, `roles` or `users`, so everyone with access to `platform` is
+    admitted — including from a pull request. Only do this where the
+    repository's own access is the boundary you want.
+  </Tab>
+</Tabs>
+
+## Editing it through the API
+
+The [developer API](/api-reference/introduction) edits this file for you and
+opens a **pull request** with the change, so the policy is reviewed like any
+other code:
+
+```bash
+curl -X PUT "$AIRSHIP_API/access-control" \
+  -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"org": "acme", "repository_resource_access": [
+        {"repository": "training", "resources": ["gpu"], "teams": ["ml"]}]}'
+```
+
+The response carries the branch and the pull request URL. Reading the current
+file needs no write permission:
+
+```bash
+curl "$AIRSHIP_API/access-control" -H "Authorization: Bearer $AIRSHIP_API_KEY"
+```
+
+<Note>
+  Opening a pull request needs the GitHub App's **Contents: write** and **Pull
+  requests: write** permissions, which are optional and used for nothing else.
+  Without them, read the file through the API and commit the change yourself.
+</Note>
+
+## What this does and does not bound
+
+| Access control bounds | It does not bound |
+| --- | --- |
+| Which repositories may use a named organization runner | What a repository's own `airship.yaml` may ask for |
+| Which people and teams may trigger one | What a workflow does once it is running |
+| Whether pull requests may use one | Total spend — that is [`max_runners`](/organization/capacity) |
+
+Anyone who can push to an activated repository can choose machines for that
+repository's jobs, which is the same authority they already have over what a
+workflow does. Access policies are for the *shared* expensive runners. If a
+repository should not be choosing machines at all, do not activate it.
+
+<Card title="The whole trust model" icon="shield" href="/security" arrow>
+  Who may spend your money, what a job can reach, and the exposures that come
+  with the model rather than being bugs in it.
+</Card>

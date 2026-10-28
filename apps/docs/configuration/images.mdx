@@ -1,0 +1,130 @@
+---
+title: "Machine images"
+description: "The defaults, every form machine_image accepts on each cloud, and how to point at an image of your own."
+icon: "image"
+---
+
+`machine_image` says what to boot. Leave it out and you get `ubuntu2204`:
+Canonical's newest Ubuntu 22.04 image for the runner's architecture, looked up
+in your region at launch time.
+
+```yaml
+machine_image: ubuntu2204   # the default
+machine_image: ubuntu2404
+```
+
+Both aliases work on every cloud, which is what makes a definition portable.
+A list of images is a [fallback chain](/configuration/fallbacks).
+
+## Per cloud
+
+<Tabs>
+  <Tab title="AWS">
+    | Form | Example |
+    | --- | --- |
+    | Alias | `ubuntu2204`, `ubuntu2404` |
+    | AMI ID | `ami-0123456789abcdef0` |
+
+    An AMI ID is **region-specific**, so pin the `region` alongside it or keep
+    one definition per region.
+
+    ```yaml
+    runners:
+      - name: build
+        cloud: aws
+        instance_type: c7i.2xlarge
+        machine_image: ami-0123456789abcdef0
+        region: eu-west-1
+        labels: [airship-build]
+    ```
+
+    <Warning>
+      A marketplace AMI needs its terms accepted for your account before it
+      will launch. Subscribe once in the AWS Marketplace console; until then
+      every launch fails permanently.
+    </Warning>
+  </Tab>
+  <Tab title="Google Cloud">
+    | Form | Example |
+    | --- | --- |
+    | Alias | `ubuntu2204`, `ubuntu2404` |
+    | Image or family name | `ubuntu-2204-lts` |
+    | Another project's image | `my-project:my-image` |
+    | Full resource path | `projects/P/global/images/N` |
+    | Machine image | `projects/P/global/machineImages/N` |
+    | Either one's URL | the `https://www.googleapis.com/...` form |
+
+    A bare name is looked up in **your** project first, then in Google's
+    public project for that prefix. Prefer a **family** name over a dated
+    snapshot: Canonical retires the dated ones, and a family always resolves to
+    the current image.
+
+    ```yaml
+    machine_image: ubuntu-2204-lts
+    ```
+  </Tab>
+  <Tab title="Azure">
+    | Form | Example |
+    | --- | --- |
+    | Alias | `ubuntu2204`, `ubuntu2404` |
+    | Marketplace URN | `Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest` |
+    | The same as a mapping | see below |
+    | Managed image ID | `/subscriptions/.../providers/Microsoft.Compute/images/N` |
+    | Gallery image ID | `.../galleries/G/images/N`, with `/versions/X.Y.Z` to pin one |
+
+    ```yaml
+    machine_image:
+      publisher: microsoftwindowsdesktop
+      offer: windows-11
+      sku: win11-23h2-pro
+      version: latest        # the default
+    ```
+
+    A **specialized** gallery image boots with its own accounts rather than
+    ones Azure creates. A third-party marketplace image with a purchase plan
+    needs its terms accepted once for the subscription:
+
+    ```bash
+    az vm image terms accept --urn publisher:offer:plan:latest
+    ```
+  </Tab>
+</Tabs>
+
+## Any image your account can launch
+
+There is no image allowlist. An `airship.yaml` can name any image the
+connected credential can boot. Architecture mismatches are refused, and so are
+marketplace images a publisher has deprecated, but trustworthiness is not
+something Airship can judge — the authority is the same one a workflow file
+already has. If that is not acceptable for a repository, do not activate it.
+
+## Pointing at your own image
+
+Baking the runner and your toolchain into an image is the single biggest
+cold-start win, and it removes the package-mirror traffic from every job. The
+recipe, and what Airship looks for inside the image, is on its own page:
+
+<Card title="Baking a custom image" icon="layers" href="/performance/custom-images" arrow>
+  What to pre-install, where the runner tarball goes, and how to keep the
+  image's runner version current.
+</Card>
+
+## Windows
+
+A Windows image gets a Windows boot script automatically — there is no flag to
+set. The extras worth knowing (an interactive desktop session, the install
+path, the local account) are on [Windows
+runners](/configuration/windows).
+
+<Note>
+  The `ubuntu2204` and `ubuntu2404` aliases are Linux. A job that asks for the
+  `windows` label is only served by a definition naming a Windows image of
+  your own.
+</Note>
+
+## GPU images
+
+An image that already ships an NVIDIA driver — a deep-learning image, for
+instance — is detected and left alone. On a stock Ubuntu image with `gpu:`
+set, Airship installs the driver during boot, which costs a minute or two per
+job; bake it into an image if GPU jobs are frequent.

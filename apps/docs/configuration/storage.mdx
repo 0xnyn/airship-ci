@@ -1,0 +1,131 @@
+---
+title: "Disks"
+description: "Sizing the root volume, raising throughput, and attaching extra or existing disks."
+icon: "hard-drive"
+---
+
+The default root volume is 75 GiB. For most CI that is enough space and not
+enough **throughput** — a fast instance on a default volume spends its life
+waiting on I/O. Raising throughput is usually the cheapest speed-up available.
+
+## AWS
+
+One `BlockDeviceMappings` entry configures the root volume.
+
+```yaml
+extra_config:
+  BlockDeviceMappings:
+    - VolumeSize: 100
+      VolumeType: gp3
+      Iops: 6000
+      Throughput: 1000
+```
+
+| Key | Accepts |
+| --- | --- |
+| `VolumeSize` | 8–16384 GiB. Default 75 |
+| `VolumeType` | `gp2`, `gp3`, `io1`, `io2`. Default `gp2` |
+| `Iops` | gp3: 3000–16000. io1 and io2: required. Not valid for gp2 |
+| `Throughput` | gp3 only, 125–1000 MiB/s |
+| `VolumeInitializationRate` | 100–300 MiB/s, for snapshot-backed AMIs |
+
+<Warning>
+  `Throughput` may be at most a quarter MiB/s per IOPS, so `Throughput: 1000`
+  needs `Iops: 4000` or more. Combinations EC2 would refuse are **config
+  errors**, caught by the checker, rather than failed launches an hour later.
+</Warning>
+
+`DeviceName` is accepted and ignored — the AMI's own root device is always the
+one sized. Volumes are always encrypted.
+
+<Tip>
+  gp3 defaults to 125 MiB/s whatever its size. On a cache-enabled runner that
+  caps restores well below what the network can do, so `Throughput: 1000` with
+  `Iops: 6000` is the usual starting point. [Caching](/performance/caching)
+</Tip>
+
+## Google Cloud
+
+Three keys, for three different jobs.
+
+```yaml
+extra_config:
+  baseDisk:
+    diskSizeGb: 100
+    diskType: pd-ssd
+```
+
+<ParamField path="baseDisk" type="mapping">
+  The **boot disk**. `diskSizeGb` 10–65536, default 75. `diskType`
+  `pd-balanced` (the default), `pd-ssd`, or a `zones/.../diskTypes/...` path.
+</ParamField>
+
+<ParamField path="additionalDisk" type="mapping">
+  An **empty second disk**, attached raw — the job formats and mounts it.
+  Takes the same `diskSizeGb` and `diskType`. A `diskType` written as a zonal
+  path is read for its type only; the disk is created in whichever zone the
+  runner lands in.
+</ParamField>
+
+<ParamField path="existingDisk" type="mapping">
+  A disk **you already have**. `source` (`projects/P/zones/Z/disks/N`, or
+  `regions/R/disks/N` for a regional disk), optional `deviceName`, `mode`
+  (`READ_WRITE` by default, or `READ_ONLY`) and `interface` (`SCSI`, `NVME`).
+  `type` and `diskSizeGb` are accepted and ignored, since the disk exists.
+</ParamField>
+
+```yaml
+extra_config:
+  additionalDisk: {diskSizeGb: 500, diskType: pd-ssd}
+  existingDisk:
+    source: projects/my-project/zones/us-central1-b/disks/shared-fixtures
+    mode: READ_ONLY
+```
+
+An existing disk is **never deleted** with the machine. Two things follow:
+
+- A **zonal** disk pins the runner to its zone, so a `region:` that says
+  otherwise is a config error.
+- A `READ_WRITE` disk fits one machine at a time. While another runner holds
+  it, launches fail as retryable and the job waits its turn — which is a
+  usable way to serialise jobs that share state, if you want that.
+
+## Azure
+
+```yaml
+extra_config:
+  storageProfile:
+    osDisk:
+      diskSizeGB: 100
+      managedDisk:
+        storageAccountType: Premium_LRS
+```
+
+| Key | Accepts |
+| --- | --- |
+| `osDisk.diskSizeGB` | 30–4095. Default 75 for Linux; for Windows, the image's own size |
+| `osDisk.managedDisk.storageAccountType` | `Standard_LRS`, `StandardSSD_LRS`, `Premium_LRS`, … Default: the image's own |
+
+Managed disks are encrypted by Azure with platform-managed keys, and the OS
+disk is deleted with the machine.
+
+## Sizing it
+
+<Columns cols={2}>
+  <Card title="Space: count your biggest job" icon="ruler">
+    Checkout, dependency cache, build output, container images and layers.
+    Docker-heavy builds are the usual surprise.
+  </Card>
+  <Card title="Throughput: raise it first" icon="zap">
+    Before more cores. A restore that saturates 1 GiB/s of network still lands
+    on a 125 MiB/s disk unless you say otherwise.
+  </Card>
+  <Card title="Keep large scratch off the root" icon="split">
+    On Google Cloud, `additionalDisk` gives the job a clean raw disk to format
+    and throw away with the machine.
+  </Card>
+  <Card title="Bake, do not download" icon="layers">
+    An image with your toolchain and base containers already on it beats any
+    disk setting. [Custom images](/performance/custom-images)
+  </Card>
+</Columns>

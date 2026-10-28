@@ -73,6 +73,8 @@ env: ## Create the local env files from their examples (never overwrites)
 ##@ Running
 
 .PHONY: dev
+# The docs site is deliberately not part of this: Mintlify's preview is slow
+# to start and rarely wanted alongside the API. `make docs` runs it on :4100.
 dev: ## Run the API (:8080), dashboard (:3000) and marketing site (:4000) with live type regeneration
 	pnpm dev
 
@@ -87,6 +89,10 @@ dev-web: ## Run only the dashboard (expects an API on NEXT_PUBLIC_API_URL)
 .PHONY: dev-home
 dev-home: ## Run only the marketing site
 	pnpm --filter @airship/home dev
+
+.PHONY: dev-docs
+dev-docs: ## Run only the documentation site (Mintlify preview)
+	pnpm --filter @airship/docs dev
 
 .PHONY: tunnel
 tunnel: ## Expose the API on a public https URL for GitHub webhooks (cloudflared quick tunnel)
@@ -136,7 +142,7 @@ db-reset: ## Delete the local database and start over empty (asks first)
 ##@ Code generation
 
 .PHONY: generate
-generate: ## sqlc, then openapi.json, then the TypeScript client
+generate: ## sqlc, then openapi.json, then the TypeScript client and the docs' API spec
 	pnpm generate
 
 .PHONY: check-generated
@@ -196,6 +202,24 @@ test-live: ## A live cloud suite, which costs money: make test-live CLOUD=aws|gc
 	cd $(API_DIR) && { if [ -f .env.live ]; then set -a; . ./.env.live; set +a; else echo "no apps/api/.env.live: using the shell's AIRSHIP_LIVE_* variables (template: apps/api/.env.live.example)"; fi; \
 		go test -v -count=1 -run "TestAgainstLive$$t" ./internal/cloud/$(CLOUD); }
 
+##@ Documentation
+
+.PHONY: docs
+docs: ## Preview the documentation site on :4100
+	pnpm --filter @airship/docs dev
+
+.PHONY: docs-check
+docs-check: ## Check the docs: navigation, links, frontmatter and names
+	pnpm --filter @airship/docs lint
+
+.PHONY: docs-validate
+docs-validate: ## Mintlify's own check: content, OpenAPI spec, strict build
+	pnpm --filter @airship/docs build
+
+.PHONY: docs-links
+docs-links: ## Check every link in the docs, external ones included (needs the network)
+	pnpm --filter @airship/docs links
+
 ##@ Building
 
 .PHONY: build
@@ -214,4 +238,4 @@ og: ## Re-render the marketing site's social image and video (Playwright + ffmpe
 
 .PHONY: clean
 clean: ## Remove build output and caches (keeps node_modules, env files and the database)
-	rm -rf .turbo apps/*/.turbo packages/*/.turbo apps/web/.next apps/home/dist apps/home/.astro $(API_DIR)/bin $(API_DIR)/tmp
+	rm -rf .turbo apps/*/.turbo packages/*/.turbo apps/web/.next apps/home/dist apps/home/.astro apps/docs/.mintlify $(API_DIR)/bin $(API_DIR)/tmp

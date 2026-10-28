@@ -1,0 +1,27 @@
+<svg
+  aria-label="Airship"
+  fill="none"
+  height="24"
+  role="img"
+  viewBox="0 0 112 24"
+  width="112"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <path
+    d="M12 5.1L4 18.9H8.53L14.27 9.01ZM16.53 12.92H12L15.47 18.9H20Z"
+    fill="#fbfcfd"
+    fill-opacity="0.92"
+  />
+  <text
+    fill="#fbfcfd"
+    fill-opacity="0.92"
+    font-family="Geist, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+    font-size="17"
+    font-weight="500"
+    letter-spacing="-0.6"
+    x="28"
+    y="17"
+  >
+    airship
+  </text>
+</svg>

@@ -1,0 +1,152 @@
+---
+title: "Organization-wide runners"
+description: "Define machine shapes once in a .airship repository and let every activated repository use them."
+icon: "building-2"
+---
+
+Copying the same `airship.yaml` into twenty repositories means twenty places
+to change when a machine family is deprecated. Organization runners put the
+shapes in one place.
+
+<Steps>
+  <Step title="Create a .airship repository">
+    A repository literally named `.airship` in the organization. Private is
+    fine, and recommended.
+  </Step>
+  <Step title="Give the GitHub App access to it">
+    Add it to the installation's repository list like any other.
+  </Step>
+  <Step title="Add airship.global.yaml at its root">
+    Same format as `airship.yaml`, [`idle`](/performance/idle-runners)
+    included.
+
+    ```yaml airship.global.yaml
+    runners:
+      - name: shared-build
+        cloud: aws
+        instance_type: [c7i.4xlarge, m7i.4xlarge]
+        region: eu-west-1
+        labels: [airship-shared-build]
+        extra_config:
+          cache: true
+          BlockDeviceMappings:
+            - VolumeSize: 150
+              VolumeType: gp3
+              Iops: 6000
+              Throughput: 1000
+
+      - name: gpu
+        cloud: gcp
+        instance_type: n1-standard-8
+        gpu: nvidia-tesla-t4
+        region: us-central1-b
+        labels: [airship-gpu]
+    ```
+  </Step>
+  <Step title="Use the labels from anywhere">
+    Any activated repository in the organization can now ask for them, with no
+    `airship.yaml` of its own.
+
+    ```yaml .github/workflows/ci.yml
+    jobs:
+      test:
+        runs-on: airship-shared-build--${{ github.run_id }}
+    ```
+  </Step>
+</Steps>
+
+## Repository definitions win
+
+If a repository's own `airship.yaml` has a definition whose labels include the
+same label, that one is used. Organization definitions are tried **after**
+repository ones, which makes two useful patterns:
+
+<Columns cols={2}>
+  <Card title="A sensible default, overridable" icon="git-fork">
+    Publish `airship-build` organization-wide. A repository that needs
+    something different defines its own `airship-build` and changes no
+    workflow file.
+  </Card>
+  <Card title="A shared fallback" icon="life-buoy">
+    A repository's large machine first, the organization's smaller shared one
+    behind it, under one label. See
+    [Fallbacks](/configuration/fallbacks#several-definitions-one-label).
+  </Card>
+</Columns>
+
+## Which branch it is read from
+
+`airship.global.yaml` is read from the `.airship` repository's **default
+branch** — unlike a repository's own `airship.yaml`, which is read at each
+job's commit. A push to that branch refreshes it within a reconcile pass, and
+the **Events** page records the read, including a file that stopped parsing.
+
+<Warning>
+  If `airship.global.yaml` does not parse, jobs relying on its labels are
+  skipped with *Config problem* until it is fixed. Changes to it affect every
+  repository at once, so it is worth protecting that branch and reviewing
+  changes to it like any other shared infrastructure.
+</Warning>
+
+## Shared idle pools
+
+An `idle:` block in `airship.global.yaml` is organization-wide. Those runners
+register **on the organization**, in a runner group named
+`airship-<runner name>`, visible to every activated private repository — or
+only to the repositories the runner's [access
+policies](/organization/access-control) name. Any such repository can take
+one.
+
+```yaml airship.global.yaml
+runners:
+  - name: shared-build
+    cloud: aws
+    instance_type: c7i.4xlarge
+    region: eu-west-1
+    labels: [airship-shared-build]
+    idle:
+      schedule:
+        - day: mon-fri
+          time: 8-19
+          timezone: Europe/Berlin
+          replicas: 3
+```
+
+This needs the GitHub App's organization **Self-hosted runners: read &
+write** permission. One warm pool serving every repository is usually both
+faster and cheaper than a pool per repository.
+
+## Restricting the expensive ones
+
+By default an organization runner is open to **every activated repository**. A
+GPU box or a 48xlarge usually should not be. `access.yaml` in the same
+`.airship` repository restricts them by repository, team, role or login:
+
+```yaml access.yaml
+version: 1
+policies:
+  - id: ml-team
+    repo: training
+    teams: [ml]
+access_control:
+  - resource: gpu
+    policies: [ml-team]
+```
+
+<Card title="Access control" icon="lock" href="/organization/access-control" arrow>
+  The policy format, how a person is matched, what happens to pull requests,
+  and the API that edits the file for you.
+</Card>
+
+## A layout that works
+
+| File | Holds |
+| --- | --- |
+| `.airship/airship.global.yaml` | Every shared shape, and the warm pools |
+| `.airship/access.yaml` | Who may use the expensive ones |
+| Each repository's `airship.yaml` | Only what is genuinely specific to it |
+
+Most repositories then have no `airship.yaml` at all — they name a label and
+get a reviewed, shared machine definition. Teams that need something unusual
+still have the per-repository file, read at their own commit, to experiment
+on a branch.

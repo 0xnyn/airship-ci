@@ -23,6 +23,7 @@ generated from it and must never be edited by hand.
 | `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client, Azure SDK for Go (armcompute, armnetwork) |
 | `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
 | `apps/home` | Marketing site: Astro 7, static, plain scoped CSS (tokens in `src/layouts/layout.astro`), on :4000. All copy, links and numbers live in `src/content/` (`site.ts`, `home.ts`, `pricing.ts`, `prices.ts`) and flow into the components as props; graphics are drawn in code (`src/components/graphics`). The social image and video (`public/og`) are rendered from `og/card.html` by `pnpm --filter @airship/home og` (Playwright + ffmpeg); rerun it after changing the card |
+| `apps/docs` | User-facing documentation: Mintlify, MDX, on :4100 (`make docs`). Navigation and theme in `docs.json`. `api-reference/openapi.json` is **generated** from the API's own document by `scripts/openapi.mjs`, which keeps the `/api` paths and rewrites the handlers' wording for an API audience; `scripts/check.mjs` (`pnpm lint`) checks navigation, links, frontmatter and the names the docs may not use. `apps/docs/README.md` has the rules |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
 | `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
 | `packages/typescript-config` | Shared `tsconfig` presets |
@@ -39,6 +40,9 @@ Go handlers + request/response structs ─► Huma ─► apps/api/openapi.json
                           openapi-typescript ◄─────────┘
                                  │
 packages/client/src/generated/api.ts ─► apps/web ($api.useQuery, api.GET)
+                                 │
+                                 └─► apps/docs/api-reference/openapi.json
+                                     (the documented subset, Mintlify renders it)
 ```
 
 `pnpm generate` runs the whole chain in order (Turborepo `^generate`).
@@ -123,7 +127,11 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   in `apps/api/.env` (copy `.env.example`). `CREDENTIALS_KEY` is required.
   The web app's env is declared and typed in `apps/web/.env.schema` via varlock.
 - Never edit `apps/api/internal/db/*.go` (except `queries/`),
-  `apps/api/openapi.json` or `packages/client/src/generated/`.
+  `apps/api/openapi.json`, `packages/client/src/generated/` or
+  `apps/docs/api-reference/openapi.json`.
+- `apps/docs` is the product's public voice: it covers AWS, Google Cloud and
+  Azure, and names no other vendor or product. `pnpm lint` in that package
+  fails if one appears, including in the generated spec.
 - Go tools (sqlc, goose, golangci-lint, air) are pinned in
   `apps/api/tools/go.mod` and run with `go tool -modfile=tools/go.mod <tool>`;
   nothing needs a global install besides Go, Node, pnpm and Docker.

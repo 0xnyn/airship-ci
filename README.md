@@ -64,6 +64,7 @@ Airship's names: rename `.cirun.yml` to `airship.yaml`, `cirun-` labels to
 | --- | --- |
 | `apps/api` | Go: the control plane (`cmd/api`), migrations (`cmd/migrate`), the runner-side cache proxy (`cmd/cacheproxy`) |
 | `apps/web` | Next.js 16 dashboard |
+| `apps/docs` | User-facing documentation (Mintlify); the API reference is generated from `openapi.json` |
 | `packages/client` | TypeScript client generated from the API's OpenAPI document |
 | `packages/ui` | Shared shadcn/ui components |
 
@@ -159,6 +160,7 @@ target; each wraps one of the pnpm scripts below. The full guide is
 | `pnpm check` | Everything CI runs |
 | `pnpm db:up` / `db:down` | Start or stop local Postgres |
 | `pnpm db:migrate` / `db:rollback` | Apply or undo migrations |
+| `make docs` | Preview the documentation site on :4100 |
 
 Go tests that use the database need `TEST_DATABASE_URL` (each test creates its
 own database); without it they are skipped locally and fail in CI:

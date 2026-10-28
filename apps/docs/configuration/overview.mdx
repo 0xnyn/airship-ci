@@ -1,0 +1,175 @@
+---
+title: "airship.yaml"
+description: "The file that defines your runners: every field, what it accepts, and what each cloud does with it."
+icon: "file-code"
+---
+
+`airship.yaml` lives at the root of each activated repository and describes
+the machines that repository can ask for. Anything Airship does not recognise
+is an error naming the field, so a typo fails the check rather than quietly
+doing nothing.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: [c7i.xlarge, m7i.xlarge, c7a.xlarge]  # tried in order
+    machine_image: ami-0123456789abcdef0   # or ubuntu2204 / ubuntu2404
+    region: us-east-1
+    preemptible: [true, true, false]       # zipped with instance_type
+    labels: [airship-build]
+    extra_config:
+      BlockDeviceMappings:
+        - VolumeSize: 100
+          VolumeType: gp3
+          Iops: 6000
+          Throughput: 1000
+      env_vars:
+        CARGO_INCREMENTAL: "0"
+      cache: true
+    idle:
+      replicas: 2
+```
+
+## Fields
+
+<ParamField path="name" type="string" required>
+  Unique within the file. Letters, digits, `.`, `_` and `-`.
+</ParamField>
+
+<ParamField path="cloud" type="string" required>
+  `aws`, `gcp` or `azure`. The named cloud must be connected, or jobs for this
+  definition are skipped with *No cloud*.
+</ParamField>
+
+<ParamField path="instance_type" type="string | string[]" required>
+  An EC2 instance type (`c7i.xlarge`), a Compute Engine machine type
+  (`n2-standard-4`), or an Azure VM size as the API spells it
+  (`Standard_D4s_v5`). See [Machine types](/configuration/machines).
+</ParamField>
+
+<ParamField path="machine_image" type="string | mapping | list" default="ubuntu2204">
+  What to boot. Each cloud accepts its own forms, plus the `ubuntu2204` and
+  `ubuntu2404` aliases for Canonical's newest image for the architecture. See
+  [Machine images](/configuration/images).
+</ParamField>
+
+<ParamField path="region" type="string | string[]">
+  An AWS region; a Google Cloud **zone or region**; an Azure region as the API
+  spells it. Defaults to the connected cloud's default region.
+</ParamField>
+
+<ParamField path="preemptible" type="boolean | boolean[]" default="false">
+  Spot capacity. Cheaper, and reclaimable — pair it with an on-demand
+  fallback. See [Fallbacks](/configuration/fallbacks).
+</ParamField>
+
+<ParamField path="labels" type="string[]" required>
+  The `runs-on` labels this runner serves. Every one must start with
+  `airship-`. See [Labels and runs-on](/configuration/labels).
+</ParamField>
+
+<ParamField path="gpu" type="string | false">
+  A GPU name. Installs the NVIDIA driver on Ubuntu images that lack one and
+  adds the `gpu` label. `false`, `no` or `null` turns it off. See
+  [GPUs](/configuration/machines#gpus).
+</ParamField>
+
+<ParamField path="extra_config" type="mapping">
+  Everything cloud-specific: disks, networking, environment, caching. Keys
+  belonging to another cloud are refused by name, so a definition copied
+  between clouds fails on the first wrong key rather than silently ignoring
+  it.
+</ParamField>
+
+<ParamField path="idle" type="mapping">
+  Keep runners booted and registered in advance. Exactly one of `replicas`,
+  `schedule` or `usage_based`. See [Idle
+  runners](/performance/idle-runners).
+</ParamField>
+
+## extra_config
+
+Each key below is documented on the page that covers the thing it changes.
+
+| Key | Clouds | What it changes |
+| --- | --- | --- |
+| `cache` | AWS | [Cache acceleration](/performance/caching) |
+| `env_vars` | All | [Environment](/configuration/environment#environment-variables) |
+| `provision_via` | All | [Provisioning from your own image](/configuration/environment#provisioning-from-your-image) |
+| `run_as`, `runner_user`, `runner_path` | All | [Windows runners](/configuration/windows) |
+| `BlockDeviceMappings` | AWS | [Disks](/configuration/storage#aws) |
+| `SubnetId`, `SecurityGroupIds` | AWS | [Networking](/configuration/networking#aws) |
+| `IamInstanceProfile` | AWS | [Cloud identity](/configuration/environment#cloud-identity) |
+| `baseDisk`, `additionalDisk`, `existingDisk` | Google Cloud | [Disks](/configuration/storage#google-cloud) |
+| `networkInterfaces`, `project_id` | Google Cloud | [Networking](/configuration/networking#google-cloud) |
+| `serviceAccounts` | Google Cloud | [Cloud identity](/configuration/environment#cloud-identity) |
+| `scheduling` | Google Cloud | [Host maintenance](/configuration/machines#host-maintenance) |
+| `storageProfile` | Azure | [Disks](/configuration/storage#azure) |
+| `enable_public_ip` | Google Cloud, Azure | [Networking](/configuration/networking) |
+
+## Which file a job reads
+
+A job reads `airship.yaml` **at its own commit**, so a branch or a pull
+request can try a new machine type before it is merged.
+
+[Idle runners](/performance/idle-runners) are the exception: they are read
+from the default branch only, since they exist before any job does. A push to
+the default branch updates them within a reconcile pass.
+
+A job is planned once, when GitHub first reports it queued. Editing the file
+afterwards does not change how a waiting job is served.
+
+## Checking a file before you commit it
+
+The **Repositories** page has a checker that parses a file and shows the
+machines it would plan — cheaper than a push. The [developer
+API](/api-reference/introduction) exposes the same check, so you can wire it
+into a workflow of its own.
+
+<Tip>
+  A definition that covers several labels, and several definitions sharing one
+  label, are both allowed. Two definitions sharing a label become one fallback
+  chain, in file order.
+</Tip>
+
+## A fuller example
+
+```yaml airship.yaml
+runners:
+  # The everyday builder: spot first, on-demand second, a second family third.
+  - name: build
+    cloud: aws
+    instance_type: [c7i.2xlarge, c7i.2xlarge, m7i.2xlarge]
+    preemptible:   [true,        false,       false]
+    region: eu-west-1
+    labels: [airship-build]
+    extra_config:
+      BlockDeviceMappings:
+        - VolumeSize: 100
+          VolumeType: gp3
+          Iops: 6000
+          Throughput: 1000
+      cache: true
+
+  # Arm, for the second half of the release matrix.
+  - name: build-arm
+    cloud: aws
+    instance_type: c7g.2xlarge
+    region: eu-west-1
+    labels: [airship-build-arm]
+
+  # A GPU box someone waits on, so keep two warm in working hours.
+  - name: gpu
+    cloud: gcp
+    instance_type: n1-standard-8
+    gpu: nvidia-tesla-t4
+    region: us-central1-b
+    labels: [airship-gpu]
+    idle:
+      schedule:
+        - day: mon-fri
+          time: 9-18
+          timezone: Europe/Berlin
+          replicas: 2
+```

@@ -1,0 +1,153 @@
+---
+title: "Deploying"
+description: "Where to run the control plane, the checklist every deployment has to pass, and how to operate it."
+icon: "rocket"
+---
+
+The control plane is one container and one Postgres database, so it fits
+anywhere that runs containers. What follows is the shape of each option and
+the checklist they share.
+
+## Pick a shape
+
+| Shape | API on | Database | Good for |
+| --- | --- | --- | --- |
+| **Managed containers + managed Postgres** | A container service with a load balancer in front | The platform's own Postgres | Teams already on a cloud; the most control over networking |
+| **Serverless containers** | A scale-to-zero container runtime | A managed instance, over a private connection or socket | The least to operate |
+| **Platform-as-a-service** | A web service, dashboard deployed separately | A hosted Postgres provider | No cloud account to run; dashboards instead of a CLI |
+| **One server** | Docker Compose behind a reverse proxy with automatic TLS | Postgres in a container | Small teams, trials, on-premises |
+
+All four need the same five things: a container, a Postgres 17+ database, two
+hostnames on one site, TLS on the API, and a
+[GitHub App](/self-hosting/github-app).
+
+## The database
+
+<ParamField path="Version" type="Postgres 17 or newer">
+  18 recommended.
+</ParamField>
+
+<ParamField path="Pooling" type="session mode only">
+  The reconciler's advisory lock needs a session, so connect through a
+  **session**-mode pooler or directly — never a transaction-mode pooler. On
+  hosted providers that means the session port, not the transaction port.
+</ParamField>
+
+<ParamField path="TLS" type="sslmode=require">
+  Unless you connect over a Unix socket.
+</ParamField>
+
+<ParamField path="Migrations" type="once per release">
+  Before the new API starts.
+
+  ```bash
+  docker run --rm --entrypoint migrate -e DATABASE_URL=... airship-api up
+  ```
+</ParamField>
+
+## The checklist
+
+Whatever you deploy on, these have to be true.
+
+<AccordionGroup>
+  <Accordion title="PUBLIC_URL is https and reachable by runner machines" icon="globe">
+    Not just by browsers. Cache-enabled runners fetch the proxy and its
+    credentials from it. Plain http outside development fails at startup.
+  </Accordion>
+
+  <Accordion title="The dashboard and the API are on the same site" icon="link">
+    `app.example.com` and `api.example.com`. Different sites means the session
+    cookie is not sent and nobody can sign in.
+  </Accordion>
+
+  <Accordion title="NEXT_PUBLIC_API_URL is set in the build environment" icon="hammer">
+    It is inlined when the dashboard is built, not read at runtime. A
+    production build with the `localhost` default fails on purpose.
+  </Accordion>
+
+  <Accordion title="CREDENTIALS_KEY is generated, stored and backed up" icon="key">
+    `openssl rand -base64 32`, in a secret store, backed up as you would a
+    root key. Losing it loses every connected cloud. The development example
+    key is refused outside development.
+  </Accordion>
+
+  <Accordion title="Secrets are in a secret store, not in environment files" icon="lock">
+    `DATABASE_URL`, `CREDENTIALS_KEY`, `GITHUB_CLIENT_SECRET`,
+    `GITHUB_WEBHOOK_SECRET` and the private key.
+  </Accordion>
+
+  <Accordion title="The migration runs before the new version starts" icon="database">
+    Once per release, as its own step — not from the API's own startup.
+  </Accordion>
+
+  <Accordion title="DEV_LOGIN and the provider endpoint overrides are unset" icon="shield-x">
+    `DEV_LOGIN` fails startup outside development. The `*_ENDPOINT` variables
+    would silently point launches at a test emulator.
+  </Accordion>
+
+  <Accordion title="The image includes the cache proxy" icon="package">
+    Build from the API's Dockerfile, which embeds it for `linux/amd64` and
+    `linux/arm64`. A plain `go build` leaves it out and cache-enabled runners
+    quietly lose acceleration.
+  </Accordion>
+
+  <Accordion title="The database is backed up" icon="save">
+    It is the single point of truth for the mapping from runners to machines.
+    Machines still destroy themselves at their deadlines if you lose it, so
+    nothing runs forever — but you may be left with machines to clean up by
+    tag.
+  </Accordion>
+
+  <Accordion title="/healthz is wired to your load balancer" icon="heart-pulse">
+    And `/docs` is where the API documents itself.
+  </Accordion>
+</AccordionGroup>
+
+## Scaling
+
+<Columns cols={2}>
+  <Card title="Several API replicas are safe" icon="copy">
+    Launchers claim runners with row locks; the reconciler elects a leader
+    through a Postgres advisory lock. No sticky sessions, no shared disk.
+  </Card>
+  <Card title="Postgres is the thing to watch" icon="database">
+    Connection count first. The control plane is not CPU-bound; it waits on
+    GitHub and on cloud APIs.
+  </Card>
+</Columns>
+
+## Upgrading
+
+<Steps>
+  <Step title="Run the migration">
+    Migrations are additive within a release line, so the previous version
+    keeps running against the new schema while you roll forward.
+  </Step>
+  <Step title="Roll the API replicas">
+    In-flight launches hold leases. A replica that goes away mid-launch has
+    its work taken over by another once the lease expires.
+  </Step>
+  <Step title="Deploy the dashboard">
+    With `NEXT_PUBLIC_API_URL` set at build time.
+  </Step>
+  <Step title="Bump RUNNER_VERSION when actions/runner releases">
+    GitHub stops sending jobs to runners more than 30 days behind the latest
+    release, so this is the one variable worth a calendar reminder.
+  </Step>
+</Steps>
+
+## Operating it
+
+| Watch | Because |
+| --- | --- |
+| Queue wait times (p50, p90 on **Overview**) | The first sign of a cap, a quota or a failing cloud credential |
+| `runner.launch_failed` on **Events** | Carries your cloud's own message |
+| `cache.unavailable` on **Events** | A silent degradation: jobs pass, slowly |
+| `cloud.credentials_rejected` | An expired or deleted credential, before users notice |
+| Database connections | The first resource to run out |
+| Webhook delivery failures in GitHub's app settings | A 401 means the webhook secret does not match |
+
+<Card title="What a self-hosted control plane does not need" icon="circle-minus">
+  No cloud permissions of its own, no inbound access to runners, no persistent
+  disk, no queue, no cache, no sticky sessions. Postgres and a container.
+</Card>

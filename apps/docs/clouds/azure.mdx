@@ -1,0 +1,278 @@
+---
+title: "Microsoft Azure"
+description: "The Entra application, the role, the policies and the settings for running jobs on Azure virtual machines."
+icon: "cloud"
+---
+
+Airship authenticates to Azure as a Microsoft Entra application with a client
+secret, and launches one virtual machine per job.
+
+## Check your policies first
+
+Four things commonly block this setup.
+
+| Policy | Effect | What to do |
+| --- | --- | --- |
+| Application registration or client secrets restricted in Entra | **Hard blocker.** Airship authenticates with an application's client secret and nothing else | Have an Entra admin create the application and secret, or grant an exception for this one application |
+| A policy denying public IP addresses on network interfaces | Blocks the default path, which gives each runner a public address | Set `enable_public_ip: false` on every definition; Airship creates a NAT gateway per region |
+| A policy requiring tags or a naming convention | Airship's shared resources carry only `airship-managed: true`; machines carry its `airship-*` tags. A deny policy fails the launch, naming itself | Exempt the `airship-runners` resource group, or use a *modify* policy that adds your tags rather than denying |
+| A policy limiting allowed locations or VM sizes | Launches outside the list fail as permanent errors | Keep the regions and sizes in your `airship.yaml` on the list |
+
+```bash
+az policy assignment list --scope "/subscriptions/$SUBSCRIPTION" -o table
+```
+
+## Register the resource providers
+
+```bash
+SUBSCRIPTION=00000000-0000-0000-0000-000000000000
+az account set --subscription "$SUBSCRIPTION"
+az provider register --namespace Microsoft.Compute
+az provider register --namespace Microsoft.Network
+```
+
+A fresh subscription may have neither. Contributor registers them on first
+use, so this step matters only with the custom role below.
+
+## Register the application
+
+```bash
+az ad sp create-for-rbac --name airship-runners --role Contributor \
+  --scopes "/subscriptions/$SUBSCRIPTION"
+```
+
+That registers an application, creates its service principal, assigns it
+Contributor on the subscription, and prints the values Airship needs:
+
+| Printed | Airship calls it |
+| --- | --- |
+| `appId` | Client ID |
+| `password` | Client secret |
+| `tenant` | Tenant ID |
+| (your subscription) | Subscription ID |
+
+In the portal, the same is **Microsoft Entra ID → App registrations → New
+registration**, then **Certificates & secrets → New client secret**, then
+**Subscriptions → Access control (IAM) → Add role assignment → Contributor**.
+
+<Warning>
+  **The secret expires.** Entra client secrets have an end date, at most two
+  years out. An expired secret fails every launch — **Events** shows Entra's
+  refusal and the **Cloud** page shows *credentials rejected* — until you
+  reconnect with a new one. Put the date in your calendar.
+
+  ```bash
+  az ad app credential reset --id "$CLIENT_ID" --append --years 1
+  ```
+</Warning>
+
+### A narrower role
+
+Contributor is what the quick path grants. To replace it, the role must be
+assigned at the **subscription**, not a resource group: the inventory scan
+lists the subscription's VMs (the only list carrying their power state),
+image lookups are subscription-level reads, and the `airship-runners`
+resource group is created on first use.
+
+<Accordion title="A custom role covering exactly the calls Airship makes" icon="shield">
+```json airship-role.json
+{
+  "Name": "Airship runners",
+  "Description": "Launch, list and delete Airship's GitHub Actions runner VMs",
+  "AssignableScopes": ["/subscriptions/00000000-0000-0000-0000-000000000000"],
+  "Actions": [
+    "Microsoft.Resources/subscriptions/read",
+    "Microsoft.Resources/subscriptions/locations/read",
+    "Microsoft.Resources/subscriptions/resourceGroups/read",
+    "Microsoft.Resources/subscriptions/resourceGroups/write",
+
+    "Microsoft.Compute/virtualMachines/read",
+    "Microsoft.Compute/virtualMachines/write",
+    "Microsoft.Compute/virtualMachines/delete",
+    "Microsoft.Compute/virtualMachines/instanceView/read",
+    "Microsoft.Compute/virtualMachines/runCommands/read",
+    "Microsoft.Compute/virtualMachines/runCommands/write",
+    "Microsoft.Compute/disks/read",
+    "Microsoft.Compute/disks/write",
+    "Microsoft.Compute/disks/delete",
+    "Microsoft.Compute/locations/operations/read",
+    "Microsoft.Compute/locations/publishers/artifacttypes/offers/skus/versions/read",
+    "Microsoft.Compute/images/read",
+    "Microsoft.Compute/galleries/read",
+    "Microsoft.Compute/galleries/images/read",
+    "Microsoft.Compute/galleries/images/versions/read",
+
+    "Microsoft.Network/virtualNetworks/read",
+    "Microsoft.Network/virtualNetworks/write",
+    "Microsoft.Network/virtualNetworks/subnets/read",
+    "Microsoft.Network/virtualNetworks/subnets/write",
+    "Microsoft.Network/virtualNetworks/subnets/join/action",
+    "Microsoft.Network/networkSecurityGroups/read",
+    "Microsoft.Network/networkSecurityGroups/write",
+    "Microsoft.Network/networkSecurityGroups/join/action",
+    "Microsoft.Network/networkInterfaces/read",
+    "Microsoft.Network/networkInterfaces/write",
+    "Microsoft.Network/networkInterfaces/delete",
+    "Microsoft.Network/networkInterfaces/join/action",
+    "Microsoft.Network/publicIPAddresses/read",
+    "Microsoft.Network/publicIPAddresses/write",
+    "Microsoft.Network/publicIPAddresses/delete",
+    "Microsoft.Network/publicIPAddresses/join/action",
+    "Microsoft.Network/natGateways/*",
+    "Microsoft.Network/locations/operations/read",
+    "Microsoft.Network/locations/operationResults/read",
+
+    "Microsoft.MarketplaceOrdering/offertypes/publishers/offers/plans/agreements/read"
+  ],
+  "NotActions": [],
+  "DataActions": [],
+  "NotDataActions": []
+}
+```
+
+```bash
+az role definition create --role-definition airship-role.json
+az role assignment create --assignee "$CLIENT_ID" --role "Airship runners" \
+  --scope "/subscriptions/$SUBSCRIPTION"
+```
+
+| Actions | Needed for |
+| --- | --- |
+| `subscriptions/read`, `subscriptions/locations/read` | The credential check, at connect time and after a failed launch |
+| `resourceGroups/read`, `/write` | Creating `airship-runners` on first launch |
+| `virtualMachines/*`, `instanceView/read`, `disks/*` | Launch, idempotency lookup, inventory list with power states, teardown |
+| `virtualMachines/runCommands/*` | Booting Windows and specialized images |
+| `publishers/.../versions/read`, `images/read`, `galleries/...` | Resolving `machine_image` |
+| `virtualNetworks/*`, `subnets/*`, `networkSecurityGroups/*` | The per-region network, on first launch there |
+| `networkInterfaces/*`, `publicIPAddresses/*` | Each machine's interface and address, and the sweep of orphans |
+| `natGateways/*` | `enable_public_ip: false`. A wildcard because Microsoft's published operation list names only `natGateways/join/action`, not the read and write actions creating a gateway needs |
+| `locations/operations/read`, `operationResults/read` | Polling long-running operations |
+| `MarketplaceOrdering/.../agreements/read` | Marketplace images carrying a purchase plan |
+
+If a launch fails with `AuthorizationFailed`, Azure's message names the
+missing action and **Events** shows that message. Add it and relaunch.
+</Accordion>
+
+## Quotas to check
+
+```bash
+az vm list-usage --location eastus -o table
+az network list-usages --location eastus -o table
+```
+
+| Quota | Why it matters |
+| --- | --- |
+| Total Regional vCPUs | The real ceiling on concurrent runners, per region |
+| Per-family vCPUs (`Standard DSv5 Family vCPUs`, …) | Often lower than the regional figure on a new subscription; each family counts separately |
+| Total Regional Low-priority vCPUs | For `preemptible: true` |
+| GPU families (`Standard NCSv3 Family vCPUs`, …) | Usually zero until you request an increase |
+| Public IP Addresses — Standard | One per runner by default; `enable_public_ip: false` removes this ceiling |
+
+If a definition names a third-party marketplace image with a purchase plan,
+accept its terms once for the subscription. Canonical's Ubuntu images, the
+default, need none.
+
+```bash
+az vm image terms accept --urn publisher:offer:plan:latest
+```
+
+## Connect it
+
+Open **Cloud → Microsoft Azure**, enter the subscription ID, tenant ID, client
+ID and client secret, and choose the default region — spelled as the API
+spells it (`eastus`, `uksouth`), not as the portal shows it.
+
+On submit, Airship signs in to Entra, reads the subscription (an application
+that cannot see it gets a 404, reported as bad credentials), refuses a
+disabled or deleted subscription, and checks the default region is one the
+subscription offers.
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" \
+  -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "azure", "credentials": {
+        "subscription_id": "...", "tenant_id": "...",
+        "client_id": "...", "client_secret": "...", "region": "westeurope"}}'
+```
+
+## Azure settings
+
+| Key | What it does |
+| --- | --- |
+| `storageProfile` | Size and storage type of the OS disk. [Disks](/configuration/storage#azure) |
+| `enable_public_ip` | `false` launches with no public address, behind a NAT gateway Airship creates |
+| `run_as`, `runner_user`, `runner_path` | [Windows runners](/configuration/windows) |
+
+`instance_type` takes a VM size as the API spells it (`Standard_D4s_v5`).
+Sizes with a `p` in their feature letters (`Standard_D2pls_v5`,
+`Standard_E4ps_v5`) are `arm64`; everything else is `x64`. GPUs come from the
+size — the `NC`, `ND`, `NV` and `NG` families — and `gpu:` is a flag rather
+than a name.
+
+`machine_image` takes a marketplace URN, the same as a mapping, a managed
+image ID, or a compute gallery image ID:
+
+```yaml
+machine_image: Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest
+```
+
+```yaml
+machine_image:
+  publisher: canonical
+  offer: 0001-com-ubuntu-server-jammy
+  sku: 22_04-lts-gen2
+  version: latest        # the default
+```
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: azure
+    instance_type: [Standard_D8s_v5, Standard_D8as_v5]
+    region: westeurope
+    labels: [airship-build]
+    extra_config:
+      storageProfile:
+        osDisk:
+          diskSizeGB: 100
+          managedDisk:
+            storageAccountType: Premium_LRS
+      enable_public_ip: false
+```
+
+<Note>
+  Azure's default here is a **public address per machine**, because Airship's
+  subnet is private — as Azure makes new subnets by default. Turning the
+  address off creates a shared NAT gateway with a static address of its own,
+  which every later runner in that region reuses.
+</Note>
+
+## Verify and audit
+
+```bash
+az vm list --resource-group airship-runners --show-details \
+  -o table --query "[].{name:name, size:hardwareProfile.vmSize, state:powerState}"
+```
+
+After a job the VM is deleted along with its disk, interface and address.
+Orphaned interfaces and addresses from a failed launch are swept once they
+are older than fifteen minutes.
+
+<Warning>
+  Two installations sharing one subscription share the `airship-runners`
+  resource group, the per-region networks and security groups and the NAT
+  gateways — only the machines are separated, by tag. A subscription per
+  installation keeps a security group rule one organization adds from applying
+  to another's runners.
+</Warning>
+
+## Turning it off
+
+Deactivate a repository to stop it; uninstall the GitHub App to stop
+everything. Disconnecting is refused while runners launched with that secret
+are alive. Then delete the application, and by hand the `airship-runners`
+resource group with the networks and NAT gateways inside it.
+
+Launch failures and their Azure messages are in
+[Troubleshooting](/troubleshooting#azure).

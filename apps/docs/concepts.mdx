@@ -1,0 +1,115 @@
+---
+title: "Concepts"
+description: "The words Airship uses, and what each one means in your account and in your repository."
+icon: "book-open"
+---
+
+## The pieces
+
+<ResponseField name="Installation" type="one GitHub organization or user">
+  The tenant. Installing the GitHub App creates one, and everything else —
+  connected clouds, activated repositories, runners, jobs, API tokens — belongs
+  to it. Every query, every cloud API call and every machine tag is scoped to
+  one installation.
+</ResponseField>
+
+<ResponseField name="Activated repository" type="an explicit switch">
+  A repository Airship will launch machines for. Installing the app is not
+  enough: activation is a separate, deliberate step, so an `airship.yaml`
+  committed to a repository nobody activated launches nothing. Public
+  repositories need a second choice, because their fork pull requests run
+  untrusted code.
+</ResponseField>
+
+<ResponseField name="Runner definition" type="an entry in airship.yaml">
+  A named description of a machine: its cloud, size, image, region and the
+  labels it serves. A definition is a recipe, not a machine — nothing exists
+  until a job asks for one of its labels.
+</ResponseField>
+
+<ResponseField name="Label" type="the airship- prefix">
+  How a job asks for a machine. Only labels starting with `airship-` are
+  looked up, so every other job on the repository is untouched and costs
+  nothing. See [Labels and runs-on](/configuration/labels).
+</ResponseField>
+
+<ResponseField name="Runner" type="one machine, one job">
+  A single machine with a single-use GitHub registration. It takes one job and
+  the machine is destroyed. The **Runners** page shows each one's state and
+  instance ID.
+</ResponseField>
+
+<ResponseField name="Job" type="what GitHub asked for">
+  A `workflow_job` Airship was told about. The **Jobs** page shows what was
+  planned for each, which runner served it, or why none did.
+</ResponseField>
+
+<ResponseField name="Plan" type="an ordered list of attempts">
+  How Airship intends to serve one job: every combination of the definition's
+  [fallback lists](/configuration/fallbacks), then any other definition
+  sharing the label. Fixed when the job is first seen queued.
+</ResponseField>
+
+<ResponseField name="Idle runner pool" type="machines waiting in advance">
+  Runners kept booted and registered so a job starts in seconds instead of
+  minutes. Still one job per machine: a pool runner that takes a job is
+  replaced straight away. See [Idle runners](/performance/idle-runners).
+</ResponseField>
+
+<ResponseField name="Organization runners" type="the .airship repository">
+  Definitions in `airship.global.yaml` that every activated repository can
+  use, so machine shapes stop being copied between repositories. See
+  [Organization-wide runners](/organization/runners).
+</ResponseField>
+
+<ResponseField name="Access policy" type="access.yaml">
+  Which repositories, teams, roles and people may use an expensive runner. See
+  [Access control](/organization/access-control).
+</ResponseField>
+
+<ResponseField name="Control plane" type="the service">
+  What receives GitHub's webhooks, reads your config, launches and tears down
+  machines, and serves the dashboard and the API. Airship runs one for you, or
+  you [run your own](/self-hosting/overview).
+</ResponseField>
+
+## The files
+
+| File | Where | What it does |
+| --- | --- | --- |
+| `airship.yaml` | The root of each activated repository | Defines that repository's runners. Read at a job's own commit |
+| `airship.global.yaml` | The root of a `.airship` repository in the organization | Defines runners every activated repository can use |
+| `access.yaml` | The root of the same `.airship` repository | Restricts who may use which organization runner |
+
+## The labels a runner registers with
+
+Every runner carries `self-hosted`, its architecture (`x64` or `arm64`), its
+cloud (`aws`, `gcp`, `azure`), `cpu` or `gpu`, `airship`, and the labels the
+definition lists. The runner software adds its own operating system label.
+
+A job is served only when a definition covers **every** `airship-` label it
+asks for, and the runner can satisfy the rest. A job asking for
+`[airship-build, gpu]` needs a definition whose labels include `airship-build`
+**and** which has a GPU.
+
+## What costs money
+
+Airship launches machines in your account; your cloud provider bills you for
+them directly. The levers:
+
+<Columns cols={2}>
+  <Card title="max_runners" icon="gauge" href="/organization/capacity" arrow>
+    The ceiling on live runners across every repository. The one number that
+    bounds total spend.
+  </Card>
+  <Card title="Spot capacity" icon="trending-down" href="/configuration/fallbacks" arrow>
+    `preemptible: [true, false]` tries spot first and falls back to on-demand.
+  </Card>
+  <Card title="Machine lifetime" icon="timer" href="/how-it-works#runner-states" arrow>
+    Eight hours by default, enforced by the machine on itself.
+  </Card>
+  <Card title="Idle pools" icon="clock" href="/performance/idle-runners" arrow>
+    Warm machines cost money while they wait. `schedule:` windows keep that to
+    working hours.
+  </Card>
+</Columns>

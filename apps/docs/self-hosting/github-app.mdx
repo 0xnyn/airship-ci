@@ -1,0 +1,136 @@
+---
+title: "The GitHub App"
+description: "Creating your own app: URLs, permissions, events, and what each permission is actually used for."
+icon: "github"
+---
+
+The hosted service has an app already. If you [run your own control
+plane](/self-hosting/overview), you create one.
+
+Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub
+App**.
+
+## URLs
+
+| Field | Value |
+| --- | --- |
+| Homepage URL | Anything — your dashboard is fine |
+| Callback URL | `{PUBLIC_URL}/v1/auth/github/callback` |
+| Webhook URL | `{PUBLIC_URL}/v1/github/webhook` |
+| Webhook secret | A random string. Set it: unsigned deliveries are rejected |
+
+Leave "Request user authorization (OAuth) during installation" off, and
+uncheck "Expire user authorization tokens" only if you have a reason to.
+
+<Tip>
+  For local development, expose the API with a tunnel and use the tunnel's URL
+  as `PUBLIC_URL`:
+
+  ```bash
+  cloudflared tunnel --url localhost:8080
+  ```
+</Tip>
+
+## Permissions
+
+Each one maps to something specific. Nothing here grants access to your
+Actions secrets, which GitHub does not expose to apps at all.
+
+### Repository permissions
+
+| Permission | Access | Why |
+| --- | --- | --- |
+| Administration | Read & write | Register and remove repository runners |
+| Actions | Read | Look up jobs and runs |
+| Contents | Read | Read `airship.yaml` at a job's commit |
+| Metadata | Read | Required by GitHub |
+| Contents | Write *(optional)* | Only so the access-control API can commit to `.airship` |
+| Pull requests | Write *(optional)* | Only so it can open the pull request for that change |
+
+### Organization permissions
+
+| Permission | Access | Why |
+| --- | --- | --- |
+| Members | Read | Tell owners from members, and resolve team rules in [`access.yaml`](/organization/access-control) |
+| Self-hosted runners | Read & write | [Organization-wide idle runners](/performance/idle-runners#organization-wide-pools), which register in runner groups |
+
+<Note>
+  The two optional write permissions are used for exactly one thing: the
+  access-control API opening a pull request against your `.airship`
+  repository. Without them, everything else works and you edit `access.yaml`
+  yourself.
+</Note>
+
+## Events to subscribe to
+
+| Event | Why |
+| --- | --- |
+| **Workflow job** | The whole point: a queued job is what launches a machine |
+| **Push** | Refresh idle runner pools when `airship.yaml` changes on a default branch |
+| **Repository** | Renames and visibility changes |
+
+Missing **Workflow job** means nothing ever launches. Missing **Push** means
+pool changes are picked up late. Missing **Repository** means a renamed
+repository drifts until it is re-read.
+
+## After creating it
+
+Collect these and put them in the API's environment:
+
+| From GitHub | Variable |
+| --- | --- |
+| The app's URL slug | `GITHUB_APP_SLUG` |
+| Client ID | `GITHUB_CLIENT_ID` |
+| A generated client secret | `GITHUB_CLIENT_SECRET` |
+| The webhook secret you chose | `GITHUB_WEBHOOK_SECRET` |
+| A generated private key (PEM) | `GITHUB_PRIVATE_KEY` or `GITHUB_PRIVATE_KEY_FILE` |
+
+```bash
+GITHUB_APP_SLUG=airship
+GITHUB_CLIENT_ID=Iv23li...
+GITHUB_CLIENT_SECRET=...
+GITHUB_WEBHOOK_SECRET=...
+GITHUB_PRIVATE_KEY_FILE=/run/secrets/github-app.pem
+```
+
+The PEM can be the variable itself — with real newlines, or on one line with
+literal `\n` — or a mounted file. See
+[Configuration](/self-hosting/configuration#github-app).
+
+## GitHub Enterprise Server
+
+Point the API at your instance:
+
+```bash
+GITHUB_API_URL=https://github.example.com/api/v3
+GITHUB_WEB_URL=https://github.example.com
+```
+
+Create the app in your instance's own developer settings. Everything else is
+the same.
+
+## Checking it works
+
+<Steps>
+  <Step title="Sign in">
+    Open the dashboard and sign in with GitHub. A failure here is almost
+    always the callback URL or the client secret.
+  </Step>
+  <Step title="Install it on an organization">
+    Grant it one repository. The installation should appear in the dashboard
+    immediately.
+  </Step>
+  <Step title="Watch a webhook arrive">
+    Push a workflow that uses an `airship-` label. The job should appear on
+    **Jobs** within a second or two.
+
+    If it does not, GitHub's **Advanced** tab on the app shows each delivery
+    and its response. A 401 there means the webhook secret does not match.
+  </Step>
+</Steps>
+
+## Uninstalling
+
+Uninstalling the app finishes every runner with reason `deleted` and destroys
+its machine. The installation record is kept so machines still running in a
+connected cloud can be torn down.

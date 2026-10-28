@@ -1,0 +1,175 @@
+---
+title: "Custom images"
+description: "Bake the runner and your toolchain into an image so every job skips the download and the install."
+icon: "layers"
+---
+
+On a stock image, every job spends its first minute or two the same way:
+downloading `actions/runner`, installing its dependencies, then installing
+whatever your build needs. An image of your own does that work once.
+
+It is the single biggest cold-start win available, and on a private network it
+removes the package-mirror traffic from every job entirely.
+
+## What the boot script looks for
+
+Airship does not require anything of your image. It *prefers* a few things,
+and falls back to doing them itself.
+
+<ResponseField name="/opt/actions-runner" type="the runner, extracted">
+  If `/opt/actions-runner/.version` contains exactly the runner version
+  Airship asked for, that installation is used as-is and nothing is
+  downloaded. Anything else — a missing file, a different version — and the
+  directory is replaced with a fresh download.
+
+  ```bash
+  RUNNER_VERSION=2.338.2
+  sudo mkdir -p /opt/actions-runner
+  curl -fsSL "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz" \
+    | sudo tar -xz -C /opt/actions-runner
+  sudo /opt/actions-runner/bin/installdependencies.sh
+  echo "$RUNNER_VERSION" | sudo tee /opt/actions-runner/.version
+  ```
+</ResponseField>
+
+<ResponseField name="a runner user" type="created if absent">
+  Airship creates a `runner` user with a home directory, passwordless sudo,
+  and membership of the `docker` group if one exists. Creating it yourself is
+  fine; Airship leaves an existing one alone.
+</ResponseField>
+
+<ResponseField name="an NVIDIA driver" type="installed if absent and gpu: is set">
+  If `nvidia-smi` is already on the image, the driver install is skipped
+  entirely. Baking it is worth minutes per GPU job.
+</ResponseField>
+
+<ResponseField name="curl and tar" type="required on a minimal image">
+  A very stripped-down image without them cannot fetch the runner. This is the
+  usual cause of "the instance launched but no runner appeared".
+</ResponseField>
+
+<Warning>
+  Pin the runner version you bake, and keep it current. GitHub stops sending
+  jobs to runners more than **30 days behind** a release — a stale baked
+  runner is replaced at boot (so jobs keep working, slowly) until it falls so
+  far behind that GitHub refuses it.
+</Warning>
+
+## What else is worth baking
+
+<Columns cols={2}>
+  <Card title="Your language toolchains" icon="wrench">
+    The exact compilers, SDKs and package managers your build needs, at the
+    versions it needs, rather than a `setup-*` action per job.
+  </Card>
+  <Card title="Base container images" icon="box">
+    `docker pull` of your base layers at image-build time means no registry
+    round trip per job.
+  </Card>
+  <Card title="A warm dependency cache" icon="database">
+    A populated `~/.cargo`, `~/.m2` or npm cache gives even a cache miss a
+    head start.
+  </Card>
+  <Card title="Your CA certificates and config" icon="shield">
+    Internal registries, proxies and certificate bundles, already trusted.
+  </Card>
+</Columns>
+
+## Building one
+
+<Tabs>
+  <Tab title="AWS">
+    Launch an instance from the base AMI, provision it, then create an image
+    from it. The result is an AMI ID, **specific to that region**:
+
+    ```bash
+    aws ec2 create-image --instance-id i-0123456789abcdef0 \
+      --name "ci-runner-$(date +%Y%m%d)" --region eu-west-1
+    ```
+
+    ```yaml airship.yaml
+    runners:
+      - name: build
+        cloud: aws
+        instance_type: c7i.2xlarge
+        machine_image: ami-0123456789abcdef0
+        region: eu-west-1
+        labels: [airship-build]
+    ```
+
+    Keep one definition per region, or copy the AMI and use a
+    [fallback list](/configuration/fallbacks) of image and region together.
+  </Tab>
+  <Tab title="Google Cloud">
+    Either an image or a machine image. `machine_image` accepts both, plus
+    `project:image` and full resource paths:
+
+    ```bash
+    gcloud compute images create "ci-runner-$(date +%Y%m%d)" \
+      --source-disk my-builder --source-disk-zone us-central1-b \
+      --family ci-runner
+    ```
+
+    ```yaml
+    machine_image: ci-runner          # the family: always the current image
+    ```
+
+    Publishing to a **family** is the idiom worth adopting: definitions never
+    change, and a new image is picked up on the next launch.
+  </Tab>
+  <Tab title="Azure">
+    A managed image, or a version in a compute gallery:
+
+    ```bash
+    az image create --resource-group ci --name ci-runner-20260101 \
+      --source my-builder
+    ```
+
+    ```yaml
+    machine_image: /subscriptions/.../providers/Microsoft.Compute/images/ci-runner-20260101
+    ```
+
+    A gallery image ID without `/versions/X.Y.Z` resolves to the latest
+    version, which gives you the same "never change the definition" property.
+    A **specialized** image boots with its own accounts rather than ones Azure
+    creates.
+  </Tab>
+</Tabs>
+
+<Tip>
+  Build the image in CI, on an Airship runner. A nightly workflow that
+  provisions a machine, snapshots it and publishes to a family or gallery
+  keeps images current without anyone remembering to do it.
+</Tip>
+
+## Keeping definitions stable
+
+Pointing at a moving target — a Google Cloud image **family**, or an Azure
+gallery image without a pinned version — means `airship.yaml` never has to
+change when you rebuild. On AWS, where the image is an ID, the equivalent is
+to publish the new AMI ID through a small automated pull request.
+
+## Marketplace and vendor images
+
+Any image your credential can launch works, including vendor images with
+drivers and SDKs already installed — a deep-learning image is often faster to
+adopt than building your own GPU image.
+
+<Note>
+  A marketplace image usually needs its terms accepted for your account or
+  subscription **before** it will launch. Until then every launch fails
+  permanently, with the provider's own message on **Events**. See
+  [Machine images](/configuration/images).
+</Note>
+
+## Together with everything else
+
+| | Cold start | What it costs |
+| --- | --- | --- |
+| Stock image | 1–3 minutes | Nothing |
+| Custom image | 20–40 seconds | Building and maintaining it |
+| Custom image + [idle pool](/performance/idle-runners) | Seconds | Warm machines while they wait |
+
+The three compose: an idle pool of machines booting your own image, with
+[cache acceleration](/performance/caching) on, is as close to instant as a
+fresh machine per job gets.

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Airship",
+  "description": "Airship launches a fresh machine in your own AWS, Google Cloud or Azure account for every GitHub Actions job, from one airship.yaml per repository.",
+  "colors": {
+    "primary": "#3064ff",
+    "light": "#9efaff",
+    "dark": "#1f4ed8"
+  },
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "https://airshipci.com"
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "fonts": {
+    "family": "Geist",
+    "heading": {
+      "family": "Geist"
+    },
+    "body": {
+      "family": "Geist"
+    }
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs"
+  },
+  "search": {
+    "prompt": "Search the Airship docs"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting started",
+            "icon": "rocket",
+            "pages": ["index", "quickstart", "how-it-works", "concepts"]
+          },
+          {
+            "group": "Your cloud",
+            "icon": "cloud",
+            "pages": [
+              "clouds/overview",
+              "clouds/aws",
+              "clouds/google-cloud",
+              "clouds/azure"
+            ]
+          },
+          {
+            "group": "Runner configuration",
+            "icon": "file-code",
+            "pages": [
+              "configuration/overview",
+              "configuration/labels",
+              "configuration/machines",
+              "configuration/images",
+              "configuration/fallbacks",
+              "configuration/storage",
+              "configuration/networking",
+              "configuration/environment",
+              "configuration/windows",
+              "configuration/one-line-runners"
+            ]
+          },
+          {
+            "group": "Faster pipelines",
+            "icon": "gauge",
+            "pages": [
+              "performance/caching",
+              "performance/idle-runners",
+              "performance/custom-images"
+            ]
+          },
+          {
+            "group": "Across an organization",
+            "icon": "building-2",
+            "pages": [
+              "organization/runners",
+              "organization/access-control",
+              "organization/capacity"
+            ]
+          },
+          {
+            "group": "Running Airship",
+            "icon": "life-buoy",
+            "pages": ["dashboard", "troubleshooting", "security"]
+          },
+          {
+            "group": "Self-hosting",
+            "icon": "server",
+            "pages": [
+              "self-hosting/overview",
+              "self-hosting/github-app",
+              "self-hosting/configuration",
+              "self-hosting/deploying"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API reference",
+        "icon": "terminal",
+        "openapi": "/api-reference/openapi.json",
+        "groups": [
+          {
+            "group": "Developer API",
+            "pages": ["api-reference/introduction"]
+          },
+          {
+            "group": "Repositories",
+            "pages": ["GET /api/v1/repo", "POST /api/v1/repo"]
+          },
+          {
+            "group": "Clouds",
+            "pages": ["GET /api/v1/cloud-connect", "POST /api/v1/cloud-connect"]
+          },
+          {
+            "group": "Access control",
+            "pages": [
+              "GET /api/v1/access-control",
+              "PUT /api/v1/access-control"
+            ]
+          },
+          {
+            "group": "Runners",
+            "pages": ["GET /api/runner-provision"]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "airshipci.com",
+        "href": "https://airshipci.com"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Open dashboard",
+      "href": "https://app.airshipci.com"
+    }
+  },
+  "footer": {
+    "socials": {
+      "website": "https://airshipci.com"
+    },
+    "links": [
+      {
+        "header": "Get started",
+        "items": [
+          { "label": "Quickstart", "href": "/quickstart" },
+          { "label": "How it works", "href": "/how-it-works" },
+          { "label": "Connect a cloud", "href": "/clouds/overview" }
+        ]
+      },
+      {
+        "header": "Reference",
+        "items": [
+          { "label": "airship.yaml", "href": "/configuration/overview" },
+          { "label": "Developer API", "href": "/api-reference/introduction" },
+          { "label": "Troubleshooting", "href": "/troubleshooting" }
+        ]
+      },
+      {
+        "header": "Airship",
+        "items": [
+          { "label": "Pricing", "href": "https://airshipci.com/pricing" },
+          { "label": "Dashboard", "href": "https://app.airshipci.com" },
+          { "label": "Security", "href": "/security" }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    },
+    "examples": {
+      "languages": ["curl", "python", "javascript", "go"],
+      "defaults": "required"
+    }
+  },
+  "contextual": {
+    "options": ["copy", "view", "claude", "chatgpt", "mcp"]
+  },
+  "seo": {
+    "metatags": {
+      "og:site_name": "Airship documentation"
+    }
+  }
+}

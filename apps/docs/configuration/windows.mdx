@@ -1,0 +1,114 @@
+---
+title: "Windows runners"
+description: "Running jobs on Windows, including an interactive desktop session for tests that need one."
+icon: "monitor"
+---
+
+Point `machine_image` at a Windows image and Airship sends a Windows boot
+script instead of a Linux one. There is no flag to set.
+
+<Warning>
+  Windows runners need an eligible Windows licence with multi-tenant licence
+  rights in your own account. Airship launches the image you name; the
+  licensing is between you and your cloud provider.
+</Warning>
+
+## AWS
+
+Name a Windows AMI. The `ubuntu2204` and `ubuntu2404` aliases are Linux, so
+Windows always means a specific image.
+
+```yaml airship.yaml
+runners:
+  - name: windows
+    cloud: aws
+    instance_type: m7i.xlarge
+    machine_image: ami-0123456789abcdef0     # a Windows Server AMI
+    region: us-east-1
+    labels: [airship-windows]
+```
+
+## Azure
+
+A marketplace URN, or the same as a mapping:
+
+```yaml airship.yaml
+runners:
+  - name: windows
+    cloud: azure
+    instance_type: Standard_D4s_v5
+    region: uksouth
+    machine_image:
+      publisher: microsoftwindowsdesktop
+      offer: windows-11
+      sku: win11-23h2-pro
+      version: latest
+    labels: [airship-windows]
+
+  - name: windows-arm
+    cloud: azure
+    instance_type: Standard_D4ps_v5          # the p makes it arm64
+    region: uksouth
+    machine_image:
+      publisher: microsoftwindowsdesktop
+      offer: windows11preview-arm64
+      sku: win11-23h2-pro
+      version: latest
+    labels: [airship-windows-arm]
+```
+
+<Note>
+  Windows machines take noticeably longer to boot and register than Linux
+  ones, and longer again on Azure. An [idle
+  runner](/performance/idle-runners) is worth more here than anywhere else.
+</Note>
+
+## Google Cloud
+
+Name a Windows image or family in your project or Google's:
+
+```yaml
+machine_image: windows-2022
+```
+
+## Settings
+
+```yaml
+extra_config:
+  run_as: interactive
+  runner_user: runner
+  runner_path: C:\actions-runner
+```
+
+<ParamField path="run_as" type="string">
+  `interactive` logs a local account in automatically and runs the runner in
+  its desktop session — what UI tests, browser automation and anything needing
+  a window station require. Without it the runner runs as a service, with no
+  interactive desktop.
+</ParamField>
+
+<ParamField path="runner_user" type="string" default="runner">
+  The local account used for `run_as: interactive`. Its password is generated
+  on the machine and discarded.
+</ParamField>
+
+<ParamField path="runner_path" type="string" default="C:\actions-runner">
+  Where the runner is installed. Point it at a path your own image already has
+  the runner in to skip the download.
+</ParamField>
+
+## What to know
+
+| | |
+| --- | --- |
+| Shell | The runner's default on Windows, so steps are PowerShell unless a step says otherwise |
+| Disk | On Azure, the OS disk defaults to the **image's** own size rather than 75 GiB. Raise it with [`storageProfile`](/configuration/storage#azure) |
+| Labels | The runner adds its own `Windows` label, so a job can ask for `[self-hosted, airship-windows, Windows]` |
+| Boot once | A Windows machine that reboots powers off rather than registering again |
+| Caching | [Cache acceleration](/performance/caching) is Linux-only; a Windows runner with `cache: true` launches without it and records a warning |
+| No inbound access | No RDP is opened, and the administrator password Azure requires is generated in memory and discarded |
+
+A Windows image with the runner, your SDKs and your toolchain already
+installed is worth building early — the download and dependency install cost
+more on Windows than on Linux. See [Custom
+images](/performance/custom-images).

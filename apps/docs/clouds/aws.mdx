@@ -1,0 +1,291 @@
+---
+title: "Amazon Web Services"
+description: "The IAM policy, the network, the quotas and the settings for running jobs on EC2."
+icon: "cloud"
+---
+
+Airship authenticates to AWS as an IAM user with a long-lived access key, and
+launches one EC2 instance per job.
+
+## The IAM policy
+
+<Tabs>
+  <Tab title="Quick start">
+    Attach **`AmazonEC2FullAccess`**. In an account dedicated to CI this is a
+    perfectly defensible end state.
+
+    ```bash
+    aws iam create-user --user-name airship-runners
+    aws iam attach-user-policy --user-name airship-runners \
+      --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
+    aws iam create-access-key --user-name airship-runners
+    ```
+  </Tab>
+  <Tab title="Scoped">
+    One statement per thing Airship actually calls. The interesting one is
+    `TerminateOnlyOurOwn`: the credential **cannot destroy an instance Airship
+    did not tag**, which is what makes sharing an account with your own
+    workloads safe.
+
+    ```json airship-policy.json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "Describe",
+          "Effect": "Allow",
+          "Action": [
+            "ec2:DescribeInstances",
+            "ec2:DescribeImages",
+            "ec2:DescribeSubnets",
+            "ec2:DescribeSecurityGroups",
+            "sts:GetCallerIdentity"
+          ],
+          "Resource": "*"
+        },
+        {
+          "Sid": "LaunchRunners",
+          "Effect": "Allow",
+          "Action": ["ec2:RunInstances"],
+          "Resource": "*"
+        },
+        {
+          "Sid": "TagOnCreate",
+          "Effect": "Allow",
+          "Action": ["ec2:CreateTags"],
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "ec2:CreateAction": ["RunInstances", "CreateSecurityGroup"]
+            }
+          }
+        },
+        {
+          "Sid": "RunnerSecurityGroup",
+          "Effect": "Allow",
+          "Action": ["ec2:CreateSecurityGroup"],
+          "Resource": "*"
+        },
+        {
+          "Sid": "TerminateOnlyOurOwn",
+          "Effect": "Allow",
+          "Action": ["ec2:TerminateInstances"],
+          "Resource": "*",
+          "Condition": {
+            "StringLike": { "ec2:ResourceTag/airship:installation": "*" }
+          }
+        }
+      ]
+    }
+    ```
+
+    ```bash
+    aws iam create-user --user-name airship-runners
+    aws iam put-user-policy --user-name airship-runners \
+      --policy-name airship --policy-document file://airship-policy.json
+    aws iam create-access-key --user-name airship-runners
+    ```
+  </Tab>
+  <Tab title="Add-ons">
+    Add these only for the features you use.
+
+    **[Cache acceleration](/performance/caching)** — bucket management, object
+    access and the federation token the runner's proxy trades for:
+
+    ```json
+    {
+      "Sid": "CacheBuckets",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutLifecycleConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::airship-cache-*"
+    },
+    {
+      "Sid": "CacheObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "arn:aws:s3:::airship-cache-*/*"
+    },
+    {
+      "Sid": "RunnerCacheCredentials",
+      "Effect": "Allow",
+      "Action": ["sts:GetFederationToken"],
+      "Resource": "*"
+    }
+    ```
+
+    **An instance profile** for your jobs
+    ([`IamInstanceProfile`](/configuration/environment#cloud-identity)),
+    scoped to the one role:
+
+    ```json
+    {
+      "Sid": "PassRunnerRole",
+      "Effect": "Allow",
+      "Action": ["iam:PassRole"],
+      "Resource": "arn:aws:iam::<account>:role/<your-runner-role>",
+      "Condition": {
+        "StringEquals": { "iam:PassedToService": "ec2.amazonaws.com" }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+  If your account sets a **default EBS encryption key of its own** — not the
+  AWS-managed `aws/ebs` key — the user also needs `kms:CreateGrant`,
+  `kms:Decrypt` and `kms:GenerateDataKeyWithoutPlaintext` on that key. Root
+  volumes are always encrypted, so this is not optional.
+</Warning>
+
+## The network
+
+The default path needs a **default VPC** in each region you use. Airship
+launches into its default subnets, rotating availability zones per runner so
+one zone running out of capacity does not fail the job.
+
+```bash
+aws ec2 describe-vpcs --region eu-west-1 \
+  --filters Name=isDefault,Values=true --query 'Vpcs[].VpcId' --output text
+```
+
+Empty? Either create one, or point Airship at your own subnet per definition:
+
+<CodeGroup>
+```bash Create a default VPC
+aws ec2 create-default-vpc --region eu-west-1
+```
+
+```yaml Use your own subnet
+extra_config:
+  SubnetId: subnet-0123456789abcdef0
+  SecurityGroupIds: [sg-0123456789abcdef0]   # optional
+```
+</CodeGroup>
+
+A private subnet works and needs no inbound anything, but it does need a
+route out — the machine downloads `actions/runner` and talks to GitHub. See
+[Networking](/configuration/networking) for the destination list, and for the
+S3 gateway endpoint that pays for itself with caching on.
+
+Airship opens **no inbound ports, ever**. The security group it creates has no
+ingress rules, there is no SSH key, and IMDSv2 is required with a hop limit of
+1 so a process inside a container cannot reach instance metadata.
+
+## Quotas to check
+
+```bash
+# Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) vCPUs
+aws service-quotas get-service-quota --service-code ec2 \
+  --quota-code L-1216C47A --region eu-west-1 \
+  --query 'Quota.[QuotaName,Value]' --output text
+
+# All Standard Spot Instance Requests (vCPUs)
+aws service-quotas get-service-quota --service-code ec2 \
+  --quota-code L-34B43A08 --region eu-west-1 \
+  --query 'Quota.[QuotaName,Value]' --output text
+
+# GPU families, and anything else by name
+aws service-quotas list-service-quotas --service-code ec2 --region eu-west-1 \
+  --query "Quotas[?contains(QuotaName,'On-Demand G')].[QuotaCode,QuotaName,Value]" \
+  --output table
+```
+
+Also worth a look: EBS storage quotas per region, and GPU quotas, which are
+usually zero until you request an increase.
+
+## Connect it
+
+Open **Cloud → AWS**, paste the access key ID and secret, and choose the
+default region. Airship verifies the key with `sts:GetCallerIdentity` before
+storing it, and shows you the account ID and principal ARN.
+
+Or from the [developer API](/api-reference/introduction):
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" \
+  -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "aws", "credentials": {
+        "access_key": "AKIA...", "secret_key": "...", "region": "eu-west-1"}}'
+```
+
+## AWS settings
+
+Set these under [`extra_config`](/configuration/overview#extra-config):
+
+| Key | What it does |
+| --- | --- |
+| `BlockDeviceMappings` | Size, type, IOPS and throughput of the root volume. [Disks](/configuration/storage#aws) |
+| `SubnetId` | Launch in this subnet instead of the default VPC's |
+| `SecurityGroupIds` | Up to five groups instead of Airship's egress-only one |
+| `IamInstanceProfile` | An instance profile every job on the runner can use |
+| `cache` | [Cache acceleration](/performance/caching), Linux only |
+
+`machine_image` takes an AMI ID, or `ubuntu2204` / `ubuntu2404` for Canonical's
+newest image for the architecture. `instance_type` takes any EC2 instance
+type; Graviton families are detected as `arm64` automatically.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: [c7i.2xlarge, c7i.2xlarge, m7i.2xlarge]
+    preemptible:   [true,        false,       false]
+    region: eu-west-1
+    labels: [airship-build]
+    extra_config:
+      BlockDeviceMappings:
+        - VolumeSize: 100
+          VolumeType: gp3
+          Iops: 6000
+          Throughput: 1000
+      cache: true
+```
+
+## Verify and audit
+
+```bash
+# Everything Airship has running, and what for
+aws ec2 describe-instances --region eu-west-1 \
+  --filters Name=tag-key,Values=airship:installation \
+            Name=instance-state-name,Values=pending,running \
+  --query 'Reservations[].Instances[].[InstanceId,InstanceType,Tags[?Key==`Name`].Value|[0]]' \
+  --output table
+```
+
+Untagged instances are not Airship's. Tagged ones with no live runner are
+terminated by the next inventory pass.
+
+<Columns cols={2}>
+  <Card title="Group the bill by repository" icon="receipt">
+    Cost Explorer grouped by the `airship:repository` tag needs no extra
+    instrumentation.
+  </Card>
+  <Card title="A cheap tripwire" icon="bell">
+    A CloudTrail alarm on `RunInstances`, `TerminateInstances` and
+    `GetFederationToken` by the Airship user.
+  </Card>
+</Columns>
+
+## Turning it off
+
+| To | Do |
+| --- | --- |
+| Stop one repository | Deactivate it. Running jobs finish; nothing new launches |
+| Disconnect AWS | Possible once no runners launched with that key are alive |
+| Remove Airship | Uninstall the GitHub App — every runner is finished and its instance terminated. Then delete the IAM user, the `airship-runners` security group in each VPC, and any `airship-cache-*` bucket |
+
+Launch failures and their AWS messages are in
+[Troubleshooting](/troubleshooting#aws).

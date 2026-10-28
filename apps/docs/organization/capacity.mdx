@@ -1,0 +1,97 @@
+---
+title: "Capacity and limits"
+description: "The ceiling on live runners, how it is enforced, and the other bounds Airship holds you to."
+icon: "gauge"
+---
+
+## max_runners
+
+The one number that bounds total spend: the most runners that may be alive at
+once, across every repository in the organization. The default is **50**.
+
+Set it under **Settings** in the dashboard. Pick a figure *below* what your
+cloud quotas allow, so hitting the ceiling is a clear message on the
+dashboard rather than a stream of failed launches.
+
+```
+vCPUs per runner × concurrent runners = the quota you need
+```
+
+A 16-vCPU builder times ten runners is a quota of 160. A fresh AWS account
+often has 32 — two runners. The quotas to check on each cloud are listed on
+[Connecting a cloud](/clouds/overview#quotas-bite-before-airship-does).
+
+<Note>
+  The cap is enforced **under a row lock** on your installation, so several
+  control plane replicas cannot both take the last slot. When the cap is
+  reached, jobs queue rather than fail, and launch as runners finish.
+</Note>
+
+[Idle runner pools](/performance/idle-runners) count toward the cap. A pool of
+4 under a cap of 10 leaves 6 slots for everything else — worth remembering
+before adding a second pool.
+
+## The other bounds
+
+These are not configurable per repository; they are the shape of the system.
+
+| Bound | Value | Why |
+| --- | --- | --- |
+| Machine lifetime | 8 hours | Scheduled by the machine on itself, before anything else runs, so nothing survives a control plane that disappears |
+| Waiting for a job | 10 minutes | A launched runner no job arrives for finishes as `idle`. Almost always a label mismatch |
+| Launch attempts per job | Three failures, or one per attempt, whichever is more | Stops a bad definition or an exhausted quota from spinning |
+| Pool backoff | 10 minutes after 3 failures | Same reason, for pools |
+| Environment variables | 50 per definition | They travel in launch metadata |
+| Event retention | 30 days | The activity log |
+
+## Watching usage
+
+**Analytics** shows job counts, runner minutes and queue wait times — the p50
+and p90 — per day and per repository. Those two numbers are the ones to watch:
+
+<Columns cols={2}>
+  <Card title="Queue wait climbing" icon="trending-up">
+    You are at the cap, or at a quota. Check **Events** for launch failures
+    first; if there are none, raise `max_runners`.
+  </Card>
+  <Card title="Runner minutes climbing faster than jobs" icon="timer">
+    Jobs are getting slower, not more frequent. Look at the disk, the cache
+    hit rate and the machine size before adding concurrency.
+  </Card>
+</Columns>
+
+Your cloud's own bill is the authority on cost, and the machine tags make it
+legible: group by `airship:repository` on AWS, or the equivalent label on
+Google Cloud, for a per-repository figure with no extra instrumentation.
+
+## Who can change what
+
+| Role | Can |
+| --- | --- |
+| GitHub organization **owner** | Connect clouds, activate repositories, set `max_runners`, create and revoke API tokens |
+| Organization **member** | Read the dashboard |
+| Anyone who can **push to an activated repository** | Choose machine types, regions and disk sizes for that repository's jobs |
+
+Roles are re-checked with GitHub hourly, so removing someone from the
+organization revokes their dashboard access within the hour. Tokens are
+revocable immediately.
+
+<Warning>
+  Anyone who can push to an activated repository can choose an expensive
+  machine for that repository's jobs. It is the same authority they already
+  have over what a workflow *does*, and `max_runners` is the bound. If that is
+  not acceptable for a repository, do not activate it — and use [access
+  policies](/organization/access-control) on shared expensive runners.
+</Warning>
+
+## Turning the tap down
+
+| To | Do |
+| --- | --- |
+| Stop one repository | Deactivate it. Its running jobs finish; nothing new launches |
+| Stop everything, keep the setup | Set `max_runners` to 1, or deactivate every repository |
+| Stop a runaway pool | Remove or shrink its `idle:` block on the default branch |
+| Stop everything, permanently | Uninstall the GitHub App. Every runner is finished and its machine destroyed |
+
+Deactivating is immediate and reversible: activating a repository again plans
+the jobs that are still queued.

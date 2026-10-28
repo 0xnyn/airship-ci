@@ -1,0 +1,143 @@
+---
+title: "Networking"
+description: "Where runners launch, what they need to reach, and how to put them on a private network with no public address."
+icon: "network"
+---
+
+Runners only ever make **outbound** connections. There is no inbound
+requirement at all: no SSH, no port 22, no bastion, no VPN. Airship never
+connects *to* a machine — the machine connects out, to GitHub and to nothing
+else it does not need.
+
+## What a runner must reach
+
+| Destination | Why | When |
+| --- | --- | --- |
+| `github.com`, `*.githubusercontent.com` | Download the runner; `actions/checkout` uses `codeload.github.com` | Always |
+| `*.actions.githubusercontent.com`, including `pipelines.` and `results-receiver.` | The runner's control channel, logs and results | Always |
+| `archive.ubuntu.com`, `security.ubuntu.com` | Runner dependencies on a stock Ubuntu image | Stock images only — a [custom image](/performance/custom-images) removes this |
+| Your control plane, on 443 | Fetch the cache proxy and its short-lived credentials | [`cache: true`](/performance/caching) only |
+| `s3.<region>.amazonaws.com` | The cache bucket | `cache: true` only |
+| Whatever your jobs use | npm, PyPI, container registries, your own services | Your call |
+
+<Tip>
+  With caching on, a **gateway VPC endpoint for S3** keeps the bucket traffic
+  off the internet and off your NAT bill. It is usually the single best
+  network change you can make.
+</Tip>
+
+## AWS
+
+By default: the region's default VPC, every default subnet (Airship rotates
+availability zones per runner so one zone running short does not fail the
+job), and an `airship-runners` security group it creates once per VPC with
+**no inbound rules**.
+
+```yaml
+extra_config:
+  SubnetId: subnet-0123456789abcdef0      # launch here instead
+  SecurityGroupIds: [sg-aaa, sg-bbb]      # up to 5, instead of airship-runners
+```
+
+With `SubnetId` set, Airship launches **only** there — no zone rotation, so a
+capacity shortage in that zone becomes a launch failure and moves to the next
+[fallback](/configuration/fallbacks). A private subnet works and needs a NAT
+gateway or equivalent for the destinations above.
+
+IMDSv2 is required with a **hop limit of 1**, so a process inside a container
+cannot reach instance metadata.
+
+## Google Cloud
+
+By default: the default network, with an external address per machine.
+
+```yaml
+extra_config:
+  enable_public_ip: false
+```
+
+The first such launch in a region creates a Cloud Router and NAT — `airship-nat`
+on the default network, `airship-nat-<network>` on another — and every later
+runner there shares it. The service account needs
+`roles/compute.networkAdmin` for that.
+
+```yaml
+extra_config:
+  networkInterfaces:
+    - subnetwork: projects/HOST/regions/us-central1/subnetworks/ci
+      nicType: GVNIC
+```
+
+Up to eight interfaces, each taking `network`, `subnetwork`, `nicType`
+(`GVNIC`, `VIRTIO_NET`, `IDPF`), `stackType` and one `accessConfigs` entry, as
+Compute Engine spells them. Naming only the subnetwork is enough — Airship
+reads the network from it, which is also how it knows where a NAT belongs.
+
+Airship adds **no firewall rules**. Instances carry the network tag
+`airship-runner`, so a rule you write against that tag applies to every future
+runner automatically. That is the intended lever.
+
+<Accordion title="Launching in another project" icon="folder">
+```yaml
+extra_config:
+  project_id: other-project
+```
+
+The same service account needs its roles in that project too, and each project
+becomes its own inventory scope. For a Shared VPC, grant
+`roles/compute.networkUser` on the specific subnet in the host project and
+reference the subnetwork by full path.
+</Accordion>
+
+## Azure
+
+Airship creates an `airship-runners-<region>` virtual network and subnet on
+first launch in a region, with a security group carrying **none of its own
+rules** — so Azure's default denies inbound traffic from the internet.
+
+```yaml
+extra_config:
+  enable_public_ip: false
+```
+
+The default here is a **public address per machine**, because the subnet
+Airship creates is private, as Azure makes new subnets. Turning the address
+off creates `airship-nat-<region>`, a NAT gateway with a static address of its
+own, attached to that subnet and shared by every later runner in the region.
+
+Each machine's interface and address are deleted with it; orphans left behind
+by a failed launch are swept once they are older than fifteen minutes.
+
+## No key, no way in
+
+| | |
+| --- | --- |
+| AWS | A security group with no ingress rules. No SSH key is installed |
+| Google Cloud | No firewall rules added; no service account unless you ask. No SSH key is installed |
+| Azure | A security group with none of Airship's rules. The key Azure requires at creation has its private half generated in memory and never written anywhere; Windows gets a random password that is discarded |
+
+If you need to inspect a runner mid-job, add your own access deliberately —
+your own security group, your own key in your own image — rather than
+expecting Airship to have left a door open.
+
+## A private setup, end to end
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: c7i.2xlarge
+    region: eu-west-1
+    labels: [airship-build]
+    extra_config:
+      SubnetId: subnet-0123456789abcdef0     # private, with a NAT route
+      SecurityGroupIds: [sg-ci-egress]       # your egress allow-list
+      cache: true                            # plus an S3 gateway endpoint
+```
+
+<Note>
+  A private subnet with no route out is the most common cause of "the instance
+  launched but the runner never appeared". The machine boots, cannot reach
+  GitHub, and powers itself off at its deadline. Check the console output
+  first.
+</Note>

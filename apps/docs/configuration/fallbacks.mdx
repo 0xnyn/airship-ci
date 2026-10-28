@@ -1,0 +1,120 @@
+---
+title: "Fallbacks and spot"
+description: "Lists of instance types, images, regions and spot settings, how they are combined, and when a failed launch is retried."
+icon: "list-ordered"
+---
+
+Capacity runs out. Spot gets reclaimed. A family is busy in one region and
+free in another. Rather than make you handle that in a workflow, `airship.yaml`
+lets four fields take a **list**, and Airship walks it.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: [c7i.2xlarge, c7i.2xlarge, m7i.2xlarge]
+    preemptible:   [true,        false,       false]
+    region: eu-west-1
+    labels: [airship-build]
+```
+
+That definition says: **try a spot `c7i.2xlarge`, then the same on-demand,
+then a different family on-demand.**
+
+## How lists combine
+
+`instance_type`, `machine_image`, `region` and `preemptible` each take a value
+or a list. **Lists are zipped, not multiplied:** attempt *n* uses entry *n* of
+every list, and a single value applies to every attempt.
+
+| | attempt 1 | attempt 2 | attempt 3 |
+| --- | --- | --- | --- |
+| `instance_type: [c7i.2xlarge, c7i.2xlarge, m7i.2xlarge]` | `c7i.2xlarge` | `c7i.2xlarge` | `m7i.2xlarge` |
+| `preemptible: [true, false, false]` | spot | on-demand | on-demand |
+| `region: eu-west-1` | `eu-west-1` | `eu-west-1` | `eu-west-1` |
+
+Lists of different lengths are a config error, so a plan is never silently
+truncated. Three attempts means three entries in every list that has more than
+one.
+
+<Tip>
+  Zipping is what makes "the same machine, spot then on-demand" expressible.
+  Multiplying would have given you four combinations where you wanted two.
+</Tip>
+
+## Several definitions, one label
+
+Two definitions sharing a label are also one chain, **in file order**, after
+each one's own list is exhausted. Use it when the fallback is a genuinely
+different machine:
+
+```yaml airship.yaml
+runners:
+  - name: build-large
+    cloud: aws
+    instance_type: [c7i.8xlarge, c7i.8xlarge]
+    preemptible:   [true,        false]
+    labels: [airship-build]
+
+  - name: build-anywhere
+    cloud: aws
+    instance_type: c7i.2xlarge
+    region: [eu-west-1, eu-central-1]
+    labels: [airship-build]
+```
+
+It also works across clouds: a definition on one cloud and a definition on
+another, sharing one label, is a cross-cloud fallback.
+
+## When a failed launch is retried
+
+<Steps>
+  <Step title="The next attempt is tried">
+    Whatever the failure, Airship moves down the plan.
+  </Step>
+  <Step title="Retryable failures start the list over">
+    A failure your cloud marks retryable — capacity shortage, throttling —
+    begins again from the first attempt, until the job has had **three failed
+    launches or one per attempt, whichever is more**.
+  </Step>
+  <Step title="Permanent failures stop">
+    A missing image, a size the account cannot launch, a policy refusal: once
+    every attempt has been tried, the job stops waiting.
+  </Step>
+</Steps>
+
+Every failure lands on **Events** with your cloud's own message, so a plan
+that keeps falling through tells you exactly which shape is unavailable.
+
+<Note>
+  On AWS, Airship already rotates availability zones within a region, and on
+  Google Cloud it tries the zones of a region you name, so a single-zone
+  shortage is handled before your fallback list is consulted.
+</Note>
+
+## Using spot well
+
+<Columns cols={2}>
+  <Card title="Always keep a fallback behind it" icon="shield">
+    `preemptible: [true, false]` costs you nothing when spot is available and
+    a short retry when it is not.
+  </Card>
+  <Card title="Spread the shapes" icon="shuffle">
+    Spot availability is per instance type per zone. Two or three families in
+    the list beats one family with a high bid.
+  </Card>
+  <Card title="Keep jobs interruptible" icon="timer">
+    A reclaimed machine fails its job. Jobs that can be re-run safely are the
+    ones to put on spot first.
+  </Card>
+  <Card title="Watch the spot quota" icon="gauge">
+    It is a separate quota from on-demand, and often lower. [Quotas per
+    cloud](/clouds/overview#quotas-bite-before-airship-does)
+  </Card>
+</Columns>
+
+## What is fixed once a job is planned
+
+The plan is built when GitHub first reports the job queued, and does not
+change afterwards. Editing `airship.yaml` while a job waits does not re-plan
+it — push again, or re-run the job, to pick up the new file.

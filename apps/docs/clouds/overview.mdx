@@ -1,0 +1,138 @@
+---
+title: "Connecting a cloud"
+description: "What Airship needs from AWS, Google Cloud or Azure, what it creates there, and how the credential is held."
+icon: "cloud"
+---
+
+Airship holds one credential per cloud per organization, and you can connect
+all three at once — each runner definition names its own `cloud:`. Nothing is
+installed in your account: no stack, no agent, no peering, no bootstrap
+script.
+
+<Columns cols={3}>
+  <Card title="Amazon Web Services" icon="cloud" href="/clouds/aws" arrow>
+    An IAM user's access key. EC2 instances, spot, Graviton, bare metal, GPUs,
+    and cache acceleration backed by S3.
+  </Card>
+  <Card title="Google Cloud" icon="cloud" href="/clouds/google-cloud" arrow>
+    A service account key. Compute Engine instances, spot, Arm machine
+    families, attached GPUs, extra and existing disks.
+  </Card>
+  <Card title="Microsoft Azure" icon="cloud" href="/clouds/azure" arrow>
+    An Entra application's client secret. Virtual machines, spot, Arm sizes,
+    GPU families, marketplace and gallery images.
+  </Card>
+</Columns>
+
+## What each one needs
+
+| | AWS | Google Cloud | Azure |
+| --- | --- | --- | --- |
+| Credential | IAM user access key | Service account key file | Application client ID and secret |
+| Verified with | `sts:GetCallerIdentity` | A Compute `projects.get` | A sign-in, then reading the subscription |
+| Quick-start grant | `AmazonEC2FullAccess` | `roles/compute.admin` | Contributor on the subscription |
+| Default region | `eu-west-1` | `us-central1` | `eastus` |
+| Region field accepts | A region | A zone **or** a region | A region |
+| Spot | `preemptible: true` | `preemptible: true` | `preemptible: true` |
+| Arm | Graviton families | Arm machine families | Sizes with a `p` in their feature letters |
+| GPU | The image's driver, or installed | An accelerator you name | Decided by the VM size |
+| Windows | Yes | Yes | Yes |
+| [Cache acceleration](/performance/caching) | Yes, on Linux | Not yet | Not yet |
+
+<Note>
+  `cache: true` on a cloud without acceleration is not an error: the runner
+  launches without the proxy and the **Events** page records a
+  `cache.unavailable` warning, so a shared definition stays portable.
+</Note>
+
+## A dedicated account is worth it
+
+The recommendation for all three is a **separate account, project or
+subscription for CI**. It makes the permission grant uninteresting to argue
+about, the bill legible without tag archaeology, and the blast radius a
+boundary rather than a policy document.
+
+Two installations *can* share one cloud account — isolation then rests on the
+installation tag, which holds — but a dedicated one is the stronger boundary.
+
+## How the credential is held
+
+<Steps>
+  <Step title="Verified before it is stored">
+    Airship calls your cloud with the credential first. One that does not work
+    is never written, and you get the account identity echoed back so you can
+    confirm it is the one you meant.
+  </Step>
+  <Step title="Sealed at rest">
+    AES-256-GCM, under a key held in the control plane's environment rather
+    than in its database, and bound to its own row so it cannot be lifted
+    somewhere else and opened.
+  </Step>
+  <Step title="Opened per call">
+    Decrypted, handed to the provider for one API call, discarded. It is never
+    written to a log, an error, a metric or a response, and never reaches a
+    runner machine.
+  </Step>
+  <Step title="Never echoed back">
+    No endpoint returns a secret. The dashboard shows the public half — the
+    account ID and the principal your cloud reported at verification.
+  </Step>
+</Steps>
+
+### Rotating and disconnecting
+
+Replacing a key **within the same account** is allowed at any time. Swapping
+it for a *different* account's key, or disconnecting the cloud entirely, is
+refused while runners launched with it are still alive — without that key
+their machines could not be terminated. Wait for them to finish, then
+disconnect.
+
+## What Airship creates
+
+Everything below is created once, on first use, and reused forever after.
+Nothing has an inbound rule.
+
+<Tabs>
+  <Tab title="AWS">
+    | Resource | When |
+    | --- | --- |
+    | `airship-runners` security group, with **no ingress rules** | First launch in a VPC, unless you name your own |
+    | `airship-cache-<region>-<hash>` S3 bucket, private, 7-day expiry | First [cache-enabled](/performance/caching) launch in a region |
+
+    Instances launch into the region's default VPC unless a definition names a
+    subnet, rotating availability zones so one zone running short does not
+    fail the job.
+  </Tab>
+  <Tab title="Google Cloud">
+    | Resource | When |
+    | --- | --- |
+    | `airship-nat` Cloud Router and NAT (`airship-nat-<network>` on a non-default network) | First launch with `enable_public_ip: false` in a region |
+
+    No firewall rules are added at all. Instances carry the network tag
+    `airship-runner`, which is your lever for writing your own.
+  </Tab>
+  <Tab title="Azure">
+    | Resource | When |
+    | --- | --- |
+    | `airship-runners` resource group | First launch |
+    | `airship-runners-<region>` virtual network and subnet | First launch in a region |
+    | A network security group with none of Airship's own rules | With the network |
+    | `airship-nat-<region>` NAT gateway, with a static address | First launch with `enable_public_ip: false` in a region |
+
+    Each machine also gets its own interface, and a public address unless you
+    turn it off. Both are deleted with the machine; orphans left by a failed
+    launch are swept.
+  </Tab>
+</Tabs>
+
+## Quotas bite before Airship does
+
+The limit on concurrent runners is almost always a vCPU quota, not Airship.
+Do the arithmetic once: **vCPUs per runner × concurrent runners**. A
+16-vCPU builder times ten runners is a quota of 160; a fresh account often
+has 32.
+
+Set [`max_runners`](/organization/capacity) *below* what your quota allows.
+Then hitting the ceiling is a clear message on the dashboard instead of a
+stream of failed launches. The per-cloud pages list the exact quotas to check,
+including the GPU ones, which are usually zero until you ask.

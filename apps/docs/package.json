@@ -1,0 +1,19 @@
+{
+  "name": "@airship/docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "User-facing documentation, published with Mintlify. The developer API reference is generated from apps/api/openapi.json.",
+  "type": "module",
+  "scripts": {
+    "build": "mint validate",
+    "dev": "mint dev --port 4100",
+    "generate": "node scripts/openapi.mjs",
+    "links": "mint broken-links",
+    "lint": "node scripts/check.mjs",
+    "typecheck": "node scripts/check.mjs"
+  },
+  "devDependencies": {
+    "@airship/api": "workspace:*",
+    "mint": "4.2.1157"
+  }
+}

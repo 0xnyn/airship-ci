@@ -1,0 +1,168 @@
+---
+title: "Machine types"
+description: "Picking a size, how architecture is decided, and what GPUs need on each cloud."
+icon: "cpu"
+---
+
+`instance_type` is your cloud's own name for a machine shape. Airship does not
+invent a size vocabulary of its own, so anything your account can launch, you
+can ask for.
+
+<Tabs>
+  <Tab title="AWS">
+    Any EC2 instance type: `c7i.xlarge`, `m8g.4xlarge`, `r7iz.metal-32xl`,
+    `mac2-m2.metal`, `u7i-12tb.224xlarge`.
+
+    ```yaml
+    instance_type: c7i.2xlarge
+    ```
+  </Tab>
+  <Tab title="Google Cloud">
+    Any Compute Engine machine type: `n2-standard-8`, `c4a-standard-16`,
+    `a2-highgpu-1g`, or a custom type.
+
+    ```yaml
+    instance_type: n2-standard-8
+    ```
+  </Tab>
+  <Tab title="Azure">
+    Any VM size, spelled as the API spells it — not as the portal shows it.
+
+    ```yaml
+    instance_type: Standard_D8s_v5
+    ```
+  </Tab>
+</Tabs>
+
+A list tries each in order; see [Fallbacks](/configuration/fallbacks). That is
+the usual answer to a capacity shortage in one family.
+
+## Architecture is inferred, not declared
+
+There is no `arch` field. Airship reads the architecture from the instance
+type and picks the matching default image, runner build and driver path:
+
+| `arm64` | `x64` |
+| --- | --- |
+| AWS Graviton families: `c7g`, `m8g`, `t4g`, `r8g`, … | Everything else on AWS |
+| Google Cloud Arm machine families: `t2a`, `c4a`, … | Everything else on Google Cloud |
+| Azure sizes with a `p` in their feature letters: `Standard_D2pls_v5`, `Standard_E4ps_v5` | Everything else on Azure |
+
+The runner registers with `arm64` or `x64` as a label, so a job can ask for
+one specifically:
+
+```yaml
+runs-on: [self-hosted, airship-build, arm64]
+```
+
+<Warning>
+  A custom image built for the wrong architecture is refused at planning time
+  rather than failing at boot. If you keep per-architecture images, give each
+  one its own definition.
+</Warning>
+
+## GPUs
+
+`gpu:` means "this runner has a GPU". It adds the `gpu` label, and on Ubuntu
+images that lack one it installs the NVIDIA driver. What the value means
+depends on the cloud:
+
+<Tabs>
+  <Tab title="AWS">
+    The name is a flag — the instance type decides the hardware. Pick a GPU
+    instance family and name the GPU you expect:
+
+    ```yaml
+    runners:
+      - name: gpu
+        cloud: aws
+        instance_type: g5.2xlarge
+        region: eu-west-1
+        gpu: nvidia-a10g
+        labels: [airship-gpu]
+    ```
+
+    An image that already ships the driver — a deep-learning AMI, for instance
+    — needs no installation; Airship detects one and leaves it alone.
+  </Tab>
+  <Tab title="Google Cloud">
+    The name is the **accelerator attached to the machine**, one per machine:
+
+    ```yaml
+    runners:
+      - name: gpu
+        cloud: gcp
+        instance_type: n1-standard-8
+        gpu: nvidia-tesla-t4          # or nvidia-l4, …
+        region: us-central1-b         # GPU stock is zonal: pin the zone
+        preemptible: true
+        labels: [airship-gpu]
+    ```
+
+    Machine types with their own GPUs — the `a2`, `a3` and `g2` families —
+    carry them already, so `gpu:` is just the flag there.
+  </Tab>
+  <Tab title="Azure">
+    The **VM size** decides: the `NC`, `ND`, `NV` and `NG` families. The name
+    is a flag.
+
+    ```yaml
+    runners:
+      - name: gpu
+        cloud: azure
+        instance_type: Standard_NC24ads_A100_v4
+        region: westeurope
+        gpu: nvidia-a100
+        labels: [airship-gpu]
+    ```
+  </Tab>
+</Tabs>
+
+GPU quotas are usually **zero** until you request an increase, and GPU stock
+is zonal — pin a zone so a shortage fails fast instead of walking a whole
+region. To turn a GPU off in a definition that inherits one, set `gpu: false`.
+
+## Host maintenance
+
+On Google Cloud, `extra_config.scheduling` decides what happens when the host
+your runner sits on needs maintenance:
+
+```yaml
+extra_config:
+  scheduling:
+    onHostMaintenance: MIGRATE    # keeps a long job alive through maintenance
+```
+
+`MIGRATE` is the default for machines that can do it. `TERMINATE` is the
+default — and the only option — for GPUs and spot, so `MIGRATE` together with
+`preemptible` or a GPU is a config error rather than a launch Compute Engine
+would refuse.
+
+## How long a machine may live
+
+Every machine schedules its own shutdown before anything else runs: eight
+hours by default. A runner that reaches it finishes as `max_lifetime`. A
+launched runner that no job arrives for within ten minutes finishes as `idle`
+— almost always a [label mismatch](/configuration/labels#the-labels-a-runner-registers-with).
+
+## Choosing a size
+
+<Columns cols={2}>
+  <Card title="Start one size up from habit" icon="arrow-up">
+    CI is usually bound by one slow step. Doubling the cores on a `make -j`
+    build is often cheaper per job, not more expensive, because the machine
+    lives for half as long.
+  </Card>
+  <Card title="Then fix the disk" icon="hard-drive">
+    A fast instance on a default volume is disk-bound. Raise throughput and
+    IOPS before reaching for more cores. [Disks](/configuration/storage)
+  </Card>
+  <Card title="Spot for everything repeatable" icon="trending-down">
+    With an on-demand fallback behind it, spot costs a retry now and then.
+    [Fallbacks](/configuration/fallbacks)
+  </Card>
+  <Card title="Arm where your toolchain allows" icon="microchip">
+    Graviton and Arm families are usually the best price per unit of work, and
+    the runner labels let you split a matrix across both.
+  </Card>
+</Columns>

@@ -1,0 +1,140 @@
+---
+title: "Developer API"
+sidebarTitle: "Overview"
+description: "Activate repositories, connect clouds and change runner access policies from a script."
+icon: "terminal"
+---
+
+Everything the dashboard does to *configure* Airship is also an HTTP call. The
+API is small on purpose: the interesting configuration lives in
+`airship.yaml`, in your repository, under review.
+
+## Authentication
+
+Create a token under **API keys** in the dashboard. It is shown **once**, at
+creation, and stored only as a hash.
+
+```bash
+export AIRSHIP_API=https://api.airshipci.com/api/v1
+export AIRSHIP_API_KEY=asa_...
+
+curl "$AIRSHIP_API/repo" -H "Authorization: Bearer $AIRSHIP_API_KEY"
+```
+
+| | |
+| --- | --- |
+| Scheme | `Authorization: Bearer asa_...` |
+| Scope | One installation — one GitHub organization |
+| Who can create one | A GitHub organization owner |
+| Revoking | Immediate, from **API keys** |
+| Sessions | **Not accepted.** The API takes tokens only, so a browser cannot be tricked into calling it |
+
+<Warning>
+  A token can do everything the API offers for its installation, including
+  connecting a cloud credential. Treat it as you would a cloud key: a secret
+  store, not a `.env` file in a repository.
+</Warning>
+
+## What you can do
+
+<Columns cols={2}>
+  <Card title="Repositories" icon="folder-git-2">
+    List repositories, and activate or deactivate them — the same switch as
+    the dashboard's **Repositories** page.
+  </Card>
+  <Card title="Clouds" icon="cloud">
+    List connected clouds, and connect one by posting its credentials.
+  </Card>
+  <Card title="Access control" icon="lock">
+    Read `access.yaml`, and change it — which opens a pull request rather than
+    committing silently.
+  </Card>
+  <Card title="Runner provisioning" icon="file-code">
+    Fetch a runner's boot script, for images that provision themselves.
+  </Card>
+</Columns>
+
+## Common calls
+
+<CodeGroup>
+```bash Activate a repository
+curl -X POST "$AIRSHIP_API/repo" \
+  -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"repository": "acme/api", "active": true}'
+```
+
+```bash Connect AWS
+curl -X POST "$AIRSHIP_API/cloud-connect" \
+  -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "aws", "credentials": {
+        "access_key": "AKIA...", "secret_key": "...", "region": "eu-west-1"}}'
+```
+
+```bash Connect Google Cloud
+jq '{cloud: "gcp", credentials: (. + {region: "us-central1"})}' airship-sa.json \
+  | curl -X POST "$AIRSHIP_API/cloud-connect" \
+      -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+      -H "Content-Type: application/json" --data @-
+```
+
+```bash Grant a team access to a runner
+curl -X PUT "$AIRSHIP_API/access-control" \
+  -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"org": "acme", "repository_resource_access": [
+        {"repository": "training", "resources": ["gpu"], "teams": ["ml"]}]}'
+```
+</CodeGroup>
+
+## Errors
+
+Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details,
+served as `application/problem+json`:
+
+```json
+{
+  "status": 422,
+  "title": "Unprocessable Entity",
+  "detail": "validation failed",
+  "errors": [
+    { "location": "body.repository", "message": "expected length >= 1" }
+  ]
+}
+```
+
+| Status | Means |
+| --- | --- |
+| `401` | No token, or a token that has been revoked |
+| `403` | The token's installation may not do this |
+| `404` | No such repository, cloud or installation |
+| `409` | A conflicting state — such as disconnecting a cloud whose runners are still alive |
+| `422` | The request did not validate; `errors` says where |
+
+Error details carry a **location and a message only** — never the value that
+failed — so a token or a credential cannot be echoed back out of a validation
+error.
+
+## Base URLs
+
+| | |
+| --- | --- |
+| Airship | `https://api.airshipci.com/api/v1` |
+| Your own control plane | `https://<your api host>/api/v1` |
+
+The boot-script endpoint sits one level up, at `/api/runner-provision` — see
+[Provisioning from your image](/configuration/environment#provisioning-from-your-image).
+
+## What is not in the API
+
+Runner definitions, idle pools and machine shapes are **not** API-managed, by
+design: they belong in `airship.yaml` in your repository, read at a job's own
+commit, reviewed like any other change. The API covers the things that are
+genuinely organization state — what is switched on, which clouds are
+connected, who may use which shared runner.
+
+<Card title="Validate a config file instead" icon="check" href="/configuration/overview#checking-a-file-before-you-commit-it" arrow>
+  If you want CI to check an `airship.yaml` before it merges, the config
+  checker is the endpoint to reach for.
+</Card>

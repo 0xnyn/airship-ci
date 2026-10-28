@@ -1,0 +1,201 @@
+---
+title: "Cache acceleration"
+description: "Drop-in actions/cache backed by a bucket in your own account, with no size limit and no network round trip to GitHub."
+icon: "database"
+---
+
+One line turns a runner into its own cache server:
+
+```yaml
+extra_config:
+  cache: true
+```
+
+`actions/cache`, `actions/setup-*` (`cache: npm` and friends),
+`Swatinem/rust-cache`, `astral-sh/setup-uv` and anything else built on
+`@actions/cache` then work **unchanged**, reading and writing an S3 bucket in
+your own account, in the runner's own region. No size limit beyond your
+bucket, and no 10 GB per-repository ceiling.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: c6gn.4xlarge
+    region: eu-west-1
+    labels: [airship-build]
+    extra_config:
+      cache: true
+      BlockDeviceMappings:
+        - VolumeSize: 100
+          VolumeType: gp3
+          Iops: 6000
+          Throughput: 1000   # the disk, not the network, is the bottleneck
+```
+
+Your workflow does not change at all:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.cargo
+    key: cargo-${{ hashFiles('Cargo.lock') }}
+```
+
+<Note>
+  Available on **Linux runners on AWS**. On Google Cloud and Azure, `cache:
+  true` is not an error — the runner launches without the proxy and
+  **Events** records a `cache.unavailable` warning — so a shared definition
+  stays portable.
+</Note>
+
+## Docker build cache
+
+`docker/build-push-action` needs the `url_v2` form, pointed at the local
+proxy:
+
+```yaml
+- uses: docker/setup-buildx-action@v3
+  with:
+    driver-opts: network=host
+- uses: docker/build-push-action@v6
+  with:
+    cache-from: type=gha,url_v2=http://127.0.0.1:6420/
+    cache-to: type=gha,mode=max,url_v2=http://127.0.0.1:6420/
+```
+
+## How it works
+
+<Steps>
+  <Step title="The bucket is prepared, and proven to be yours">
+    At launch, Airship makes sure `airship-cache-<region>-<hash>` exists in
+    your account: private, public access blocked, entries expired after seven
+    days, abandoned multipart uploads after one. Every call names the expected
+    owner account, so a bucket of that name in **another** account is refused
+    rather than used.
+  </Step>
+  <Step title="The machine gets a proxy and a one-off token">
+    The boot script downloads the cache proxy from the control plane, starts
+    it, and trusts its certificate authority **on that machine only**.
+  </Step>
+  <Step title="The proxy trades its token for narrow credentials">
+    An STS federation token derived from your access key, allowed to read and
+    write only the cache bucket, valid for an hour and refreshed before it
+    expires. **Your access key never reaches the machine.**
+  </Step>
+  <Step title="Cache calls are answered locally">
+    The runner's `https_proxy` points at the proxy. It terminates TLS for
+    exactly one host, answers the cache service's calls itself — reserve,
+    upload, finalize, lookup — and forwards everything else on that host to
+    GitHub untouched. Every other host is tunnelled without inspection.
+  </Step>
+  <Step title="Objects move straight to and from S3">
+    Uploads are staged on the root volume and written as a multipart upload
+    with eight parallel 64 MiB parts, sent from disk. Downloads are served
+    straight from S3: one GET for `actions/cache`, ranged GETs for clients
+    like buildx.
+  </Step>
+</Steps>
+
+Entries are stored at `<version>/<key>`, and `restore-keys` match by prefix
+within the same version, newest first — the same semantics GitHub's own cache
+has, so a migrated workflow behaves identically.
+
+If anything in that chain fails, **the job still runs**, without acceleration,
+and **Events** records why.
+
+## The IAM permissions
+
+In addition to EC2 access, the connected IAM user needs:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CacheBuckets",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutLifecycleConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::airship-cache-*"
+    },
+    {
+      "Sid": "CacheObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "arn:aws:s3:::airship-cache-*/*"
+    },
+    {
+      "Sid": "RunnerCredentials",
+      "Effect": "Allow",
+      "Action": "sts:GetFederationToken",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+A federation token can never exceed the issuing user's own permissions, and
+the proxy's policy narrows it to one bucket — so **the object statements above
+are the ceiling** on what anything on a runner can do with the cache,
+whatever happens on the machine.
+
+## Getting the speed
+
+<Columns cols={2}>
+  <Card title="Raise the disk first" icon="hard-drive" href="/configuration/storage#aws" arrow>
+    gp3 defaults to 125 MiB/s whatever its size, which caps restores well
+    below what the network does. `Throughput: 1000` with `Iops: 6000` is the
+    starting point.
+  </Card>
+  <Card title="Add an S3 gateway endpoint" icon="network">
+    It keeps cache traffic off the internet and off your NAT bill, and is
+    usually the best single network change.
+  </Card>
+  <Card title="Pick a network-heavy instance class" icon="cpu">
+    Once the disk is not the bottleneck, the instance's network allocation is
+    the next lever.
+  </Card>
+  <Card title="Keep cache steps on the host" icon="box">
+    Steps inside a `container:` job inherit `https_proxy` but not the host's
+    trust store, so run cache steps outside the container.
+  </Card>
+</Columns>
+
+## Scope, stated plainly
+
+<Warning>
+  **Every repository in the organization shares one bucket, and there is no
+  per-branch isolation.** A pull request's job can write an entry a
+  main-branch job later restores, and one repository can restore another's
+  keys.
+
+  Keep public repositories with fork pull requests **off cache runners**, or
+  make their keys unguessable. Airship enforces the bucket, not the key space.
+</Warning>
+
+The rest of the cache's security properties — the local, one-day certificate
+authority, the narrow interception, the proven bucket ownership — are in
+[Security](/security#cache-security).
+
+## When it does not work
+
+| Symptom | Where to look |
+| --- | --- |
+| Jobs run, caching does nothing | **Events** records `cache.unavailable` with the reason — usually a missing S3 permission |
+| On Google Cloud or Azure | Expected: acceleration is AWS-only today |
+| On Windows | Expected: Linux only |
+| Restores are slower than you hoped | The root volume's throughput, almost always |
+| Steps inside a container miss | Run the cache steps on the host |
+
+On the machine itself, `/var/log/airship-cacheproxy.log` has the whole story.

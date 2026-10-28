@@ -1,0 +1,145 @@
+---
+title: "Quickstart"
+description: "Connect a cloud, activate a repository, and run your first job on a machine you own."
+icon: "circle-play"
+---
+
+This walks the shortest path to a green job: AWS, one machine type, no
+caching. Everything here applies to [Google Cloud](/clouds/google-cloud) and
+[Azure](/clouds/azure) too — only the credential differs.
+
+<Note>
+  You need admin on a GitHub organization (to install the app and activate a
+  repository) and permission to create a credential in a cloud account. Those
+  are often two different people.
+</Note>
+
+<Steps>
+  <Step title="Install the GitHub App" icon="github">
+    Sign in at [app.airshipci.com](https://app.airshipci.com) and install the
+    Airship app on your organization. Grant it one repository to start — you
+    can add more later without reinstalling.
+
+    The app asks to read `airship.yaml`, to read job and runner metadata, and
+    to register and remove runners. It never gets your Actions secrets.
+    [What each permission is for](/self-hosting/github-app#permissions).
+  </Step>
+
+  <Step title="Create a cloud credential" icon="key">
+    In AWS, create an IAM user with an access key. The quick version is
+    `AmazonEC2FullAccess`:
+
+    ```bash
+    aws iam create-user --user-name airship-runners
+    aws iam attach-user-policy --user-name airship-runners \
+      --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
+    aws iam create-access-key --user-name airship-runners
+    ```
+
+    Keep the output. You paste it once and Airship never shows it again.
+
+    <Tip>
+      In an account shared with production workloads, use the scoped policy in
+      [Amazon Web Services](/clouds/aws#the-iam-policy) instead. Its terminate
+      permission is conditioned on Airship's own tag, so the credential cannot
+      destroy a machine it did not create.
+    </Tip>
+  </Step>
+
+  <Step title="Connect the cloud" icon="cloud">
+    Open **Cloud → AWS** in the dashboard, paste the access key ID and secret,
+    and pick the default region — where runners launch when a definition names
+    none.
+
+    Airship verifies the credential with the cloud before storing it, and
+    shows you the account ID and principal it belongs to so you can confirm it
+    is the one you meant.
+  </Step>
+
+  <Step title="Activate the repository" icon="toggle-right">
+    Open **Repositories** and switch your repository on.
+
+    This is deliberately separate from installing the app: an `airship.yaml`
+    in a repository nobody activated launches nothing, so a config file can
+    never start spending money on its own.
+  </Step>
+
+  <Step title="Commit a runner definition" icon="file-code">
+    Add `airship.yaml` to the repository root:
+
+    ```yaml airship.yaml
+    runners:
+      - name: build
+        cloud: aws
+        instance_type: c7i.2xlarge
+        region: eu-west-1
+        labels: [airship-build]
+    ```
+
+    Then point a job at it:
+
+    ```yaml .github/workflows/ci.yml
+    name: CI
+    on: push
+
+    jobs:
+      test:
+        runs-on: airship-build--${{ github.run_id }}
+        steps:
+          - uses: actions/checkout@v4
+          - run: nproc && free -g && df -h /
+    ```
+
+    The `--${{ github.run_id }}` suffix makes the runner register under a label
+    unique to that workflow run, so GitHub can only hand it a job from that
+    run. Use it everywhere except with [idle
+    runners](/performance/idle-runners), which exist before a run does.
+
+    <Tip>
+      **Repositories** has a config checker that validates a file and shows the
+      machines it would plan. Cheaper than a push.
+    </Tip>
+  </Step>
+
+  <Step title="Push, and watch it happen" icon="activity">
+    | Where | What you should see |
+    | --- | --- |
+    | **Jobs** | The job queued within a second or two, with the machine Airship planned for it |
+    | **Runners** | A runner moving `pending → launching → running → busy`, with its instance ID |
+    | EC2 console | One instance tagged `airship:installation`, with no inbound security group rules |
+    | The job log | Your steps, on a runner labelled `self-hosted`, `x64`, `aws`, `airship` |
+    | EC2 console, again | The instance terminated within seconds of the job finishing |
+
+    The first job in a repository usually waits a minute or two for the
+    machine to boot and register. [Idle
+    runners](/performance/idle-runners) remove that wait; a [custom
+    image](/performance/custom-images) shortens it.
+  </Step>
+</Steps>
+
+## If the job stays queued
+
+The **Jobs** page says why in plain words — *Not activated*, *No cloud*, *No
+runner serves the labels*, *Config problem*. Each reason and its fix is in
+[Troubleshooting](/troubleshooting#why-a-job-was-not-run). The **Events** page
+carries your cloud's own error message when a launch fails.
+
+## Worth doing in the first week
+
+<Columns cols={2}>
+  <Card title="Set a concurrency cap" icon="gauge" href="/organization/capacity" arrow>
+    `max_runners` is the one number that bounds total spend. Set it below your
+    cloud's vCPU quota.
+  </Card>
+  <Card title="Cancel a job mid-run" icon="square" href="/how-it-works#when-things-go-wrong" arrow>
+    Then check that no machine survives it. That behaviour is what everything
+    else rests on.
+  </Card>
+  <Card title="Turn on cache acceleration" icon="database" href="/performance/caching" arrow>
+    One line of config, and `actions/cache` starts reading from a bucket in
+    your account.
+  </Card>
+  <Card title="Add spot with a fallback" icon="trending-down" href="/configuration/fallbacks" arrow>
+    Try spot first, fall back to on-demand, and let Airship walk the list.
+  </Card>
+</Columns>

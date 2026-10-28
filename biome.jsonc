@@ -15,7 +15,8 @@
     "includes": [
       "!**/src/generated",
       "!apps/web/src/env.ts",
-      "!apps/api/openapi.json"
+      "!apps/api/openapi.json",
+      "!apps/docs/api-reference/openapi.json"
     ]
   },
   "css": {

@@ -1,0 +1,153 @@
+---
+title: "Configuration"
+description: "Every environment variable the control plane reads, what is required, and what must never be set in production."
+icon: "sliders"
+---
+
+Configuration is environment variables only. There is no config file to
+mount and no setting that lives in the database.
+
+## Required
+
+<ParamField path="DATABASE_URL" type="string" required>
+  A Postgres connection string. **Postgres 17 or newer**, 18 recommended. Use
+  TLS (`sslmode=require`) unless you connect over a Unix socket.
+
+  Connect through a **session**-mode pooler, not a transaction-mode one: the
+  reconciler's advisory lock needs a session. On a pooled provider that means
+  the session port, and never the transaction port.
+</ParamField>
+
+<ParamField path="CREDENTIALS_KEY" type="string" required>
+  A base64 32-byte key that seals customers' cloud credentials.
+
+  ```bash
+  openssl rand -base64 32
+  ```
+
+  The example key shipped for local development is explicitly refused outside
+  development.
+</ParamField>
+
+## URLs
+
+<ParamField path="PUBLIC_URL" type="string" default="http://localhost:8080">
+  Where browsers, GitHub and **runner machines** reach the API. Must be
+  `https` outside development — enforced at startup, not by convention,
+  because cache-enabled runners fetch the proxy and its credentials from here.
+</ParamField>
+
+<ParamField path="WEB_URL" type="string" default="http://localhost:3000">
+  The dashboard. GitHub sign-in returns here.
+</ParamField>
+
+<ParamField path="CORS_ORIGINS" type="string" default="http://localhost:3000">
+  Comma-separated browser origins allowed to call the API. Include `WEB_URL`.
+</ParamField>
+
+<Warning>
+  Serve the dashboard and the API **on the same site** —
+  `app.example.com` and `api.example.com` — so the session cookie is sent.
+  Different sites means no session.
+</Warning>
+
+## GitHub App
+
+See [The GitHub App](/self-hosting/github-app) for where each value comes
+from.
+
+| Variable | Notes |
+| --- | --- |
+| `GITHUB_APP_SLUG` | Names the app in its install URL |
+| `GITHUB_CLIENT_ID` | Identifies the app for JWTs and user sign-in |
+| `GITHUB_CLIENT_SECRET` | Completes user sign-in. **Secret** |
+| `GITHUB_WEBHOOK_SECRET` | Verifies webhook signatures. **Secret** |
+| `GITHUB_PRIVATE_KEY` | The PEM itself — real newlines, or one line with literal `\n`. **Secret** |
+| `GITHUB_PRIVATE_KEY_FILE` | A path to the PEM instead, read at startup |
+| `GITHUB_API_URL` | Default `https://api.github.com`. For Enterprise Server |
+| `GITHUB_WEB_URL` | Default `https://github.com`. For Enterprise Server |
+
+Without these the dashboard still loads, but sign-in, webhooks and launches
+are off.
+
+## Runner lifecycle
+
+Defaults shown. Most deployments change none of them.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `RUNNER_VERSION` | `2.338.2` | The `actions/runner` release machines install. **Bump it with releases**: GitHub stops sending jobs to runners more than 30 days behind the latest |
+| `RUNNER_MAX_LIFETIME` | `8h` | Machines power off after this, whatever they are doing |
+| `RUNNER_IDLE_TIMEOUT` | `10m` | A launched runner that gets no job in this long is reaped |
+| `RECONCILE_INTERVAL` | `15s` | How often the reconciler runs |
+| `LAUNCH_INTERVAL` | `2s` | The longest a pending runner waits for a launch pass |
+
+## Service
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `APP_ENV` | `development` | `development`, `test` or `production`. Only `development` allows plain-http URLs and the sign-in shortcut |
+| `PORT` | `8080` | The container sets this; platforms that assign a port set it themselves |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Text in development, JSON otherwise |
+
+## Never set in production
+
+<Warning>
+  | Variable | Why |
+  | --- | --- |
+  | `DEV_LOGIN` | A password-less sign-in. **Startup fails** if it is set outside `APP_ENV=development` |
+  | `AWS_ENDPOINT`, `GCP_ENDPOINT`, `AZURE_ENDPOINT` | They point a provider at a test emulator, so launches never reach the real cloud |
+</Warning>
+
+## The dashboard
+
+One variable, and it is **inlined when the app is built** — so set it in the
+build environment, not only at runtime:
+
+```bash
+NEXT_PUBLIC_API_URL=https://api.example.com
+```
+
+A production build with the `localhost` default fails on purpose.
+
+## Credentials key
+
+The sealing key deserves its own rules.
+
+<Steps>
+  <Step title="Keep it outside the database">
+    It is the only thing that can open the sealed cloud credentials. Holding
+    it next to them defeats the point.
+  </Step>
+  <Step title="Back it up as you would a root key">
+    **Losing it loses every connected cloud.** Recovery is reconnecting each
+    one by hand.
+  </Step>
+  <Step title="Rotate with two keys, never by replacement">
+    List the **new** key first and the old one after a comma, deploy, reconnect
+    each cloud — which re-seals with the new key — then drop the old one.
+
+    ```bash
+    CREDENTIALS_KEY=<new>,<old>
+    ```
+  </Step>
+</Steps>
+
+## Running several replicas
+
+Safe, and recommended. Launchers claim runners with row locks, and the
+reconciler elects a leader through a Postgres advisory lock, so exactly one
+replica reconciles at a time.
+
+Run the migration **once per release**, before the new replicas start:
+
+```bash
+docker run --rm --entrypoint migrate -e DATABASE_URL=... airship-api up
+```
+
+## Health and documentation
+
+| Path | What |
+| --- | --- |
+| `/healthz` | For your load balancer |
+| `/docs` | The API's own interactive documentation |

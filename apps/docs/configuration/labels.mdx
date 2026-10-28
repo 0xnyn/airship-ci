@@ -1,0 +1,150 @@
+---
+title: "Labels and runs-on"
+description: "How a job asks for a machine, why the run_id suffix matters, and how matrix jobs get a machine each."
+icon: "tag"
+---
+
+A job asks Airship for a machine by its label. Every label a definition
+serves must start with `airship-`, and only those labels are looked up — a job
+on `ubuntu-latest` costs no API calls and is never touched.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: aws
+    instance_type: c7i.2xlarge
+    labels: [airship-build]
+```
+
+```yaml .github/workflows/ci.yml
+jobs:
+  test:
+    runs-on: airship-build--${{ github.run_id }}
+```
+
+## Always add the run_id suffix
+
+Everything from `--` onwards is ignored when matching the file, but the runner
+registers with the **suffixed** label. That is the point: GitHub can then only
+hand that machine a job from that workflow run, so two runs cannot steal each
+other's runners.
+
+<CodeGroup>
+```yaml Do this
+runs-on: airship-build--${{ github.run_id }}
+```
+
+```yaml Not this
+runs-on: airship-build
+```
+</CodeGroup>
+
+Without the suffix, a runner launched for your job can be picked up by any
+other queued job with the same labels. It still runs, but the accounting
+stops lining up and one of the two jobs waits for a second machine.
+
+<Warning>
+  Do **not** use a suffix with [idle runners](/performance/idle-runners). They
+  exist before the run does, so they cannot carry its ID — a suffixed label
+  will never match a pool runner.
+</Warning>
+
+## A machine per matrix job
+
+Add anything you like after `--`; it only has to be unique.
+
+```yaml
+jobs:
+  test:
+    strategy:
+      matrix:
+        version: [20, 22, 24]
+    runs-on: airship-build--${{ matrix.version }}-${{ github.run_id }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.version }}
+```
+
+No change to `airship.yaml` is needed — one definition serves every leg of the
+matrix, and each leg gets its own machine.
+
+## The labels a runner registers with
+
+| Label | Where it comes from |
+| --- | --- |
+| `self-hosted` | Always |
+| `x64` or `arm64` | Inferred from the instance type |
+| `aws`, `gcp` or `azure` | The definition's `cloud` |
+| `cpu` or `gpu` | Whether the definition asks for a GPU |
+| `airship` | Always |
+| Your own | The definition's `labels`, with the job's suffix |
+| `Linux`, `Windows`, … | Added by the runner software itself |
+
+A job is served only when a definition covers **every** `airship-` label it
+asks for, *and* the resulting runner can satisfy the rest. So:
+
+```yaml
+# needs a Graviton or Arm instance type
+runs-on: [self-hosted, airship-build, arm64]
+
+# needs gpu: set on the definition
+runs-on: [self-hosted, airship-gpu, gpu]
+```
+
+A job whose labels no definition can satisfy is skipped with *No runner serves
+the labels*, which is almost always a spelling mistake or a missing
+architecture.
+
+## Several definitions, one label
+
+Two definitions sharing a label become a single fallback chain, in file order.
+That is the idiom for "a big machine if there is one, otherwise a smaller
+one":
+
+```yaml airship.yaml
+runners:
+  - name: build-large
+    cloud: aws
+    instance_type: c7i.8xlarge
+    preemptible: true
+    labels: [airship-build]
+
+  - name: build-small
+    cloud: aws
+    instance_type: c7i.2xlarge
+    labels: [airship-build]
+```
+
+See [Fallbacks](/configuration/fallbacks) for how the attempts are ordered and
+retried.
+
+## Migrating a workflow at a time
+
+Because only `airship-` labels are looked up, a repository can run some jobs
+on GitHub's runners and some on yours with no coordination:
+
+```yaml
+jobs:
+  lint:
+    runs-on: ubuntu-latest              # unchanged, still GitHub's
+  test:
+    runs-on: airship-build--${{ github.run_id }}
+```
+
+<Note>
+  The first job in a new repository usually waits a minute or two: GitHub only
+  queues a job once a runner with matching labels has existed at least once.
+  Push again and it will be there. [Idle
+  runners](/performance/idle-runners) remove the wait for good.
+</Note>
+
+## Without a config file at all
+
+In an activated repository a label can describe the machine itself, so a
+one-off experiment needs no commit to `airship.yaml`. See [One-line
+runners](/configuration/one-line-runners).
+
+```yaml
+runs-on: airship-aws-c7g-xlarge-spot--${{ github.run_id }}
+```

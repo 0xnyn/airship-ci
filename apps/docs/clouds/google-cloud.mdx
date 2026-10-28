@@ -1,0 +1,237 @@
+---
+title: "Google Cloud"
+description: "The service account, the roles, the organization policies and the settings for running jobs on Compute Engine."
+icon: "cloud"
+---
+
+Airship authenticates to Google Cloud with a service account key file, and
+launches one Compute Engine instance per job.
+
+## Check your organization policies first
+
+Three constraints commonly block this setup. Finding out now is cheaper than
+finding out at the first launch.
+
+| Constraint | Effect | What to do |
+| --- | --- | --- |
+| `iam.disableServiceAccountKeyCreation` | **Hard blocker.** Airship authenticates with a service account key and nothing else | Grant an exception for this one service account, or [run the control plane yourself](/self-hosting/overview) in a project where keys are allowed |
+| `compute.vmExternalIpAccess` | Blocks the default path, which gives each runner an external address | Set `enable_public_ip: false` on every definition, and grant `roles/compute.networkAdmin` so Airship can create the NAT |
+| `compute.requireShieldedVm` | Requires *all* Shielded VM options, Secure Boot included. Airship enables vTPM and integrity monitoring but leaves **Secure Boot off**, because the GPU driver path loads unsigned kernel modules | Grant an exception for the CI project, or do not rely on GPU runners there |
+
+```bash
+gcloud resource-manager org-policies list --project "$PROJECT"
+```
+
+`compute.requireOsLogin` is harmless — Airship never logs in, installs no SSH
+key, and opens no inbound access at all.
+
+## Create the service account
+
+```bash
+PROJECT=my-ci-project
+gcloud services enable compute.googleapis.com --project "$PROJECT"
+
+gcloud iam service-accounts create airship-runners \
+  --display-name "Airship GitHub Actions runners" --project "$PROJECT"
+SA=airship-runners@$PROJECT.iam.gserviceaccount.com
+```
+
+Compute Engine is the only API Airship calls.
+
+## Grant roles
+
+<Tabs>
+  <Tab title="Quick start">
+    ```bash
+    gcloud projects add-iam-policy-binding "$PROJECT" \
+      --member "serviceAccount:$SA" --role roles/compute.admin
+    ```
+
+    `roles/compute.admin` covers everything Airship does, routers included. In
+    a dedicated CI project this is a reasonable end state.
+  </Tab>
+  <Tab title="Least privilege">
+    ```bash
+    # Instances, disks, images, zones, operations
+    gcloud projects add-iam-policy-binding "$PROJECT" \
+      --member "serviceAccount:$SA" --role roles/compute.instanceAdmin.v1
+
+    # Only if any definition sets enable_public_ip: false
+    gcloud projects add-iam-policy-binding "$PROJECT" \
+      --member "serviceAccount:$SA" --role roles/compute.networkAdmin
+
+    # Only if any definition sets extra_config.serviceAccounts
+    gcloud projects add-iam-policy-binding "$PROJECT" \
+      --member "serviceAccount:$SA" --role roles/iam.serviceAccountUser
+    ```
+
+    The calls those roles have to cover:
+
+    | Call | Needed for |
+    | --- | --- |
+    | `compute.projects.get` | The credential check at connect time |
+    | `compute.regions.get` | Listing a region's zones |
+    | `compute.instances.insert / get / list / delete` | Launch, idempotency lookup, inventory scan, teardown |
+    | `compute.zoneOperations.get` | Waiting for an insert to finish |
+    | `compute.images.get`, `.getFromFamily`, `compute.machineImages.get` | Resolving `machine_image` |
+    | `compute.disks.use` | Attaching an `existingDisk` |
+    | `compute.subnetworks.get` / `.use` | A definition naming a subnetwork |
+    | `compute.routers.get` / `.insert`, `compute.regionOperations.get` | `enable_public_ip: false` |
+    | `iam.serviceAccounts.actAs` | `extra_config.serviceAccounts` |
+
+    <Tip>
+      If connecting fails with a permission error on `projects.get`, add
+      `roles/compute.viewer` alongside. Role contents shift over time, and the
+      credential check is the one call that must work before anything else can.
+    </Tip>
+  </Tab>
+  <Tab title="Shared VPC">
+    To launch into a host project's network, grant the service account
+    `roles/compute.networkUser` on the specific subnet in the host project and
+    reference the subnetwork by its full path:
+
+    ```yaml
+    extra_config:
+      networkInterfaces:
+        - subnetwork: projects/HOST/regions/us-central1/subnetworks/ci
+    ```
+
+    Airship reads the network *from* the subnetwork when only the subnetwork is
+    named, which is also how it knows where a NAT belongs.
+
+    To launch in a different project entirely, set
+    `extra_config.project_id`. The same service account needs the roles above
+    there too, and each project becomes its own inventory scope.
+  </Tab>
+</Tabs>
+
+## Create the key
+
+```bash
+gcloud iam service-accounts keys create airship-sa.json \
+  --iam-account "$SA" --project "$PROJECT"
+```
+
+This file is the credential. Airship checks it is a `service_account` key,
+verifies it against Compute Engine, seals it and opens it only for the length
+of a single call. Delete your local copy once it is connected.
+
+## Quotas to check
+
+```bash
+gcloud compute regions describe us-central1 --project "$PROJECT" \
+  --format "table(quotas:format='table(metric,limit,usage)')"
+```
+
+| Metric | Why it matters |
+| --- | --- |
+| `CPUS` | The real ceiling on concurrent runners, per region |
+| `CPUS_ALL_REGIONS` | A second, global ceiling that catches people out |
+| `PREEMPTIBLE_CPUS` | For `preemptible: true` |
+| `DISKS_TOTAL_GB`, `SSD_TOTAL_GB` | 100 GiB per runner times ten runners is 1 TiB |
+| `IN_USE_ADDRESSES` | External IPs. `enable_public_ip: false` removes this ceiling |
+| `NVIDIA_*_GPUS` | Usually zero until you request an increase |
+| `ROUTERS` | Only with private runners: one per network per region |
+
+## Connect it
+
+Open **Cloud → Google Cloud**, paste the contents of `airship-sa.json`, and
+choose the default location — a region (`us-central1`) or a zone
+(`us-central1-b`). Airship reads the project through Compute Engine to prove
+the key works *and* that the API is enabled, then echoes back the project ID
+and the service account's email.
+
+Or from the [developer API](/api-reference/introduction), with the key file's
+fields as the credentials object:
+
+```bash
+jq '{cloud: "gcp", credentials: (. + {region: "us-central1"})}' airship-sa.json \
+  | curl -X POST "$AIRSHIP_API/cloud-connect" \
+      -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+      -H "Content-Type: application/json" --data @-
+```
+
+## Google Cloud settings
+
+| Key | What it does |
+| --- | --- |
+| `baseDisk` | Size and type of the boot disk. [Disks](/configuration/storage#google-cloud) |
+| `additionalDisk` | An empty second disk, attached raw |
+| `existingDisk` | Attach a disk you already have |
+| `enable_public_ip` | `false` launches with no external address, behind a NAT Airship creates |
+| `networkInterfaces` | Networks, subnetworks and NIC types, as Compute Engine spells them |
+| `serviceAccounts` | One service account every job on the runner can use |
+| `project_id` | Launch in another project |
+| `scheduling` | `onHostMaintenance: MIGRATE` to survive host maintenance |
+
+`machine_image` takes an image or family name (`ubuntu-2204-lts`, looked up in
+your project and then in Google's public project), `project:image`, a full
+resource path, or a machine image. `region` takes a **zone or a region** — a
+region lets Airship try zones in order and move on when one is short.
+
+```yaml airship.yaml
+runners:
+  - name: build
+    cloud: gcp
+    instance_type: [n2-standard-8, n2d-standard-8]
+    machine_image: ubuntu-2204-lts
+    region: us-central1              # any zone with capacity
+    labels: [airship-build]
+    extra_config:
+      baseDisk: {diskSizeGb: 100, diskType: pd-ssd}
+      enable_public_ip: false
+
+  - name: gpu
+    cloud: gcp
+    instance_type: n1-standard-8
+    gpu: nvidia-tesla-t4
+    region: us-central1-b            # pinned: GPU stock is zonal
+    preemptible: true
+    labels: [airship-gpu]
+```
+
+<Note>
+  Pin a zone when a resource is zonal: GPUs, or an `existingDisk`. A zonal
+  disk pins the launch to its zone, so a `region:` that disagrees is a config
+  error rather than a failed insert.
+</Note>
+
+## Verify and audit
+
+```bash
+# Everything Airship has running
+gcloud compute instances list --project "$PROJECT" \
+  --filter="labels.airship-installation:*" \
+  --format="table(name,zone,status,labels.airship-runner-id)"
+
+# The NAT, if you used enable_public_ip: false
+gcloud compute routers list --project "$PROJECT" --filter="name~airship-nat"
+```
+
+After a job, the instance is **deleted**, not `TERMINATED` — disks and all. A
+machine left `TERMINATED` is removed by the next inventory pass, because it
+runs no job and still bills for its disk.
+
+Airship adds no firewall rules. Instances carry the network tag
+`airship-runner`, so a rule you write against that tag applies to every future
+runner automatically.
+
+<Tip>
+  Give runners no service account unless a job needs one. The default is none,
+  which means nothing in a job can mint a Google credential from the metadata
+  server.
+</Tip>
+
+## Turning it off
+
+Deactivate a repository to stop it; uninstall the GitHub App to stop
+everything. Disconnecting the credential is refused while runners launched
+with it are alive. Left behind by design:
+
+```bash
+gcloud compute routers delete airship-nat --region us-central1 --project "$PROJECT"
+gcloud iam service-accounts delete "$SA" --project "$PROJECT"
+```
+
+Launch failures and their Google messages are in
+[Troubleshooting](/troubleshooting#google-cloud).

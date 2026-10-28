@@ -1,0 +1,167 @@
+---
+title: "Troubleshooting"
+description: "Why a job was not run, why a launch failed, and what each runner state means."
+icon: "life-buoy"
+---
+
+Three places hold the answer, in this order:
+
+<Columns cols={3}>
+  <Card title="Jobs" icon="list-checks">
+    Why a job is not being served, in plain words.
+  </Card>
+  <Card title="Events" icon="activity">
+    Why a launch failed, with your cloud's own message.
+  </Card>
+  <Card title="Runners" icon="server">
+    What state a machine reached, and its instance ID.
+  </Card>
+</Columns>
+
+## Why a job was not run
+
+The **Jobs** page shows one of these reasons.
+
+| Reason | Means | Fix |
+| --- | --- | --- |
+| **Not activated** | The repository has not been activated | Activate it under **Repositories**. Jobs still queued are planned again automatically |
+| **No cloud** | The runner's `cloud:` is not connected | Connect it. Jobs skipped for this reason are re-planned on connect |
+| **No runner serves the labels** | No definition covers every `airship-` label of the job, or none can satisfy its other labels | Check the spelling, and that the definition exists in the file **at the job's commit**. [Labels](/configuration/labels) |
+| **Config problem** | `airship.yaml` does not parse | The detail names the field. Use the checker on **Repositories** |
+| **Access denied** | `access.yaml` does not admit this person, repository or event | Check the policy. A broken `access.yaml` closes *every* organization runner until it is fixed. [Access control](/organization/access-control) |
+| **Public repository** | A public repository that was not activated with public access allowed | Activate it that way, knowing fork pull requests then run on your machines |
+
+## "No runner matching labels" from GitHub
+
+This is GitHub's message, not Airship's, and it is the most common first-run
+surprise:
+
+> No runner matching the specified labels was found: self-hosted
+
+GitHub only queues a job for a self-hosted label once a runner carrying that
+label has existed at least once. On the very first push in a new repository,
+none has.
+
+**Push again.** Airship registered the labels on the first attempt, so the
+second one queues properly. If it keeps happening:
+
+<AccordionGroup>
+  <Accordion title="The label does not match the file" icon="tag">
+    Compare the labels on the **Runners** page with the job's `runs-on`.
+    Everything from `--` onwards is ignored when matching, so
+    `airship-build--123` matches a definition with `airship-build`, but
+    `airship-buildd--123` matches nothing.
+  </Accordion>
+  <Accordion title="The job asks for something the runner is not" icon="cpu">
+    A job on `[self-hosted, airship-build, gpu]` needs a definition with
+    `gpu:` set. One asking for `arm64` needs an Arm instance type. One asking
+    for `windows` needs a definition naming a Windows image — the Ubuntu
+    aliases are Linux.
+  </Accordion>
+  <Accordion title="The definition is not in the file at that commit" icon="git-commit">
+    A job reads `airship.yaml` at **its own commit**. A definition added on
+    `main` is not visible to a branch that has not merged it.
+  </Accordion>
+  <Accordion title="A suffix on a pooled label" icon="clock">
+    [Idle runners](/performance/idle-runners) cannot carry a run ID, so
+    `airship-build--${{ github.run_id }}` never matches a pool runner. Drop
+    the suffix on pooled labels.
+  </Accordion>
+</AccordionGroup>
+
+## Launch failures
+
+### Every cloud
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Instance launches, runner never registers | The machine cannot reach GitHub, or the image is missing something | A private subnet with no route out, or an image without `curl`/`tar`. Check the console output and [Networking](/configuration/networking#what-a-runner-must-reach) |
+| Runner appears, job never starts | Label mismatch between the registration and `runs-on` | Compare the labels on **Runners** with the job's |
+| Runner finished `idle` | It booted and no job arrived within 10 minutes | Usually a suffix mismatch, or the job was cancelled while the machine booted |
+| Runner finished `launch_unconfirmed` | The cloud's answer was lost | Expected and handled: the job is retried and the inventory scan reconciles the machine. Repeated occurrences mean a network problem between the control plane and your cloud |
+| Credential rejected | The key was deleted, deactivated or expired | Reconnect under **Cloud**, which shows it as invalid |
+| A machine you did not expect | Check its tags | Untagged machines are not Airship's. Tagged ones with no live runner are destroyed by the next inventory pass |
+
+### AWS
+
+| Error | Cause | Fix |
+| --- | --- | --- |
+| *this region has no default VPC* | Exactly that | `aws ec2 create-default-vpc`, or set `extra_config.SubnetId` |
+| `VcpuLimitExceeded`, `InstanceLimitExceeded` | A service quota | Raise it; lower `max_runners` meanwhile. [Quotas](/clouds/aws#quotas-to-check) |
+| `InsufficientInstanceCapacity`, repeatedly | The zone or region is short of that shape | Airship already rotates zones. Add shapes to `instance_type`, or a second `region`. [Fallbacks](/configuration/fallbacks) |
+| `UnauthorizedOperation` | A missing IAM action | The message names it. Compare against [the policy](/clouds/aws#the-iam-policy) |
+| `AuthFailure`, `InvalidClientTokenId` | The access key was deleted or deactivated | Reconnect |
+| Caching does nothing | Usually a missing S3 permission | **Events** records `cache.unavailable` with the reason. [Caching](/performance/caching#the-iam-permissions) |
+
+### Google Cloud
+
+| Error | Cause | Fix |
+| --- | --- | --- |
+| Connect fails: *key file type is …* | Not a service account key — an OAuth client, or an application default credentials file | Create a proper key. [Create the key](/clouds/google-cloud#create-the-key) |
+| Connect fails on `projects.get` | The Compute API is not enabled, or the role lacks the call | `gcloud services enable compute.googleapis.com`; add `roles/compute.viewer` |
+| Cannot create a key at all | The `iam.disableServiceAccountKeyCreation` org policy | [Check your organization policies](/clouds/google-cloud#check-your-organization-policies-first) |
+| `ZONE_RESOURCE_POOL_EXHAUSTED` | That zone is out of that shape | Expected and handled — Airship rotates zones. If every zone fails, add shapes or a second region |
+| `QUOTA_EXCEEDED` | A regional quota | Raise it; lower `max_runners` meanwhile. Note it arrives *after* the insert was accepted |
+| *router airship-nat … is on another network* | A router of that name exists on a different network | Rename or move it. Airship refuses to reuse it rather than boot a machine with no egress |
+| *router … has no NAT* | Something created a bare router with that name | Add a NAT to it, or delete it so Airship can make it |
+| External IP refused | The `compute.vmExternalIpAccess` org policy | `enable_public_ip: false` everywhere, plus `roles/compute.networkAdmin` |
+| Shielded VM required | `compute.requireShieldedVm` wants Secure Boot | Airship deliberately leaves Secure Boot off, for the GPU driver path. Grant an exception |
+| `RESOURCE_IN_USE_BY_ANOTHER_RESOURCE` | A read-write `existingDisk` is held by another runner | Expected: treated as retryable, and the job waits its turn |
+| *disk … is in zone X, outside region Y* | A zonal `existingDisk` and a conflicting `region:` | Pin the zone, or use a regional disk |
+| An instance sits `TERMINATED` | The machine powered itself off; Compute Engine does not delete on shutdown | Expected. The next inventory pass deletes it. If it lingers, check **Events** |
+
+### Azure
+
+| Error | Cause | Fix |
+| --- | --- | --- |
+| Connect fails, application cannot see the subscription | A 404 from Azure, reported as bad credentials | Check the role assignment is at the **subscription**, not a resource group |
+| Every launch fails after months of working | The Entra client secret expired | Reconnect with a new secret. [The secret expires](/clouds/azure#register-the-application) |
+| `AuthorizationFailed` | A missing action in a custom role | Azure's message names the action. Add it and relaunch |
+| `QuotaExceeded` | A regional or per-family vCPU quota | Per-family quotas are often lower than the regional figure. [Quotas](/clouds/azure#quotas-to-check) |
+| A policy refusal naming itself | An Azure Policy denying public IPs, requiring tags, or limiting locations or sizes | [Check your policies](/clouds/azure#check-your-policies-first) |
+| Marketplace image refused | Its terms are not accepted for the subscription | `az vm image terms accept --urn …` |
+| Windows runners are slow to appear | Expected: Windows boots more slowly, and more slowly again on Azure | An [idle runner](/performance/idle-runners) is worth most here |
+
+## Runner states and finish reasons
+
+| State | Means |
+| --- | --- |
+| `pending` | Planned, waiting for a slot and a launcher |
+| `launching` | A registration exists; the cloud has been asked for a machine |
+| `running` | The machine exists; the runner may not have registered yet |
+| `busy` | GitHub handed it the job |
+| `finished` | Done, with one of the reasons below |
+
+| Finish reason | Means |
+| --- | --- |
+| `completed` | The job finished. The normal case |
+| `cancelled` | The job was cancelled |
+| `idle` | Booted, and no job arrived within 10 minutes |
+| `launch_failed` | Every attempt in the plan failed |
+| `launch_unconfirmed` | The cloud's answer was lost and the machine was never found |
+| `lease_expired` | The launcher holding it died and it was given up |
+| `lost` | The machine disappeared without finishing a job |
+| `max_lifetime` | It hit the 8-hour deadline |
+| `deleted` | The GitHub App was uninstalled, or the repository deactivated |
+
+## On the machine itself
+
+| | |
+| --- | --- |
+| Linux boot log | `/var/log/cloud-init-output.log` |
+| Cache proxy log | `/var/log/airship-cacheproxy.log` |
+| Runner installation | `/opt/actions-runner` |
+| One-boot marker | `/var/lib/airship/booted` — a machine that reboots powers off rather than registering again |
+
+There is no inbound access, so reaching a machine means adding your own:
+your own security group and your own key, in your own image.
+
+## Still stuck
+
+<Card title="Three things worth confirming" icon="list-checks">
+  1. The repository is **activated**, not just granted to the app.
+  2. The cloud named by the definition's `cloud:` is **connected** and valid.
+  3. The definition exists in `airship.yaml` **at the commit the job ran from**.
+
+  That triple covers most of what reaches support.
+</Card>

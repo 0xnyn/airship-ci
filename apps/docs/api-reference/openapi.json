@@ -1,0 +1,921 @@
+{
+  "components": {
+    "schemas": {
+      "AccessControlFile": {
+        "additionalProperties": false,
+        "properties": {
+          "access_yml": {
+            "$ref": "#/components/schemas/AccessDocument",
+            "description": "The file's content"
+          },
+          "found": {
+            "description": "Whether the .airship repository has an access.yaml",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "found",
+          "access_yml"
+        ],
+        "type": "object"
+      },
+      "AccessControlUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "access_yml": {
+            "$ref": "#/components/schemas/AccessDocument",
+            "description": "The file as proposed"
+          },
+          "branch": {
+            "description": "Branch the change was pushed to",
+            "type": "string"
+          },
+          "pull_request_url": {
+            "description": "Pull request to review and merge",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pull_request_url",
+          "branch",
+          "access_yml"
+        ],
+        "type": "object"
+      },
+      "AccessDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "access_control": {
+            "items": {
+              "$ref": "#/components/schemas/AccessRule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyDocument"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "policies",
+          "access_control"
+        ],
+        "type": "object"
+      },
+      "AccessRule": {
+        "additionalProperties": false,
+        "properties": {
+          "policies": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "policies"
+        ],
+        "type": "object"
+      },
+      "Cloud": {
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {
+            "description": "The cloud's own account identifier: an AWS account ID, a Google Cloud project ID or an Azure subscription ID",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cloud": {
+            "description": "Cloud name",
+            "enum": [
+              "aws",
+              "gcp",
+              "azure"
+            ],
+            "type": "string"
+          },
+          "connectedAt": {
+            "description": "When it was connected",
+            "format": "date-time",
+            "type": "string"
+          },
+          "defaultRegion": {
+            "description": "The region runners launch in when a runner definition names none; on Google Cloud, a zone or a region",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why the credential stopped working",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "identity": {
+            "description": "The public half of the credential: an AWS access key ID, a Google Cloud service account email or an Azure application ID",
+            "type": "string"
+          },
+          "principal": {
+            "description": "Who the credential is, such as an IAM user's ARN",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Whether the credential works",
+            "enum": [
+              "ok",
+              "invalid"
+            ],
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When it was last changed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "verifiedAt": {
+            "description": "When it was last verified with the cloud",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "cloud",
+          "identity",
+          "accountId",
+          "principal",
+          "defaultRegion",
+          "status",
+          "error",
+          "verifiedAt",
+          "connectedAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CloudConnect": {
+        "additionalProperties": false,
+        "properties": {
+          "cloud": {
+            "description": "Cloud name",
+            "enum": [
+              "aws",
+              "gcp",
+              "azure"
+            ],
+            "type": "string"
+          },
+          "credentials": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The cloud's credentials. For `aws`: `access_key`, `secret_key` and optionally `region`. For `gcp`: the fields of the service account key file, and optionally `region` (a zone or a region). For `azure`: `subscription_id`, `tenant_id`, `client_id`, `client_secret` and optionally `region`.",
+            "maxProperties": 20,
+            "type": "object"
+          }
+        },
+        "required": [
+          "cloud",
+          "credentials"
+        ],
+        "type": "object"
+      },
+      "CloudList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Cloud"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "ConfigState": {
+        "additionalProperties": false,
+        "properties": {
+          "checkedAt": {
+            "description": "When it was last read",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "Why the file cannot be used",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha": {
+            "description": "Blob SHA of the file; null when there is none",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sha",
+          "error",
+          "checkedAt"
+        ],
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "description": "Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'",
+            "type": "string"
+          },
+          "message": {
+            "description": "Error message text",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value at the given location"
+          }
+        },
+        "type": "object"
+      },
+      "ErrorModel": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "description": "A human-readable explanation specific to this occurrence of the problem.",
+            "examples": [
+              "Property foo is required but is missing."
+            ],
+            "type": "string"
+          },
+          "errors": {
+            "description": "Optional list of individual error details",
+            "items": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instance": {
+            "description": "A URI reference that identifies the specific occurrence of the problem.",
+            "examples": [
+              "https://example.com/error-log/abc123"
+            ],
+            "format": "uri",
+            "type": "string"
+          },
+          "status": {
+            "description": "HTTP status code",
+            "examples": [
+              400
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "A short, human-readable summary of the problem type. This value should not change between occurrences of the error.",
+            "examples": [
+              "Bad Request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "default": "about:blank",
+            "description": "A URI reference to human-readable documentation for the error.",
+            "examples": [
+              "https://example.com/errors/example"
+            ],
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PolicyDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pull_request": {
+            "type": "boolean"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "teams": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "users": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "repo"
+        ],
+        "type": "object"
+      },
+      "Repository": {
+        "additionalProperties": false,
+        "properties": {
+          "accessible": {
+            "description": "Whether the app can still access the repository",
+            "type": "boolean"
+          },
+          "activated": {
+            "description": "Whether its airship.yaml launches runners",
+            "type": "boolean"
+          },
+          "activatedAt": {
+            "description": "When it was activated",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allowPublic": {
+            "description": "Serve jobs while the repository is public",
+            "type": "boolean"
+          },
+          "config": {
+            "$ref": "#/components/schemas/ConfigState",
+            "description": "The default branch's airship.yaml as last read; absent until activated"
+          },
+          "defaultBranch": {
+            "description": "Branch idle runner config is read from",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "owner/name",
+            "type": "string"
+          },
+          "id": {
+            "description": "GitHub repository ID",
+            "format": "int64",
+            "type": "integer"
+          },
+          "private": {
+            "description": "Whether the repository is private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "fullName",
+          "private",
+          "defaultBranch",
+          "accessible",
+          "activated",
+          "allowPublic",
+          "activatedAt"
+        ],
+        "type": "object"
+      },
+      "RepositoryList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Repository"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "RepositoryResourceAccess": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "default": "add",
+            "description": "add grants, remove revokes",
+            "enum": [
+              "add",
+              "remove"
+            ],
+            "type": "string"
+          },
+          "policy_args": {
+            "additionalProperties": {},
+            "description": "Policy options, such as {\"pull_request\": true}",
+            "maxProperties": 5,
+            "type": "object"
+          },
+          "repository": {
+            "description": "Repository name, with or without the organization",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "resources": {
+            "description": "Runner names from airship.global.yaml",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "roles": {
+            "description": "Repository roles allowed",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "teams": {
+            "description": "Team slugs allowed",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "users": {
+            "description": "GitHub logins allowed",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "users_from_json": {
+            "description": "Not supported; refused",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "resources"
+        ],
+        "type": "object"
+      },
+      "SetRepository": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "description": "true activates, false deactivates",
+            "type": "boolean"
+          },
+          "repository": {
+            "description": "owner/name, or just the name",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "active"
+        ],
+        "type": "object"
+      },
+      "UpdateAccessControl": {
+        "additionalProperties": false,
+        "properties": {
+          "org": {
+            "description": "Organization; must match the token's",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "repository_resource_access": {
+            "description": "Changes to apply",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryResourceAccess"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "repository_resource_access"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "apiToken": {
+        "description": "Developer API token (asa_...), created by an organization owner in the dashboard.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Airship runs every GitHub Actions job on a fresh machine in your own cloud account, configured by an `airship.yaml` in each repository.\n\nThis reference covers the token-authenticated API for scripting Airship itself: activating repositories, connecting clouds and editing runner access policies. Create a token under **API keys** in the dashboard and send it as `Authorization: Bearer asa_...`.",
+    "title": "Airship developer API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/repo": {
+      "get": {
+        "operationId": "compatListRepositories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "List repositories",
+        "tags": [
+          "Developer API"
+        ]
+      },
+      "post": {
+        "operationId": "compatSetRepository",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRepository"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Activate or deactivate a repository",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    },
+    "/api/v1/cloud-connect": {
+      "get": {
+        "operationId": "compatListClouds",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "List connected clouds",
+        "tags": [
+          "Developer API"
+        ]
+      },
+      "post": {
+        "operationId": "compatCloudConnect",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudConnect"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Connect a cloud",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    },
+    "/api/v1/access-control": {
+      "get": {
+        "operationId": "compatGetAccessControl",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlFile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Read access policies",
+        "tags": [
+          "Developer API"
+        ]
+      },
+      "put": {
+        "operationId": "compatUpdateAccessControl",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccessControl"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlUpdate"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Change access policies",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    },
+    "/api/runner-provision": {
+      "get": {
+        "operationId": "compatRunnerProvision",
+        "parameters": [
+          {
+            "description": "The runner's name, from the instance's Name tag",
+            "explode": false,
+            "in": "query",
+            "name": "runner_name",
+            "required": true,
+            "schema": {
+              "description": "The runner's name, from the instance's Name tag",
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "contentEncoding": "base64",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "apiToken": []
+          }
+        ],
+        "summary": "Fetch a runner's boot script",
+        "tags": [
+          "Developer API"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "apiToken": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Airship",
+      "url": "https://api.airshipci.com"
+    },
+    {
+      "description": "A control plane you run yourself",
+      "url": "https://{host}",
+      "variables": {
+        "host": {
+          "default": "api.example.com"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "description": "Scripting Airship with a token from the dashboard.",
+      "name": "Developer API"
+    }
+  ]
+}

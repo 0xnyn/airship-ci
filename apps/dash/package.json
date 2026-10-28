@@ -1,7 +1,8 @@
 {
-  "name": "web",
-  "version": "0.1.0",
+  "name": "@airship/dash",
+  "version": "0.0.0",
   "private": true,
+  "description": "Next.js dashboard. Calls the Go API through @airship/client.",
   "type": "module",
   "scripts": {
     "build": "next build",

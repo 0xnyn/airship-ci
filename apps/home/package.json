@@ -1,7 +1,8 @@
 {
   "name": "@airship/home",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "private": true,
+  "description": "Marketing site at airshipci.com, built as a static Astro site.",
   "type": "module",
   "scripts": {
     "build": "astro build",

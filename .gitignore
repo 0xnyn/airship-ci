@@ -9,7 +9,7 @@ out
 next-env.d.ts
 
 # Generated at install time by varlock
-apps/web/src/env.ts
+apps/dash/src/env.ts
 
 # Environment: commit .env.schema / .env.example, never real values
 .env*

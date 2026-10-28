@@ -46,7 +46,7 @@ Fill in `.env`:
 
 | Variable | Value |
 | --- | --- |
-| `API_DOMAIN`, `WEB_DOMAIN` | The two names from step 1 |
+| `API_DOMAIN`, `DASH_DOMAIN` | The two names from step 1 |
 | `ACME_EMAIL` | Where Let's Encrypt sends expiry warnings |
 | `POSTGRES_PASSWORD` | `openssl rand -hex 24` |
 | `CREDENTIALS_KEY` | `openssl rand -base64 32`. **Copy it off this server now**, to a password manager. A backup without it cannot open any credential |
@@ -72,7 +72,7 @@ What happens in order:
 
 1. `postgres` starts and reports healthy.
 2. `migrate` applies the schema and exits with code 0.
-3. `api` and `web` start. `api` waits for `migrate` to succeed.
+3. `api` and `dash` start. `api` waits for `migrate` to succeed.
 4. `caddy` gets certificates for both names from Let's Encrypt and starts
    proxying.
 
@@ -127,7 +127,7 @@ AIRSHIP_VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
 ```
 
 Compose rebuilds both images, runs `migrate` again (it applies only what is
-new), and recreates `api` and `web`. There is a few seconds' gap while the
+new), and recreates `api` and `dash`. There is a few seconds' gap while the
 API restarts. GitHub webhooks that fail in that gap are redelivered by the
 API once it is back.
 

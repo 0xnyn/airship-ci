@@ -67,7 +67,7 @@ func newEnv(t *testing.T) *env {
 		DB: pool, Queries: queries, Fleet: svc, Sessions: auth.NewSessions(queries, false),
 		OAuth: oauth, App: app,
 		WebhookSecret: []byte(webhookSecret), Version: "test", Logger: logger,
-		PublicURL: "http://api.test", WebURL: origin, DevLogin: true, CORSOrigins: []string{origin},
+		PublicURL: "http://api.test", DashURL: origin, DevLogin: true, CORSOrigins: []string{origin},
 	}))
 	t.Cleanup(api.Close)
 

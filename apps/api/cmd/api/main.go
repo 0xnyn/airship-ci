@@ -120,7 +120,7 @@ func run(ctx context.Context) error {
 		Version:       version,
 		Logger:        logger,
 		PublicURL:     cfg.PublicURL,
-		WebURL:        cfg.WebURL,
+		DashURL:       cfg.DashURL,
 		AppSlug:       cfg.GitHub.AppSlug,
 		DevLogin:      cfg.DevLogin,
 		CORSOrigins:   cfg.CORSOrigins,

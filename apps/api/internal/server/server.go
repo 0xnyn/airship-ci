@@ -38,7 +38,7 @@ type Deps struct {
 	Logger        *slog.Logger
 
 	PublicURL   string
-	WebURL      string
+	DashURL     string
 	AppSlug     string
 	DevLogin    bool
 	CORSOrigins []string
@@ -88,7 +88,7 @@ func NewAPI(mux *http.ServeMux, deps Deps) huma.API {
 	health.Register(api, deps.DB, deps.Version)
 	auth.Register(api, mux, auth.Config{
 		Store: deps.Queries, Sessions: deps.Sessions, OAuth: deps.OAuth, App: deps.App,
-		PublicURL: deps.PublicURL, WebURL: deps.WebURL, AppSlug: deps.AppSlug, DevLogin: deps.DevLogin,
+		PublicURL: deps.PublicURL, DashURL: deps.DashURL, AppSlug: deps.AppSlug, DevLogin: deps.DevLogin,
 		AllowedOrigins: deps.CORSOrigins, Logger: deps.Logger,
 	})
 	console.Register(api, console.Config{

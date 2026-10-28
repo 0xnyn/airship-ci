@@ -14,7 +14,7 @@
     // Generated files are checked by drift CI, not by hand.
     "includes": [
       "!**/src/generated",
-      "!apps/web/src/env.ts",
+      "!apps/dash/src/env.ts",
       "!apps/api/openapi.json",
       "!apps/docs/api-reference/openapi.json"
     ]

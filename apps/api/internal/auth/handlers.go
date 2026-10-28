@@ -48,9 +48,9 @@ type Config struct {
 	// sign-in is then unavailable.
 	OAuth *github.OAuth
 	App   *github.App
-	// PublicURL is this api's external base URL; WebURL the dashboard's.
+	// PublicURL is this api's external base URL; DashURL the dashboard's.
 	PublicURL string
-	WebURL    string
+	DashURL   string
 	// AppSlug builds the "install the app" link.
 	AppSlug string
 	// DevLogin enables POST /v1/auth/dev-login.
@@ -245,11 +245,11 @@ func (h *handlers) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, session)
 	// SafeNext only allows local paths, appended to our own dashboard URL.
-	http.Redirect(w, r, strings.TrimRight(h.WebURL, "/")+SafeNext(next), http.StatusFound) //nolint:gosec // validated above
+	http.Redirect(w, r, strings.TrimRight(h.DashURL, "/")+SafeNext(next), http.StatusFound) //nolint:gosec // validated above
 }
 
 func (h *handlers) failSignIn(w http.ResponseWriter, r *http.Request, message string) {
-	http.Redirect(w, r, strings.TrimRight(h.WebURL, "/")+"/sign-in?error="+urlQueryEscape(message), http.StatusFound)
+	http.Redirect(w, r, strings.TrimRight(h.DashURL, "/")+"/sign-in?error="+urlQueryEscape(message), http.StatusFound)
 }
 
 // signIn exchanges the code, records the user, and refreshes which

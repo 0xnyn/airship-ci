@@ -365,7 +365,7 @@ Full reference: [`../airship-yaml.md`](../airship-yaml.md).
 
 | Surface | Auth | For |
 | --- | --- | --- |
-| Dashboard API `/v1/...` | GitHub OAuth session cookie, HttpOnly, `SameSite=Lax`, Origin-checked on writes | The web dashboard |
+| Dashboard API `/v1/...` | GitHub OAuth session cookie, HttpOnly, `SameSite=Lax`, Origin-checked on writes | The dashboard |
 | Developer API `/api/v1/...` | `asa_` bearer token, stored hashed, scoped to one installation. Accepts no session cookie | Automation; wire-compatible with [cirun-py](https://github.com/AktechLabs/cirun-py) |
 | Runner API `/v1/runner/...`, `/v1/assets/...` | `asr_` token, one per cache-enabled runner, dead when the runner finishes | Runner machines fetching the cache proxy and its credentials |
 | Webhook `/v1/github/webhook` | HMAC signature | GitHub |

@@ -59,12 +59,12 @@ setup: doctor install env db-up db-migrate ## First run: install, create env fil
 	@echo "Ready. Run 'make dev', then open http://localhost:3000 and choose Development sign-in."
 
 .PHONY: install
-install: ## Install dependencies (also generates apps/web/src/env.ts)
+install: ## Install dependencies (also generates apps/dash/src/env.ts)
 	pnpm install
 
 .PHONY: env
 env: ## Create the local env files from their examples (never overwrites)
-	@for pair in "apps/api/.env.example:apps/api/.env" "apps/web/.env.example:apps/web/.env.local" "apps/home/.env.example:apps/home/.env"; do \
+	@for pair in "apps/api/.env.example:apps/api/.env" "apps/dash/.env.example:apps/dash/.env.local" "apps/home/.env.example:apps/home/.env"; do \
 		src=$${pair%%:*}; dst=$${pair##*:}; \
 		if [ -f "$$dst" ]; then echo "  keep    $$dst (already exists)"; \
 		else cp "$$src" "$$dst" && echo "  create  $$dst"; fi; \
@@ -82,9 +82,9 @@ dev: ## Run the API (:8080), dashboard (:3000) and marketing site (:4000) with l
 dev-api: ## Run only the API, rebuilt on every save
 	pnpm turbo run dev --filter=@airship/api --filter=@airship/client
 
-.PHONY: dev-web
-dev-web: ## Run only the dashboard (expects an API on NEXT_PUBLIC_API_URL)
-	pnpm turbo run dev --filter=web
+.PHONY: dev-dash
+dev-dash: ## Run only the dashboard (expects an API on NEXT_PUBLIC_API_URL)
+	pnpm turbo run dev --filter=@airship/dash
 
 .PHONY: dev-home
 dev-home: ## Run only the marketing site
@@ -177,9 +177,9 @@ test: ## Every package's tests, against the local Postgres (make db-up first)
 test-go: ## Only the API's Go tests, with the race detector
 	cd $(API_DIR) && go test -race ./...
 
-.PHONY: test-web
-test-web: ## Only the TypeScript tests
-	pnpm turbo run test --filter=web --filter=@airship/client
+.PHONY: test-ts
+test-ts: ## Only the TypeScript tests
+	pnpm turbo run test --filter=@airship/dash --filter=@airship/client
 
 .PHONY: test-pg17
 test-pg17: ## The API's Go tests on a throwaway Postgres 17, the version hosted Supabase runs
@@ -230,7 +230,7 @@ build: ## Build every package (API binaries in apps/api/bin, Next.js, Astro)
 images: ## Production images: make images NEXT_PUBLIC_API_URL=https://api.example.com
 	@[ -n "$(NEXT_PUBLIC_API_URL)" ] || { echo "usage: make images NEXT_PUBLIC_API_URL=https://api.example.com [VERSION=...] [PLATFORM=...]"; exit 1; }
 	docker build --platform $(PLATFORM) --build-arg VERSION=$(VERSION) -t airship-api:$(VERSION) $(API_DIR)
-	docker build --platform $(PLATFORM) -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) -t airship-web:$(VERSION) .
+	docker build --platform $(PLATFORM) -f apps/dash/Dockerfile --build-arg NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) -t airship-dash:$(VERSION) .
 
 .PHONY: og
 og: ## Re-render the marketing site's social image and video (Playwright + ffmpeg)
@@ -238,4 +238,4 @@ og: ## Re-render the marketing site's social image and video (Playwright + ffmpe
 
 .PHONY: clean
 clean: ## Remove build output and caches (keeps node_modules, env files and the database)
-	rm -rf .turbo apps/*/.turbo packages/*/.turbo apps/web/.next apps/home/dist apps/home/.astro apps/docs/.mintlify $(API_DIR)/bin $(API_DIR)/tmp
+	rm -rf .turbo apps/*/.turbo packages/*/.turbo apps/dash/.next apps/home/dist apps/home/.astro apps/docs/.mintlify $(API_DIR)/bin $(API_DIR)/tmp

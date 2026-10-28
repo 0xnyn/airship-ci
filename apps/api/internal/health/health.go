@@ -1,5 +1,5 @@
 // Package health serves the readiness endpoint used by load balancers and
-// the web app's status indicator.
+// the dashboard's status indicator.
 package health
 
 import (

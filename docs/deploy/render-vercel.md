@@ -20,7 +20,7 @@ credentials key, GitHub App) applies here unchanged.
 ## The result
 
 ```
-   app.example.com ──► Vercel (apps/web, static + Next.js)
+   app.example.com ──► Vercel (apps/dash, static + Next.js)
                               │  browser calls the API directly, with the
                               │  session cookie (same site: example.com)
    api.example.com ──► Render web service airship-api × 2 ──► api.github.com
@@ -125,7 +125,7 @@ the `CREDENTIALS_KEY` backup outside Render, as the checklist asks.
 | --- | --- |
 | `DATABASE_URL` | From step 1, with `sslmode=require` (or `verify-full`) and `pool_max_conns=4` |
 | `PUBLIC_URL` | `https://api.example.com` |
-| `WEB_URL` | `https://app.example.com` |
+| `DASH_URL` | `https://app.example.com` |
 | `CORS_ORIGINS` | `https://app.example.com` |
 | `LOG_LEVEL` | `info` |
 | `CREDENTIALS_KEY` | `openssl rand -base64 32` (README step 2) |
@@ -174,12 +174,12 @@ when it first creates the service.
 
 | Setting | Value |
 | --- | --- |
-| Root Directory | `apps/web` |
+| Root Directory | `apps/dash` |
 | Framework Preset | Next.js (detected) |
 | Build, install and output commands | leave as detected |
 | Node.js Version (Settings → Build and Deployment) | **24.x**, as `engines` in the root `package.json` asks |
 
-Vercel installs from the repository root, because `apps/web` is part of
+Vercel installs from the repository root, because `apps/dash` is part of
 the pnpm workspace, and builds the `@airship/client` and `@airship/ui`
 sources along with the app (`transpilePackages`). The generated API client
 is committed, so the build doesn't need Go.
@@ -188,7 +188,7 @@ Environment variables, for **Production** and **Preview**:
 
 | Key | Value | Why |
 | --- | --- | --- |
-| `NEXT_PUBLIC_API_URL` | `https://api.example.com` | Baked into the JavaScript at build time. Varlock (`apps/web/.env.schema`) fails the build without it. Changing it means a redeploy |
+| `NEXT_PUBLIC_API_URL` | `https://api.example.com` | Baked into the JavaScript at build time. Varlock (`apps/dash/.env.schema`) fails the build without it. Changing it means a redeploy |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1` | Makes Vercel use the pnpm version pinned in `packageManager` (`pnpm@11.22.0`). Vercel would otherwise pick a pnpm from the lockfile version, which can ignore settings in `pnpm-workspace.yaml` such as `allowBuilds` |
 
 Then **Settings → Domains → Add** `app.example.com` and create the record
@@ -199,7 +199,7 @@ which is a different site from `api.example.com`, so the session cookie is
 never sent. `CORS_ORIGINS` doesn't list them either. Previews are still
 useful for checking a page renders. To skip them, add an Ignored Build
 Step of `[ "$VERCEL_ENV" != "production" ]`, or `npx turbo-ignore` to
-skip builds where `apps/web` and its packages didn't change.
+skip builds where `apps/dash` and its packages didn't change.
 
 The `output: "standalone"` setting in `next.config.ts` is for the Docker
 image. Vercel uses its own build output and ignores it.

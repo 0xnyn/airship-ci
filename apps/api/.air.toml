@@ -1,6 +1,6 @@
 # Hot reload for `pnpm dev`. Each rebuild also refreshes openapi.json, which
 # the @airship/client dev task turns into TypeScript types, so a Go change
-# reaches the web app's types without a manual step.
+# reaches the dashboard's types without a manual step.
 root = "."
 tmp_dir = "tmp"
 

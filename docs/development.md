@@ -52,7 +52,7 @@ make dev
 
 ```bash
 make doctor                                 # Go, Node, pnpm, Docker present and recent
-pnpm install                                # also generates apps/web/src/env.ts
+pnpm install                                # also generates apps/dash/src/env.ts
 make env                                    # copies each .env.example that has no copy yet
 pnpm db:up                                  # Postgres 18 in Docker on :5432
 pnpm db:migrate
@@ -80,7 +80,7 @@ never overwrites a file that exists, so it is safe to rerun after pulling.
 - **Astro**, for the marketing site.
 
 To run one piece: `make dev-api` (the API and the client generator),
-`make dev-web` or `make dev-home`.
+`make dev-dash` or `make dev-home`.
 
 ### The env files
 
@@ -88,9 +88,9 @@ To run one piece: `make dev-api` (the API and the client generator),
 | --- | --- | --- | --- |
 | `apps/api/.env.example` | Nobody. The template for `apps/api/.env`, with every variable the API reads | yes | |
 | `apps/api/.env` | The API and `migrate` (godotenv), so `make dev` and `make db-migrate`. Real environment variables win. Never read by `go test` | no | yes |
-| `apps/web/.env.schema` | varlock: types, validation and defaults for the dashboard's env | yes | |
-| `apps/web/.env.example` | Nobody. The template for `apps/web/.env.local` | yes | |
-| `apps/web/.env.local` | varlock, over the schema's defaults. Only needed when the API is not on `localhost:8080` | no | yes |
+| `apps/dash/.env.schema` | varlock: types, validation and defaults for the dashboard's env | yes | |
+| `apps/dash/.env.example` | Nobody. The template for `apps/dash/.env.local` | yes | |
+| `apps/dash/.env.local` | varlock, over the schema's defaults. Only needed when the API is not on `localhost:8080` | no | yes |
 | `apps/api/.env.live.example` | Nobody. The template for `apps/api/.env.live`: credentials for the live cloud suites | yes | |
 | `apps/api/.env.live` | `make test-live` only. Never the API, `make dev` or plain `go test` | no | no, opt in by copying |
 | `apps/home/.env.example` | Nobody. The template for `apps/home/.env`, every line commented out | yes | |
@@ -166,7 +166,7 @@ pnpm test
 ```
 
 `make test-go` runs only the API's tests (with the race detector), and
-`make test-web` only the TypeScript ones.
+`make test-ts` only the TypeScript ones.
 
 Tests that touch SQL create their own database from `TEST_DATABASE_URL`, one
 per test. Without the variable they are skipped locally. In CI they fail
@@ -267,7 +267,7 @@ GITHUB_WEBHOOK_SECRET=...
 GITHUB_PRIVATE_KEY_FILE=./github-app.pem
 ```
 
-Leave `WEB_URL`, `CORS_ORIGINS` and the dashboard's `NEXT_PUBLIC_API_URL` on
+Leave `DASH_URL`, `CORS_ORIGINS` and the dashboard's `NEXT_PUBLIC_API_URL` on
 localhost. Point the app's webhook and callback URLs at the tunnel. A quick
 tunnel's URL changes every time it starts, so both need updating each time.
 
@@ -302,10 +302,10 @@ Set the URLs to match:
 ```bash
 # apps/api/.env
 PUBLIC_URL=https://api.dev.example.com
-WEB_URL=https://app.dev.example.com
+DASH_URL=https://app.dev.example.com
 CORS_ORIGINS=https://app.dev.example.com,http://localhost:3000
 
-# apps/web/.env.local
+# apps/dash/.env.local
 NEXT_PUBLIC_API_URL=https://api.dev.example.com
 ```
 
@@ -356,7 +356,7 @@ Things that differ from production, worth knowing while testing:
 | `make setup` stops at `doctor` | Install what it lists as missing. Node must be 24 or newer |
 | `load config: ... DATABASE_URL` at startup | `apps/api/.env` is missing. `make env` |
 | `connection refused` on :5432 | `pnpm db:up`. If another Postgres already uses 5432, stop it or change the port in `docker-compose.yml` and `DATABASE_URL` |
-| `src/env.ts` missing, or env types out of date | `pnpm install` (it runs `varlock codegen`), or `pnpm --filter web env:generate` |
+| `src/env.ts` missing, or env types out of date | `pnpm install` (it runs `varlock codegen`), or `pnpm --filter @airship/dash env:generate` |
 | `pnpm check:generated` fails | Run `pnpm generate` and commit what changed. Never edit generated files by hand |
 | Tests skipped | `TEST_DATABASE_URL` is not exported in the shell that runs them. `make test` sets it |
 | `relation ... does not exist` or a missing column after pulling | A migration was rewritten. `make db-reset` |

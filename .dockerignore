@@ -1,4 +1,4 @@
-# Context for apps/web/Dockerfile (built from the repo root). The API image
+# Context for apps/dash/Dockerfile (built from the repo root). The API image
 # builds from apps/api and uses apps/api/.dockerignore instead.
 **/node_modules
 **/.next

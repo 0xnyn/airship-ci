@@ -52,7 +52,7 @@ docker run --rm --entrypoint migrate -e DATABASE_URL=... airship-api up
 docker run -p 8080:8080 \
   -e DATABASE_URL=... \
   -e PUBLIC_URL=https://api.example.com \
-  -e WEB_URL=https://app.example.com \
+  -e DASH_URL=https://app.example.com \
   -e CREDENTIALS_KEY=... \
   -e GITHUB_CLIENT_ID=... -e GITHUB_CLIENT_SECRET=... \
   -e GITHUB_WEBHOOK_SECRET=... -e GITHUB_PRIVATE_KEY_FILE=/run/secrets/app.pem \
@@ -87,7 +87,7 @@ production.
 | --- | --- | --- |
 | `APP_ENV` | `development` | Set to `production`. The image sets it already |
 | `PORT` | `8080` | |
-| `WEB_URL` | `http://localhost:3000` | The dashboard; where sign-in returns to |
+| `DASH_URL` | `http://localhost:3000` | The dashboard; where sign-in returns to |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated browser origins allowed to call the API |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `GITHUB_APP_SLUG` | — | Names the app in its install URL |
@@ -118,7 +118,7 @@ not come up at all rather than come up insecurely.
 
 ### The dashboard
 
-`apps/web` is a Next.js app. `NEXT_PUBLIC_API_URL` is **inlined when `next
+`apps/dash` is a Next.js app. `NEXT_PUBLIC_API_URL` is **inlined when `next
 build` runs**, so it must be set in the build environment — a production
 build with the `localhost` default fails deliberately. Serve the dashboard
 and the API on the same site (`app.example.com` and `api.example.com`) so
@@ -131,7 +131,7 @@ the session cookie is sent.
 | Direction | From | To | Why |
 | --- | --- | --- | --- |
 | inbound | GitHub | `PUBLIC_URL/v1/github/webhook` | Job events. Lose this and jobs are only picked up by the stale-job sweep |
-| inbound | browsers | `PUBLIC_URL`, `WEB_URL` | Dashboard and API |
+| inbound | browsers | `PUBLIC_URL`, `DASH_URL` | Dashboard and API |
 | inbound | **runner machines** | `PUBLIC_URL` | Only for `cache: true`: the proxy binary and its hour-long credentials |
 | outbound | control plane | `api.github.com` | JIT configs, job and runner lookups, file reads, redelivery |
 | outbound | control plane | AWS EC2/S3/STS endpoints, `compute.googleapis.com`, `oauth2.googleapis.com`, `management.azure.com` and `login.microsoftonline.com`, `app.daytona.io` and `proxy.app.daytona.io` (or your Daytona API URL and the toolbox proxy it reports) | Launching, listing, terminating, cache grants; on Daytona also writing and starting the boot script inside each sandbox |
@@ -311,7 +311,7 @@ Log lines worth alerting on: `reconcile` errors that persist across passes,
 | **Stopped VMs or powered-off instances linger (GCP, Azure)** | Events page; the inventory scan's logs | They are deleted by the scan, not by the cloud. Lingering means the scan cannot list or delete in that region — usually an expired Azure client secret or a narrowed role |
 | **Orphaned Azure interfaces or addresses** | `sweep orphaned resources` warnings | The sweep removes them after 15 minutes. Persisting means the role lacks `networkInterfaces/delete` or `publicIPAddresses/delete` |
 | **Caching silently off** | Events page for `cache.unavailable` | A missing S3 permission, a control plane built without the proxy binary, or runners that cannot reach `PUBLIC_URL` |
-| **Dashboard sign-in loops** | `WEB_URL`, `CORS_ORIGINS`, cookie domain | The API and dashboard are not on the same site, so the session cookie is not sent |
+| **Dashboard sign-in loops** | `DASH_URL`, `CORS_ORIGINS`, cookie domain | The API and dashboard are not on the same site, so the session cookie is not sent |
 | **Reconciler not running** | Whether any replica holds the advisory lock | A replica holding the lock while wedged. Restart it; the next replica takes over |
 
 **Emergency stop for one installation:** set its `max_runners` to 1, or

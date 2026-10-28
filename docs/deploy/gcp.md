@@ -21,15 +21,15 @@ credentials key, GitHub App) applies here unchanged.
 ```
                  DNS: api.example.com, app.example.com ──► one global IP
                                        │
-              ┌────────────────────────▼─────────────────────────┐
-              │ external Application Load Balancer, managed cert │
-              │   host api.*  ──► serverless NEG ──► airship-api │
-              │   host app.*  ──► serverless NEG ──► airship-web │
-              └────────────────────────┬─────────────────────────┘
+              ┌────────────────────────▼──────────────────────────┐
+              │ external Application Load Balancer, managed cert  │
+              │   host api.*  ──► serverless NEG ──► airship-api  │
+              │   host app.*  ──► serverless NEG ──► airship-dash │
+              └────────────────────────┬──────────────────────────┘
                                        │
    ┌───────────────────────────────────▼─────────────┐   ┌────────────────────┐
    │ Cloud Run airship-api, min 2 instances,         │   │ Cloud Run          │
-   │ CPU always allocated ──► GitHub, clouds          │   │ airship-web        │
+   │ CPU always allocated ──► GitHub, clouds         │   │ airship-dash       │
    └───────────────┬─────────────────────────────────┘   └────────────────────┘
                    │ Unix socket via the built-in Cloud SQL connection
           ┌────────▼──────────┐
@@ -68,7 +68,7 @@ another instance.
 export PROJECT=my-airship-project
 export REGION=europe-west1
 export API_DOMAIN=api.example.com
-export WEB_DOMAIN=app.example.com
+export DASH_DOMAIN=app.example.com
 export VERSION=$(git rev-parse --short HEAD)
 export REGISTRY=$REGION-docker.pkg.dev/$PROJECT/airship
 
@@ -167,11 +167,11 @@ gcloud auth configure-docker $REGION-docker.pkg.dev
 
 docker build --platform linux/amd64 --build-arg VERSION=$VERSION \
   -t $REGISTRY/api:$VERSION apps/api
-docker build --platform linux/amd64 -f apps/web/Dockerfile \
+docker build --platform linux/amd64 -f apps/dash/Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL=https://$API_DOMAIN \
-  -t $REGISTRY/web:$VERSION .
+  -t $REGISTRY/dash:$VERSION .
 docker push $REGISTRY/api:$VERSION
-docker push $REGISTRY/web:$VERSION
+docker push $REGISTRY/dash:$VERSION
 ```
 
 ---
@@ -207,11 +207,11 @@ gcloud run deploy airship-api \
   --port=8080 --cpu=1 --memory=512Mi \
   --no-cpu-throttling --min-instances=2 --max-instances=4 \
   --ingress=internal-and-cloud-load-balancing --allow-unauthenticated \
-  --set-env-vars="PUBLIC_URL=https://$API_DOMAIN,WEB_URL=https://$WEB_DOMAIN,CORS_ORIGINS=https://$WEB_DOMAIN,GITHUB_APP_SLUG=<app slug>,GITHUB_CLIENT_ID=<client id>,LOG_LEVEL=info" \
+  --set-env-vars="PUBLIC_URL=https://$API_DOMAIN,DASH_URL=https://$DASH_DOMAIN,CORS_ORIGINS=https://$DASH_DOMAIN,GITHUB_APP_SLUG=<app slug>,GITHUB_CLIENT_ID=<client id>,LOG_LEVEL=info" \
   --set-secrets="DATABASE_URL=airship-database-url:latest,CREDENTIALS_KEY=airship-credentials-key:latest,GITHUB_CLIENT_SECRET=airship-github-client-secret:latest,GITHUB_WEBHOOK_SECRET=airship-github-webhook-secret:latest,GITHUB_PRIVATE_KEY=airship-github-private-key:latest"
 
-gcloud run deploy airship-web \
-  --image=$REGISTRY/web:$VERSION --region=$REGION \
+gcloud run deploy airship-dash \
+  --image=$REGISTRY/dash:$VERSION --region=$REGION \
   --port=3000 --cpu=1 --memory=512Mi --min-instances=1 \
   --ingress=internal-and-cloud-load-balancing --allow-unauthenticated
 ```
@@ -231,7 +231,7 @@ gcloud run deploy airship-web \
 ## Step 7 — Load balancer and domains
 
 ```bash
-for svc in api web; do
+for svc in api dash; do
   gcloud compute network-endpoint-groups create airship-$svc-neg --region=$REGION \
     --network-endpoint-type=serverless --cloud-run-service=airship-$svc
   gcloud compute backend-services create airship-$svc --global \
@@ -240,11 +240,11 @@ for svc in api web; do
     --network-endpoint-group=airship-$svc-neg --network-endpoint-group-region=$REGION
 done
 
-gcloud compute url-maps create airship --default-service=airship-web
+gcloud compute url-maps create airship --default-service=airship-dash
 gcloud compute url-maps add-path-matcher airship --path-matcher-name=api \
   --default-service=airship-api --new-hosts=$API_DOMAIN
 
-gcloud compute ssl-certificates create airship --global --domains=$API_DOMAIN,$WEB_DOMAIN
+gcloud compute ssl-certificates create airship --global --domains=$API_DOMAIN,$DASH_DOMAIN
 gcloud compute target-https-proxies create airship --url-map=airship --ssl-certificates=airship
 gcloud compute addresses create airship --global --ip-version=IPV4
 gcloud compute forwarding-rules create airship-https --global \
@@ -254,7 +254,7 @@ gcloud compute forwarding-rules create airship-https --global \
 gcloud compute addresses describe airship --global --format='value(address)'
 ```
 
-Create an **A record** for both `$API_DOMAIN` and `$WEB_DOMAIN` pointing at
+Create an **A record** for both `$API_DOMAIN` and `$DASH_DOMAIN` pointing at
 that address. The managed certificate is issued once both names resolve to
 it, which can take up to an hour. Watch it with:
 
@@ -295,7 +295,7 @@ curl -s https://$API_DOMAIN/healthz
 
 Then work through the **Verification** items in the
 [production checklist](README.md#production-checklist): webhook deliveries
-in the GitHub App, GitHub sign-in on `https://$WEB_DOMAIN`, and one real
+in the GitHub App, GitHub sign-in on `https://$DASH_DOMAIN`, and one real
 job.
 
 If a revision does not become ready, `gcloud run services describe
@@ -312,7 +312,7 @@ export VERSION=$(git rev-parse --short HEAD)
 gcloud run jobs update airship-migrate --region=$REGION --image=$REGISTRY/api:$VERSION
 gcloud run jobs execute airship-migrate --region=$REGION --wait
 gcloud run deploy airship-api --region=$REGION --image=$REGISTRY/api:$VERSION
-gcloud run deploy airship-web --region=$REGION --image=$REGISTRY/web:$VERSION
+gcloud run deploy airship-dash --region=$REGION --image=$REGISTRY/dash:$VERSION
 ```
 
 `gcloud run deploy` with only `--image` keeps every other setting from the
@@ -349,7 +349,7 @@ Day-to-day operation, alerts worth having and the incident runbook are in
 ```bash
 gcloud compute forwarding-rules delete airship-https airship-http --global
 gcloud run services delete airship-api --region=$REGION
-gcloud run services delete airship-web --region=$REGION
+gcloud run services delete airship-dash --region=$REGION
 gcloud run jobs delete airship-migrate --region=$REGION
 gcloud sql instances patch airship --no-deletion-protection
 gcloud sql instances delete airship

@@ -13,6 +13,7 @@ import (
 
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	azurecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/azure"
 	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud/fake"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
@@ -60,6 +61,7 @@ type harness struct {
 	svc     *fleet.Service
 	aws     *fake.Provider
 	gcp     *fake.Provider
+	azure   *fake.Provider
 	daytona *fake.Provider
 	nextJob int64
 	lastJob github.WorkflowJob
@@ -68,6 +70,13 @@ type harness struct {
 // newHarness builds an installation with AWS connected and a repository
 // activated with baseConfig at headSHA, so a job on cpuLabel can be served.
 func newHarness(t *testing.T) *harness {
+	t.Helper()
+
+	return newHarnessWith(t, func(*fleet.Config) {})
+}
+
+// newHarnessWith is newHarness with the fleet's config adjusted first.
+func newHarnessWith(t *testing.T, adjust func(*fleet.Config)) *harness {
 	t.Helper()
 	ctx := context.Background()
 	pool := pgtest.New(t)
@@ -82,14 +91,16 @@ func newHarness(t *testing.T) *harness {
 	keyring, _ := secrets.New(key)
 	aws := fake.New(cloud.AWS)
 	gcp := fake.New(cloud.GCP)
+	azure := fake.New(cloud.Azure)
 	daytona := fake.New(cloud.Daytona)
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "https://api.test"
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: gcp, cloud.Daytona: fake.WithoutCache(daytona)}, keyring, cfg, slog.New(slog.DiscardHandler))
+	adjust(&cfg)
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: gcp, cloud.Azure: fake.WithoutCache(azure), cloud.Daytona: fake.WithoutCache(daytona)}, keyring, cfg, slog.New(slog.DiscardHandler))
 	if _, err := svc.SaveInstallation(ctx, inst); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, gcp: gcp, daytona: daytona, nextJob: 100}
+	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, gcp: gcp, azure: azure, daytona: daytona, nextJob: 100}
 	h.connect()
 	h.activate(false)
 	h.setRun("push", repoID, "alice")
@@ -117,6 +128,23 @@ func (h *harness) connectGCP(project, location string) {
 		h.t.Fatal(err)
 	}
 	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.GCP, secret, location, nil); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// connectAzure connects the fake Azure provider with a service principal;
+// region is the credential's default region.
+func (h *harness) connectAzure(region string) {
+	h.t.Helper()
+	h.azure.AccountID = "0f0e0d0c-0b0a-4908-8706-050403020100"
+	secret, err := azurecloud.EncodeSecret(azurecloud.Secret{
+		SubscriptionID: "0f0e0d0c-0b0a-4908-8706-050403020100", TenantID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+		ClientID: "12345678-9abc-4def-8123-456789abcdef", ClientSecret: "s3cr3t~value",
+	})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if _, err := h.svc.ConnectCloud(h.ctx, installationID, cloud.Azure, secret, region, nil); err != nil {
 		h.t.Fatal(err)
 	}
 }

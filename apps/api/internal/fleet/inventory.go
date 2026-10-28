@@ -121,6 +121,15 @@ func (s *Service) scanScope(ctx context.Context, credentialID uuid.UUID, region 
 		}
 	}
 
+	// A cloud whose machines are built from several resources sweeps up
+	// the parts a failed launch left behind. A sweep that fails is logged
+	// and tried on the next scan; the instances above were still handled.
+	if sweeper, ok := provider.(cloud.Sweeper); ok {
+		if err := sweeper.Sweep(ctx, secret, region, cred.InstallationID); err != nil {
+			s.log.WarnContext(ctx, "sweep orphaned resources", slog.String("cloud", cred.Cloud), slog.String("region", region), slog.Any("error", err))
+		}
+	}
+
 	gone, err := s.q.MarkInstancesGone(ctx, db.MarkInstancesGoneParams{
 		CredentialID: &credentialID,
 		Region:       region,

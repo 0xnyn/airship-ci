@@ -110,8 +110,13 @@ func (s *Service) claim(ctx context.Context, installationID int64, capacity int3
 }
 
 // launchLeaseMargin is how long before its lease expires a launch must have
-// its answer, leaving time to record the instance.
+// its answer, leaving time to record the instance (a quarter of a short
+// lease).
 const launchLeaseMargin = 30 * time.Second
+
+func (s *Service) leaseMargin() time.Duration {
+	return min(launchLeaseMargin, s.cfg.LeaseDuration/4)
+}
 
 // launch registers one claimed runner with GitHub and starts its machine.
 // On failure the runner is put back in the queue (a transient GitHub
@@ -205,17 +210,16 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 			return
 		}
 	}
-	// The cloud call must answer before the lease runs out, or the
+	// The cloud call must answer while the runner holds its lease, or the
 	// reconciler gives the runner up as lease_expired while the launch is
 	// still in flight (and a machine it then makes is revived by the scan,
-	// after a retry was already queued). Cutting the call short is safe:
-	// the providers settle an interrupted insert by looking the machine up.
-	launchCtx := ctx
-	if runner.LeaseExpiresAt != nil {
-		var cancel context.CancelFunc
-		launchCtx, cancel = context.WithDeadline(ctx, runner.LeaseExpiresAt.Add(-launchLeaseMargin))
-		defer cancel()
-	}
+	// after a retry was already queued). The lease is renewed while the
+	// call runs, up to LaunchTimeout; if a renewal is refused or lost the
+	// call is cut short before the lease ends. Cutting it short is safe:
+	// the providers settle an interrupted creation by looking the machine
+	// up.
+	launchCtx, stopRenewing := s.leaseRenewal(ctx, runner, log)
+	defer stopRenewing()
 	instanceID, err := provider.Launch(launchCtx, secret, cloud.Launch{
 		RunnerID:       runner.ID.String(),
 		RunnerName:     runner.Name,
@@ -249,6 +253,65 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 	s.record(ctx, runner.InstallationID, "runner.launched", levelInfo,
 		fmt.Sprintf("Launched %s (%s, %s) for %s", runner.Name, spec.InstanceType, runner.Region, runner.RepositoryFullName),
 		eventFields{repository: runner.RepositoryFullName, runnerID: &runner.ID, jobID: runner.TriggerJobID})
+}
+
+// leaseRenewal returns a context for a launch that ends when the launch
+// has run for LaunchTimeout, or launchLeaseMargin before the lease the
+// launcher last knew of expires. The lease is renewed every half lease;
+// a renewal that fails (the database unreachable, or the reconciler
+// having given the runner up) is not retried past the lease, so a launch
+// that lost its runner stops instead of making a machine nobody tracks.
+func (s *Service) leaseRenewal(ctx context.Context, runner db.Runner, log *slog.Logger) (context.Context, func()) {
+	if runner.LeaseExpiresAt == nil {
+		return context.WithTimeout(ctx, s.cfg.LaunchTimeout)
+	}
+	launchCtx, cancel := context.WithTimeout(ctx, s.cfg.LaunchTimeout)
+	deadline := *runner.LeaseExpiresAt
+	margin := s.leaseMargin()
+	timer := time.AfterFunc(time.Until(deadline.Add(-margin)), cancel)
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		every := max(s.cfg.LeaseDuration/2, time.Second)
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-launchCtx.Done():
+				return
+			case <-ticker.C:
+			}
+			renewCtx, cancelRenew := context.WithTimeout(launchCtx, every)
+			expires, err := s.q.RenewRunnerLease(renewCtx, db.RenewRunnerLeaseParams{ID: runner.ID, LeaseSeconds: s.cfg.LeaseDuration.Seconds()})
+			cancelRenew()
+			switch {
+			case isNoRows(err):
+				// Expired or finished meanwhile: the launch has no runner.
+				log.WarnContext(ctx, "lease lost during launch; stopping the cloud call")
+				cancel()
+
+				return
+			case err != nil:
+				log.WarnContext(ctx, "renew launch lease", slog.Any("error", err))
+
+				continue // the timer cuts the launch at the last known expiry
+			case expires == nil:
+				continue
+			}
+			deadline = *expires
+			timer.Reset(time.Until(deadline.Add(-margin)))
+		}
+	}()
+
+	return launchCtx, func() {
+		close(done)
+		timer.Stop()
+		cancel()
+		<-stopped
+	}
 }
 
 // jobMovedOn reports whether the job a launching runner is for is no

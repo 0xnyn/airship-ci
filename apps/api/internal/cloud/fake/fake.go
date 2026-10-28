@@ -35,6 +35,13 @@ type Provider struct {
 	// cloud.IsAmbiguous still creates the machine, as a cloud whose answer
 	// was lost would have.
 	FailLaunch func(cloud.Launch) error
+	// Delay, when set, is waited for before a launch, as a cloud that takes
+	// long to build a machine. An error (the context's) abandons the launch
+	// as a real provider cut short would: ambiguous, since the machine may
+	// yet appear.
+	Delay func(context.Context, cloud.Launch) error
+	// FailSweep makes Sweep fail.
+	FailSweep bool
 	// Owner is the installation every Terminate must name; 0 disables the
 	// check. Set it to assert ownership checks reach the provider.
 	Owner int64
@@ -46,6 +53,7 @@ type Provider struct {
 	// account.
 	AccountID string
 	launches  int
+	sweeps    int
 	buckets   []string
 	grants    int
 }
@@ -90,7 +98,15 @@ func (p *Provider) List(_ context.Context, _ []byte, region string, installation
 }
 
 // Launch implements cloud.Provider.
-func (p *Provider) Launch(_ context.Context, _ []byte, launch cloud.Launch) (string, error) {
+func (p *Provider) Launch(ctx context.Context, _ []byte, launch cloud.Launch) (string, error) {
+	p.mu.Lock()
+	delay := p.Delay
+	p.mu.Unlock()
+	if delay != nil {
+		if err := delay(ctx, launch); err != nil {
+			return "", &cloud.LaunchError{Err: err, Retryable: true, Ambiguous: true}
+		}
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.launches++
@@ -157,6 +173,26 @@ func (p *Provider) Instances() []Instance {
 	}
 
 	return out
+}
+
+// Sweep implements cloud.Sweeper; it only counts.
+func (p *Provider) Sweep(_ context.Context, _ []byte, _ string, _ int64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sweeps++
+	if p.FailSweep {
+		return errors.New("fake sweep failure")
+	}
+
+	return nil
+}
+
+// Sweeps returns how many sweep calls were made.
+func (p *Provider) Sweeps() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.sweeps
 }
 
 // Launches returns how many launch calls were made.
@@ -234,6 +270,11 @@ func (c *ComputeOnly) Name() string { return c.p.Name() }
 // Verify implements cloud.Provider.
 func (c *ComputeOnly) Verify(ctx context.Context, secret []byte, region string) (cloud.Identity, error) {
 	return c.p.Verify(ctx, secret, region)
+}
+
+// Sweep implements cloud.Sweeper.
+func (c *ComputeOnly) Sweep(ctx context.Context, secret []byte, region string, installationID int64) error {
+	return c.p.Sweep(ctx, secret, region, installationID)
 }
 
 // Launch implements cloud.Provider.

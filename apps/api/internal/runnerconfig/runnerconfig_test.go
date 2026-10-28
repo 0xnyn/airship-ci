@@ -78,8 +78,8 @@ runners:
 `, "unknown field instance_tpye"},
 		"unsupported cloud": {`
 runners:
-  - {name: a, cloud: azure, instance_type: Standard_D2s_v3, labels: [airship-a]}
-`, `cloud "azure" is not supported`},
+  - {name: a, cloud: openstack, instance_type: m1.small, labels: [airship-a]}
+`, `cloud "openstack" is not supported`},
 		"gcp zone": {`
 runners:
   - {name: a, cloud: gcp, instance_type: n1-standard-1, region: us-east-1, labels: [airship-a]}

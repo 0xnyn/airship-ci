@@ -46,6 +46,9 @@ type Config struct {
 	// DaytonaEndpoint points the Daytona provider at a stand-in API, in
 	// place of the URL each credential carries.
 	DaytonaEndpoint string `env:"DAYTONA_ENDPOINT"`
+	// AzureEndpoint points the Azure provider at a stand-in Resource
+	// Manager API.
+	AzureEndpoint string `env:"AZURE_ENDPOINT"`
 
 	// RunnerVersion is the actions/runner release agents install. GitHub
 	// stops sending jobs to runners more than 30 days behind a release.

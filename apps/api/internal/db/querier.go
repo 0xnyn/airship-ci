@@ -202,6 +202,10 @@ type Querier interface {
 	// Puts a launching runner back in the queue after a transient failure, not
 	// to be claimed again for retry_after_seconds.
 	ReleaseRunner(ctx context.Context, arg ReleaseRunnerParams) error
+	// Extends the lease of a runner still being launched, so a cloud whose
+	// machines take long to create keeps its launch. A runner the reconciler
+	// already gave up on (expired, or finished for any reason) is not revived.
+	RenewRunnerLease(ctx context.Context, arg RenewRunnerLeaseParams) (*time.Time, error)
 	// Records the instances the cloud lists for a (credential, region).
 	ReportInstances(ctx context.Context, arg ReportInstancesParams) ([]Runner, error)
 	// Points an idle pool runner at a queued job, so the job is not given an

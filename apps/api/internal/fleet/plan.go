@@ -38,6 +38,8 @@ type Spec struct {
 	Zone    string            `json:"zone,omitempty"`
 	GPUType string            `json:"gpuType,omitempty"`
 	GCP     *cloud.GCPOptions `json:"gcp,omitempty"`
+	// Azure carries a virtual machine's extra_config.
+	Azure *cloud.AzureOptions `json:"azure,omitempty"`
 	// Daytona carries a sandbox's shape or snapshot and its extra_config.
 	Daytona *cloud.DaytonaOptions `json:"daytona,omitempty"`
 }
@@ -61,8 +63,19 @@ func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
 		Zone:             v.Zone,
 		GPUType:          r.GPUType,
 		GCP:              gcpOptions(r.GCP),
+		Azure:            azureOptions(r.Azure),
 		Daytona:          daytonaOptions(r, v),
 	}
+}
+
+// azureOptions copies a definition's Azure settings into the provider's
+// type.
+func azureOptions(a *runnerconfig.Azure) *cloud.AzureOptions {
+	if a == nil {
+		return nil
+	}
+
+	return &cloud.AzureOptions{NoPublicIP: a.NoPublicIP}
 }
 
 // daytonaOptions copies a Daytona definition's settings into the
@@ -116,7 +129,7 @@ func (s Spec) machine() cloud.Machine {
 	return cloud.Machine{
 		InstanceType: s.InstanceType, Image: s.Image, Arch: s.Arch, Spot: s.Spot, Disk: s.Disk,
 		SubnetID: s.SubnetID, SecurityGroupIDs: s.SecurityGroupIDs, InstanceProfile: s.InstanceProfile,
-		Zone: s.Zone, GPUType: s.GPUType, GCP: s.GCP, Daytona: s.Daytona,
+		Zone: s.Zone, GPUType: s.GPUType, GCP: s.GCP, Azure: s.Azure, Daytona: s.Daytona,
 	}
 }
 

@@ -57,5 +57,26 @@ export const awsRegions = [
   "sa-east-1",
 ] as const;
 
+/** Azure regions offered as a default; any region of the subscription works in `airship.yaml`. */
+export const azureRegions = [
+  "eastus",
+  "eastus2",
+  "centralus",
+  "westus2",
+  "westus3",
+  "canadacentral",
+  "brazilsouth",
+  "northeurope",
+  "westeurope",
+  "uksouth",
+  "francecentral",
+  "germanywestcentral",
+  "swedencentral",
+  "centralindia",
+  "southeastasia",
+  "japaneast",
+  "australiaeast",
+] as const;
+
 /** Daytona regions offered as a default; any region of the organization works in `airship.yaml`. */
 export const daytonaRegions = ["us", "eu"] as const;

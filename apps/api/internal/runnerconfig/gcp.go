@@ -108,8 +108,9 @@ const (
 )
 
 // awsOnlyKeys and gcpOnlyKeys name the extra_config keys each cloud
-// understands (daytonaOnlyKeys is in daytona.go), so a key from another
-// cloud is refused by name.
+// understands (azureOnlyKeys and daytonaOnlyKeys are in their files), so
+// a key from another cloud is refused by name. enable_public_ip is GCP's
+// and Azure's both.
 var (
 	awsOnlyKeys = []string{"BlockDeviceMappings", "SubnetId", "SecurityGroupIds", "IamInstanceProfile"}
 	gcpOnlyKeys = []string{"baseDisk", "additionalDisk", "existingDisk", "project_id", "networkInterfaces", "serviceAccounts", "enable_public_ip", "scheduling"}
@@ -172,6 +173,7 @@ func (e *rawExtra) keysSet() []string {
 	add("serviceAccounts", len(e.ServiceAccounts) > 0)
 	add("enable_public_ip", e.EnablePublicIP != nil)
 	add("scheduling", e.Scheduling != nil)
+	add("storageProfile", e.StorageProfile != nil)
 	add("disk", e.Disk != 0)
 	add("volumes", len(e.Volumes) > 0)
 	add("docker", e.Docker)
@@ -181,7 +183,7 @@ func (e *rawExtra) keysSet() []string {
 	return keys
 }
 
-// checkCloud refuses keys that belong to another cloud.
+// checkCloud refuses keys that belong to other clouds only.
 func (e *rawExtra) checkCloud(cloud string) *fieldError {
 	owners := []struct {
 		cloud, name string
@@ -189,13 +191,23 @@ func (e *rawExtra) checkCloud(cloud string) *fieldError {
 	}{
 		{CloudAWS, "an AWS", awsOnlyKeys},
 		{CloudGCP, "a GCP", gcpOnlyKeys},
+		{CloudAzure, "an Azure", append(slices.Clone(azureOnlyKeys), "enable_public_ip")},
 		{CloudDaytona, "a Daytona", daytonaOnlyKeys},
 	}
 	for _, key := range e.keysSet() {
+		foreign := ""
+		ours := false
 		for _, owner := range owners {
-			if owner.cloud != cloud && slices.Contains(owner.keys, key) {
-				return failf(".extra_config."+key, "%s is %s setting; this runner's cloud is %s", key, owner.name, cloud)
+			switch {
+			case !slices.Contains(owner.keys, key):
+			case owner.cloud == cloud:
+				ours = true
+			case foreign == "":
+				foreign = owner.name
 			}
+		}
+		if foreign != "" && !ours {
+			return failf(".extra_config."+key, "%s is %s setting; this runner's cloud is %s", key, foreign, cloud)
 		}
 	}
 

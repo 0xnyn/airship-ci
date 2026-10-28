@@ -10,6 +10,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	azurecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/azure"
 	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
@@ -24,9 +25,9 @@ const DefaultRegion = "eu-west-1"
 
 // Cloud is a connected cloud account, without its secret.
 type Cloud struct {
-	Cloud         string     `doc:"Cloud name"                                                               enum:"aws,gcp,daytona" json:"cloud"`
-	Identity      string     `doc:"Public half of the credential (AWS access key ID, GCP service account email, masked Daytona API key)" json:"identity"`
-	AccountID     *string    `doc:"Cloud account ID (AWS account, GCP project, Daytona organization)" json:"accountId"`
+	Cloud         string     `doc:"Cloud name"                                                               enum:"aws,gcp,azure,daytona" json:"cloud"`
+	Identity      string     `doc:"Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, masked Daytona API key)" json:"identity"`
+	AccountID     *string    `doc:"Cloud account ID (AWS account, GCP project, Azure subscription, Daytona organization)" json:"accountId"`
 	Principal     *string    `doc:"Who the credential is, such as an IAM ARN or an API key's name"     json:"principal"`
 	DefaultRegion string     `doc:"Region (or GCP zone, or Daytona region) used when a config names none" json:"defaultRegion"`
 	Status        string     `doc:"Whether the credential works"                  enum:"ok,invalid" json:"status"`
@@ -177,6 +178,46 @@ func (h *handlers) connectDaytona(ctx context.Context, in *connectDaytonaInput) 
 	return &cloudOutput{Body: cloudFromDB(row)}, nil
 }
 
+// ConnectAzure is the request body for connecting an Azure subscription: a
+// Microsoft Entra application (service principal) with the Contributor
+// role on the subscription, as Cirun asks for it.
+type ConnectAzure struct {
+	SubscriptionID string `doc:"Subscription ID" format:"uuid" json:"subscriptionId"`
+	TenantID       string `doc:"Directory (tenant) ID of the application" format:"uuid" json:"tenantId"`
+	ClientID       string `doc:"Application (client) ID" format:"uuid" json:"clientId"`
+	ClientSecret   string `doc:"A client secret of the application" json:"clientSecret" maxLength:"1024" minLength:"1"`
+	DefaultRegion  string `default:"eastus" doc:"Region (eastus, westeurope) used when a config names none" json:"defaultRegion,omitempty" maxLength:"40" pattern:"^[a-z][a-z0-9]{2,39}$"`
+}
+
+type connectAzureInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectAzure
+}
+
+func (h *handlers) connectAzure(ctx context.Context, in *connectAzureInput) (*cloudOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := auth.UserFrom(ctx)
+	region := in.Body.DefaultRegion
+	if region == "" {
+		region = azurecloud.DefaultRegion
+	}
+	secret, err := azurecloud.EncodeSecret(azurecloud.Secret{
+		SubscriptionID: in.Body.SubscriptionID, TenantID: in.Body.TenantID, ClientID: in.Body.ClientID, ClientSecret: in.Body.ClientSecret,
+	})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+	row, err := h.connect(ctx, inst.ID, cloud.Azure, secret, region, &user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
 // connect verifies and stores credentials, turning the cloud's refusal
 // into a 422 the dashboard can show.
 func (h *handlers) connect(ctx context.Context, installationID int64, cloudName string, secret []byte, region string, by *uuidPtr) (db.CloudCredential, error) {
@@ -185,7 +226,7 @@ func (h *handlers) connect(ctx context.Context, installationID int64, cloudName 
 		return db.CloudCredential{}, huma.Error422UnprocessableEntity(err.Error())
 	}
 	if errors.Is(err, cloud.ErrUnsupportedCloud) {
-		return db.CloudCredential{}, huma.Error422UnprocessableEntity("only aws, gcp and daytona are supported")
+		return db.CloudCredential{}, huma.Error422UnprocessableEntity("only aws, gcp, azure and daytona are supported")
 	}
 	if err != nil {
 		slog.WarnContext(ctx, "verify cloud credentials", slog.String("cloud", cloudName), slog.Any("error", err))
@@ -198,7 +239,7 @@ func (h *handlers) connect(ctx context.Context, installationID int64, cloudName 
 
 type cloudInput struct {
 	Org   string `maxLength:"100" minLength:"1" path:"org"`
-	Cloud string `doc:"Cloud name" enum:"aws,gcp,daytona" path:"cloud"`
+	Cloud string `doc:"Cloud name" enum:"aws,gcp,azure,daytona" path:"cloud"`
 }
 
 func (h *handlers) disconnectCloud(ctx context.Context, in *cloudInput) (*struct{}, error) {

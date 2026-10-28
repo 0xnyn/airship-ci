@@ -59,7 +59,7 @@ func newEnv(t *testing.T) *env {
 	aws := fake.New(cloud.AWS)
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "http://api.test"
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: fake.New(cloud.GCP), cloud.Daytona: fake.New(cloud.Daytona)}, keyring, cfg, logger)
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: fake.New(cloud.GCP), cloud.Azure: fake.New(cloud.Azure), cloud.Daytona: fake.New(cloud.Daytona)}, keyring, cfg, logger)
 
 	app := gh.App(t)
 	oauth := github.NewOAuth(github.OAuthConfig{ClientID: fakegithub.ClientID, ClientSecret: "secret", WebURL: gh.URL, APIURL: gh.URL})
@@ -425,6 +425,63 @@ func TestConnectDaytona(t *testing.T) {
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/daytona", nil, http.StatusNotFound)
 	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
 		t.Fatalf("clouds after disconnecting daytona = %v", items)
+	}
+}
+
+func TestConnectAzure(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	const (
+		subscription = "0f0e0d0c-0b0a-4908-8706-050403020100"
+		tenant       = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+		client       = "12345678-9abc-4def-8123-456789abcdef"
+		secret       = "Q~8f3a9c2e7b1d4f6a8c0e2b4d6f8a1c3e5b7d9f1a"
+	)
+	body := func(overrides map[string]any) map[string]any {
+		out := map[string]any{"subscriptionId": subscription, "tenantId": tenant, "clientId": client, "clientSecret": secret}
+		for k, v := range overrides {
+			out[k] = v
+		}
+
+		return out
+	}
+	// Not a GUID, no secret, a display name as the region: nothing stored.
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/azure", body(map[string]any{"subscriptionId": "my-subscription"}), http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/azure", body(map[string]any{"clientSecret": ""}), http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/azure", body(map[string]any{"defaultRegion": "East US"}), http.StatusUnprocessableEntity)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("rejected credentials were stored: %v", items)
+	}
+
+	got := e.call(http.MethodPut, "/v1/orgs/acme/clouds/azure", body(map[string]any{"defaultRegion": "uksouth"}), http.StatusOK)
+	if got["cloud"] != "azure" || got["identity"] != client || got["defaultRegion"] != "uksouth" || got["status"] != "ok" {
+		t.Fatalf("connect azure = %v", got)
+	}
+	raw := fmt.Sprint(e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK))
+	if bytes.Contains([]byte(raw), []byte(secret)) {
+		t.Fatal("the client secret was echoed")
+	}
+	var stored []byte
+	if err := e.pool.QueryRow(context.Background(), "select secret from cloud_credentials where cloud = 'azure'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(stored, []byte(secret)) {
+		t.Fatal("the secret is stored in the clear")
+	}
+	// The default region is eastus.
+	if got := e.call(http.MethodPut, "/v1/orgs/acme/clouds/azure", body(nil), http.StatusOK); got["defaultRegion"] != "eastus" {
+		t.Fatalf("default region = %v", got["defaultRegion"])
+	}
+
+	e.connectAWS()
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 2 {
+		t.Fatalf("clouds = %v", items)
+	}
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/azure", nil, http.StatusNoContent)
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/azure", nil, http.StatusNotFound)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
+		t.Fatalf("clouds after disconnecting azure = %v", items)
 	}
 }
 

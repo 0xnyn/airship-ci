@@ -19,6 +19,7 @@ const (
 	AWS     = "aws"
 	GCP     = "gcp"
 	Daytona = "daytona"
+	Azure   = "azure"
 )
 
 // Identity is who a credential authenticates as, as the cloud reports it.
@@ -56,6 +57,16 @@ type Machine struct {
 	GCP *GCPOptions
 	// Daytona holds the sandbox settings for the Daytona provider.
 	Daytona *DaytonaOptions
+	// Azure holds the virtual machine settings for the Azure provider.
+	Azure *AzureOptions
+}
+
+// AzureOptions are the Azure settings a definition may set in
+// extra_config.
+type AzureOptions struct {
+	// NoPublicIP launches without a public address; egress goes through a
+	// NAT gateway the provider creates on the region's subnet.
+	NoPublicIP bool `json:"noPublicIp,omitempty"`
 }
 
 // DaytonaOptions shape a Daytona sandbox. A sandbox is either built from a
@@ -88,7 +99,8 @@ type DaytonaVolume struct {
 	Subpath   string `json:"subpath,omitempty"`
 }
 
-// Disk is the root volume. Type is a provider volume type (gp3, pd-ssd).
+// Disk is the root volume. Type is a provider volume type (gp3, pd-ssd,
+// StandardSSD_LRS).
 type Disk struct {
 	SizeGB     int
 	Type       string
@@ -277,6 +289,18 @@ type Provider interface {
 	// It must return an error rather than a partial list: an instance
 	// missing from a successful list is presumed gone.
 	List(ctx context.Context, secret []byte, region string, installationID int64) ([]Instance, error)
+}
+
+// Sweeper is what a provider offers when a machine's cleanup can leave
+// resources behind that the machine's deletion does not remove: on Azure,
+// a network interface or public address made for a machine that was never
+// created. The inventory scan calls it after each pass over a scope; the
+// provider decides how often it actually looks.
+type Sweeper interface {
+	// Sweep removes resources tagged for installationID in region that no
+	// machine uses and that are old enough not to belong to a launch in
+	// flight.
+	Sweep(ctx context.Context, secret []byte, region string, installationID int64) error
 }
 
 // Registry maps cloud names to providers.

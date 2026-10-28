@@ -1,7 +1,7 @@
 # Airship
 
-Self-hosted GitHub Actions runners on the customer's AWS, Google Cloud or
-Daytona account, built to Cirun's model under Airship's own names
+Self-hosted GitHub Actions runners on the customer's AWS, Google Cloud,
+Microsoft Azure or Daytona account, built to Cirun's model under Airship's own names
 (`airship.yaml`, `airship-` labels, the `.airship` organization repository;
 Cirun's names are not read) plus a developer API cirun-py can drive: a Go
 control plane that holds
@@ -20,7 +20,7 @@ generated from it and must never be edited by hand.
 
 | Path | What it is |
 | --- | --- |
-| `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client |
+| `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client, Azure SDK for Go (armcompute, armnetwork) |
 | `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
 | `apps/home` | Marketing site: Astro 7, static, Tailwind 4, on :4000. `pnpm --filter @airship/home og` re-renders the OG video and image from `og/card.html` (needs ffmpeg) |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
@@ -91,7 +91,9 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   cases belong in `internal/fleet` tests. The EC2 provider also runs
   against moto (`TestAgainstEmulator`, needs `AIRSHIP_AWS_ENDPOINT`); the
   Compute Engine provider against `internal/cloud/gcp/gcptest`, a fake of the
-  REST API driven through the real SDK. The Daytona provider runs against
+  REST API driven through the real SDK; the Azure provider against
+  `internal/cloud/azure/azuretest`, a fake of Resource Manager driven
+  through the real SDK. The Daytona provider runs against
   `internal/cloud/daytona/daytonatest`, a fake of Daytona's API and toolbox
   driven through Daytona's generated Go clients, and opt-in against a real
   organization (`TestAgainstLiveDaytona`, needs `AIRSHIP_LIVE_DAYTONA_API_KEY`).
@@ -105,9 +107,11 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   the duration of a provider call; never log or return them.
 - `internal/cloud` is the provider boundary: `fleet` must not import the
   cloud SDKs. A new cloud is a new `cloud.Provider` (and `cloud.Cacher` if
-  it has object storage). Daytona has no object storage, so `cache: true`
-  on it launches without the proxy and records a `cache.unavailable` warning;
-  the fleet tests register its fake through `fake.WithoutCache` for that.
+  it has object storage, `cloud.Sweeper` if a failed launch can leave
+  resources behind that the inventory scan should sweep). Azure and
+  Daytona have no object storage the proxy speaks, so `cache: true` on
+  them launches without the proxy and records a `cache.unavailable` warning;
+  the fleet tests register their fakes through `fake.WithoutCache` for that.
 - Errors: return `huma.Error404NotFound(...)` and friends for client errors;
   wrap everything else with `fmt.Errorf("...: %w", err)`. Huma renders RFC 9457
   problem details, which the client exposes as `ApiError` / `error.detail`.

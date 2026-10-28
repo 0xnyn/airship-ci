@@ -163,6 +163,17 @@ func TestCirunCompatibleAPI(t *testing.T) {
 	if daytona["cloud"] != "daytona" || daytona["defaultRegion"] != "us" || daytona["identity"] != "dtn***def" {
 		t.Fatalf("daytona cloud-connect = %v", daytona)
 	}
+	// `cirun cloud connect azure` sends the subscription, tenant, client
+	// ID and secret.
+	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "azure", "credentials": map[string]string{"subscription_id": "x"}}, http.StatusUnprocessableEntity)
+	azure := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "azure", "credentials": map[string]string{
+		"subscription_id": "0F0E0D0C-0B0A-4908-8706-050403020100", "tenant_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+		"client_id": "12345678-9abc-4def-8123-456789abcdef", "client_secret": "Q~8f3a9c2e7b1d4f6a8c0e2b4d6f8a1c3e5b7d9f1a", "region": "westeurope",
+	}}, http.StatusOK)
+	if azure["cloud"] != "azure" || azure["defaultRegion"] != "westeurope" || azure["identity"] != "12345678-9abc-4def-8123-456789abcdef" || azure["accountId"] != "123456789012" {
+		t.Fatalf("azure cloud-connect = %v", azure)
+	}
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/azure", nil, http.StatusNoContent)
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/daytona", nil, http.StatusNoContent)
 	e.script(token, http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusUnauthorized) // tokens cannot reach the dashboard API
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/gcp", nil, http.StatusNoContent)

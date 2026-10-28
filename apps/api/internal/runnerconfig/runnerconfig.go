@@ -49,19 +49,23 @@ const (
 	MaxFileBytes = 64 << 10
 )
 
-// Clouds a runner can name. Cirun's other clouds (azure, do, openstack,
-// oracle, vast_ai, on_prem) are recognized so the error says they are not
+// Clouds a runner can name. Cirun's other clouds (do, openstack, oracle,
+// vast_ai, on_prem) are recognized so the error says they are not
 // supported here rather than "unknown cloud".
 const (
 	CloudAWS     = "aws"
 	CloudGCP     = "gcp"
+	CloudAzure   = "azure"
 	CloudDaytona = "daytona"
 )
 
 // Clouds lists the supported clouds, for messages.
-var Clouds = []string{CloudAWS, CloudGCP, CloudDaytona}
+var Clouds = []string{CloudAWS, CloudGCP, CloudAzure, CloudDaytona}
 
-var otherClouds = []string{"azure", "do", "digitalocean", "openstack", "oracle", "vast_ai", "on_prem"}
+// cloudList is the supported clouds as a message spells them.
+const cloudList = "aws, gcp, azure or daytona"
+
+var otherClouds = []string{"do", "digitalocean", "openstack", "oracle", "vast_ai", "on_prem"}
 
 // Provisioning modes.
 const (
@@ -144,6 +148,9 @@ type Runner struct {
 	InstanceProfile  string
 	// GCP holds Compute Engine settings; nil on other clouds.
 	GCP *GCP
+	// Azure holds virtual machine settings; nil on other clouds and when
+	// nothing is set.
+	Azure *Azure
 	// Daytona holds sandbox settings; nil on other clouds.
 	Daytona *Daytona
 	Idle    *Idle
@@ -159,8 +166,9 @@ type Windows struct {
 // Variant is one machine shape a runner may launch as.
 type Variant struct {
 	InstanceType string
-	// Image is an AMI ID or Compute Engine image reference, an alias such
-	// as ubuntu2204, or empty for the cloud's default Ubuntu.
+	// Image is an AMI ID, Compute Engine image reference or Azure image
+	// URN or ID, an alias such as ubuntu2204, or empty for the cloud's
+	// default Ubuntu.
 	Image  string
 	Region string
 	// Zone pins a GCP launch to one zone (region: us-central1-b); Region is
@@ -303,8 +311,8 @@ type rawRunner struct {
 	GPU          yaml.Node `yaml:"gpu"`
 }
 
-// rawExtra is Cirun's extra_config for AWS and GCP, plus Airship's keys for
-// Daytona. A key of another cloud is refused by name; keys from Cirun's
+// rawExtra is Cirun's extra_config for AWS, GCP and Azure, plus Airship's
+// keys for Daytona. A key of another cloud is refused by name; keys from Cirun's
 // other clouds are rejected as unknown fields, which names the key in the
 // error.
 type rawExtra struct {
@@ -328,6 +336,8 @@ type rawExtra struct {
 	ServiceAccounts   []rawGCPServiceAccount `yaml:"serviceAccounts"`
 	EnablePublicIP    *bool                  `yaml:"enable_public_ip"`
 	Scheduling        *rawGCPScheduling      `yaml:"scheduling"`
+	// Azure
+	StorageProfile *rawAzureStorageProfile `yaml:"storageProfile"`
 	// Daytona
 	Disk             int                `yaml:"disk"`
 	Volumes          []rawDaytonaVolume `yaml:"volumes"`
@@ -367,25 +377,56 @@ type rawUsageIdle struct {
 // listOf accepts a scalar or a list of scalars, as Cirun does for fallbacks.
 type listOf []string
 
+// A value may also be a mapping of an Azure image's parts ({publisher,
+// offer, sku, version}), which Cirun takes for machine_image; it is read
+// as the URN it spells.
 func (l *listOf) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind == yaml.ScalarNode {
-		*l = listOf{node.Value}
+	if node.Kind != yaml.SequenceNode {
+		value, err := listValue(node)
+		if err != nil {
+			return err
+		}
+		*l = listOf{value}
 
 		return nil
 	}
-	if node.Kind != yaml.SequenceNode {
-		return fmt.Errorf("line %d: expected a value or a list of values", node.Line)
-	}
 	out := make(listOf, 0, len(node.Content))
 	for _, item := range node.Content {
-		if item.Kind != yaml.ScalarNode {
-			return fmt.Errorf("line %d: expected a value, not a %s", item.Line, kindName(item.Kind))
+		value, err := listValue(item)
+		if err != nil {
+			return err
 		}
-		out = append(out, item.Value)
+		out = append(out, value)
 	}
 	*l = out
 
 	return nil
+}
+
+// listValue reads one entry of a list field: a scalar, or an image
+// mapping.
+func listValue(node *yaml.Node) (string, error) {
+	switch node.Kind { //nolint:exhaustive // anything else is refused below
+	case yaml.ScalarNode:
+		return node.Value, nil
+	case yaml.MappingNode:
+		fields := map[string]string{}
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key, value := node.Content[i], node.Content[i+1]
+			if key.Kind != yaml.ScalarNode || value.Kind != yaml.ScalarNode {
+				return "", fmt.Errorf("line %d: an image mapping has publisher, offer, sku and version values", value.Line)
+			}
+			fields[strings.ToLower(key.Value)] = strings.TrimSpace(value.Value)
+		}
+		urn, ok := azureImageURN(fields)
+		if !ok {
+			return "", fmt.Errorf("line %d: an image mapping needs publisher, offer and sku", node.Line)
+		}
+
+		return urn, nil
+	default:
+		return "", fmt.Errorf("line %d: expected a value, not a %s", node.Line, kindName(node.Kind))
+	}
 }
 
 func kindName(kind yaml.Kind) string {
@@ -407,11 +448,11 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 	case slices.Contains(Clouds, cloud):
 		out.Cloud = cloud
 	case cloud == "":
-		return Runner{}, failf(".cloud", "cloud is required: aws, gcp or daytona")
+		return Runner{}, failf(".cloud", "cloud is required: %s", cloudList)
 	case slices.Contains(otherClouds, cloud):
-		return Runner{}, failf(".cloud", "cloud %q is not supported yet; only aws, gcp and daytona are", r.Cloud)
+		return Runner{}, failf(".cloud", "cloud %q is not supported yet; only %s are", r.Cloud, cloudList)
 	default:
-		return Runner{}, failf(".cloud", "cloud %q is unknown; use aws, gcp or daytona", r.Cloud)
+		return Runner{}, failf(".cloud", "cloud %q is unknown; use %s", r.Cloud, cloudList)
 	}
 	if r.GPU.Kind != 0 {
 		// Cirun treats the value as a flag: any GPU name turns it on, and
@@ -515,6 +556,8 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 	switch out.Cloud {
 	case CloudGCP:
 		disk.Type = "" // the provider's default, pd-balanced
+	case CloudAzure:
+		disk = Disk{} // the image's size (Windows) or the provider's default (Linux), on the default managed disk kind
 	case CloudDaytona:
 		disk = Disk{SizeGB: DaytonaDefaultDiskGB} // a sandbox has one disk, of one kind
 	}
@@ -528,6 +571,10 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 	switch out.Cloud {
 	case CloudGCP:
 		if disk, ferr = e.applyGCP(out, disk); ferr != nil {
+			return Disk{}, ferr
+		}
+	case CloudAzure:
+		if disk, ferr = e.applyAzure(out, disk); ferr != nil {
 			return Disk{}, ferr
 		}
 	case CloudDaytona:
@@ -714,6 +761,10 @@ func expandVariants(cloud string, r rawRunner, disk Disk) ([]Variant, *fieldErro
 			if ferr := validateGCPVariant(&v, index); ferr != nil {
 				return nil, ferr
 			}
+		case CloudAzure:
+			if ferr := validateAzureVariant(&v, index); ferr != nil {
+				return nil, ferr
+			}
 		case CloudDaytona:
 			if ferr := validateDaytonaVariant(&v, index); ferr != nil {
 				return nil, ferr
@@ -737,8 +788,8 @@ func expandVariants(cloud string, r rawRunner, disk Disk) ([]Variant, *fieldErro
 }
 
 // ArchForInstanceType infers the CPU architecture of an instance type:
-// Graviton and Apple silicon families on AWS, Axion and Altra on GCP.
-// Daytona sandboxes are x64.
+// Graviton and Apple silicon families on AWS, Axion and Altra on GCP, the
+// "p" sizes (Ampere, Cobalt) on Azure. Daytona sandboxes are x64.
 func ArchForInstanceType(cloud, instanceType string) string {
 	switch cloud {
 	case CloudGCP:
@@ -747,6 +798,8 @@ func ArchForInstanceType(cloud, instanceType string) string {
 		}
 
 		return "x64"
+	case CloudAzure:
+		return azureArch(instanceType)
 	case CloudDaytona:
 		return "x64"
 	}
@@ -764,6 +817,8 @@ func HasGPU(cloud, instanceType string) bool {
 	switch cloud {
 	case CloudGCP:
 		return gcpGPUFamilies[gcpFamily(instanceType)]
+	case CloudAzure:
+		return azureGPUPattern.MatchString(instanceType)
 	case CloudDaytona:
 		return false
 	}

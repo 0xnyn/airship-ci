@@ -84,9 +84,13 @@ once:
    unknown (`lease_expired`, `launch_unconfirmed`) has neither, and only
    the inventory scan may decide.
 2. **A launch is idempotent per runner.** AWS gets a `ClientToken` and GCP
-   a `requestId` derived from the runner ID, and GCP machines are named
-   after the runner and looked up by name before every insert. A retried
-   call returns the first machine; it never makes a second one. Daytona
+   a `requestId` derived from the runner ID, and GCP and Azure machines
+   are named after the runner and looked up by name before every create.
+   A retried call returns the first machine; it never makes a second one.
+   On Azure a machine is several resources (address, interface, VM, disk)
+   made in order, each a PUT by name, so a retry re-finds every part an
+   earlier attempt made and a boot started by Run Command is checked for
+   before it is started. Daytona
    sandboxes are named after the runner too (a name is unique in the
    organization) and looked up before every create, and the steps that
    follow creation there (write the script, start it, label the sandbox)
@@ -111,14 +115,23 @@ once:
    launcher also checks the job once more after registering and before
    calling the cloud: a job cancelled or started elsewhere in that window
    gets no machine, and the registration is removed at once.
-   The cloud call itself is bounded by the lease: the launcher cuts it
-   off 30 seconds before the lease expires, so a runner is never given
-   up while its launch is still in flight (the providers settle a cut-off
-   insert by looking the machine up).
+   The cloud call itself is bounded by the lease: while it runs the
+   launcher renews the lease every half lease, up to `LaunchTimeout`
+   (15 minutes, for clouds that take minutes to build a machine), and
+   cuts the call off 30 seconds (a quarter of a short lease) before the
+   last lease it knows of expires, so a runner is never given up while
+   its launch is still in flight. A renewal that is refused (the runner
+   was finished meanwhile: expired by a reconciler while the database was
+   unreachable, or deleted) stops the call at once, so no machine is made
+   for a runner nobody tracks; the providers settle a cut-off creation by
+   looking the machine up.
 5. **Ambiguity is resolved by observation, not assumption.** A transport
    error after the request was sent, a lost poll or a timed-out operation
    is settled by looking the machine up; only when even that fails is the
-   launch `launch_unconfirmed`. The Daytona provider never reports an
+   launch `launch_unconfirmed`. On Azure a creation accepted but still in
+   progress when the launch runs out of time is unconfirmed too: the
+   machine is real, lists for the installation, and the next attempt (or
+   the scan) adopts it. The Daytona provider never reports an
    unconfirmed launch: a sandbox nobody started a runner in is worth
    nothing, so a launch it cannot finish deletes what it made and fails as
    retryable instead. Such a runner keeps its registration and
@@ -136,11 +149,41 @@ once:
    runner is what keeps the scan from destroying it. The revived runner drops
    its job trigger (a job has at most one live runner, and its retry may
    be live); the job row links to it instead.
-6. **Nothing is retried that GitHub would not run again.** GitHub
-   re-queues a job only while no runner has picked it up (within 60
-   seconds of assignment), and a job whose runner dies mid-run fails and
-   is not retried. Airship therefore retries only jobs still `queued`;
-   a `lost` busy runner ends its job as GitHub reports it.
+6. **Nothing is retried that GitHub would not run again.** Checked
+   against GitHub's documentation on 2026-10-27 rather than assumed: the
+   self-hosted runners reference says "If the runner doesn't pick up the
+   assigned job within 60 seconds, the job is re-queued so that a new
+   runner can accept it" and "If the job remains queued for more than 24
+   hours, the job will fail"; the limits reference puts self-hosted job
+   execution at up to 5 days (`timeout-minutes` defaults to 360) and the
+   queue at 24 hours; the autoscaling guide says "GitHub only assigns one
+   job to a runner" for ephemeral runners and de-registers the runner
+   after that job; the removal guide says an ephemeral runner is removed
+   after a day without connecting (14 days otherwise). No GitHub document
+   says what happens to a job whose runner dies mid-run, so that was
+   observed on 2026-10-27 with a real ephemeral runner (a JIT
+   registration in a container) holding a `workflow_dispatch` job that
+   sleeps for thirty minutes: the container was SIGKILLed while the step
+   ran; GitHub listed the runner `offline` but still `busy` within a
+   minute and left the job `in_progress`; 9 minutes 35 seconds after the
+   kill the job completed with conclusion `failure` on its first and
+   only attempt, annotated "The self-hosted runner lost communication
+   with the server. Verify the machine is running and has a healthy
+   network connection", with the running step left `in_progress`, and
+   the ephemeral registration was removed by GitHub at the same moment.
+   Nothing was re-queued and no second attempt appeared: a job whose
+   runner dies is failed, roughly ten minutes later, and only a person
+   (or a workflow-level retry step) runs it again. Airship therefore
+   retries only jobs still `queued` (a runner that never came online leaves its job
+   queued, which GitHub will not re-route on its own before the 24 hour
+   failure, so Airship's idle timeout replaces the runner and retries the
+   job); a `lost` busy runner ends its job as GitHub reports it (the
+   `BusyLostAfter` write-off at 10 minutes matches GitHub's own
+   give-up time, and a runner GitHub reports `busy` is never reaped as
+   idle, however long it has been `offline`), and nothing re-runs a job
+   that failed. Registrations of runners that
+   never connected are deleted by Airship, not left for GitHub's one-day
+   removal.
 7. **Every machine has its own deadline.** The boot script powers the
    machine off when the runner exits and at the maximum lifetime, and
    runs once per boot (a marker file makes a reboot shut down instead of
@@ -149,14 +192,19 @@ once:
    than deleted (Compute Engine has no delete-on-shutdown), so it stops
    costing compute at once but keeps its disk until the reconciler deletes
    it; Airship does not give the machine a service account that could
-   delete itself. A Daytona sandbox has no power button: its script stops
+   delete itself. An Azure machine shut down from inside is `stopped`,
+   still allocated and billed, until the reconciler lists it stopped and
+   deletes it; its disk, interface and address go with it. A Daytona
+   sandbox has no power button: its script stops
    the sandbox's daemon (PID 1) on every exit path, the sandbox is created
    to delete itself when stopped, and it carries a TTL fifteen minutes past
    the maximum lifetime, so Daytona removes a sandbox whose script never
    ran at all. The maximum lifetime (`RUNNER_MAX_LIFETIME`, 8 hours)
    is the one bound that can cut a legitimate job short: GitHub's default
-   job timeout is 6 hours, so the default leaves room, but a workflow
-   whose `timeout-minutes` exceeds the lifetime needs it raised. A pool
+   job timeout is 6 hours (`timeout-minutes: 360`), so the default leaves
+   room, but a self-hosted job may run for up to 5 days when the workflow
+   raises `timeout-minutes`, and such a workflow needs the lifetime raised
+   with it. A pool
    runner is retired after half the lifetime idle so that a job it takes
    still has the other half.
 
@@ -216,6 +264,58 @@ once:
   `diskType` written as a zonal path keeps only the type's name, since the
   runner's zone is chosen at launch. Deleting a machine deletes its disks
   (`autoDelete`).
+- **Launching on Azure.** A machine is several Resource Manager resources
+  in one resource group, `airship-runners`, that the provider creates in
+  the subscription on first use, with a virtual network and security group
+  per region (`airship-runners-<region>`, one `runners` subnet with the
+  default outbound access off, no inbound rules) that every runner shares.
+  Each launch, in order: a static public address (`<name>-ip`, unless
+  `enable_public_ip: false`), a network interface (`<name>-nic`) on the
+  subnet, then the virtual machine named after the runner, each a PUT by
+  name so a retry re-finds what an earlier attempt made; the interface,
+  address and OS disk carry `deleteOption: Delete` and go with the VM.
+  The VM is looked up by name before any create (a VM with the name and
+  another runner's tag is a permanent refusal). Creation is a
+  long-running operation: a refusal before it was accepted deletes the
+  interface and address; a failure after acceptance (`AllocationFailed`,
+  quota, a marketplace image without accepted terms) leaves a `Failed`
+  VM, which the provider deletes before failing the launch as retryable
+  or permanent by the error code; a lost answer, failed poll or timed-out
+  wait is settled by looking the VM up, and a VM still `Creating` is
+  waited for, up to the launch's own bound, then reported ambiguous. The
+  resource providers (`Microsoft.Compute`, `Microsoft.Network`) are
+  registered by the SDK on first use. Linux images take the boot script
+  as `customData` (cloud-init runs it once, at most 64 KB); Windows and
+  specialized images cannot, so once the VM is `Succeeded` the provider
+  starts the script through a managed Run Command (`airship-boot`,
+  asynchronous, read back before it is written since re-writing one
+  re-runs it; the script's marker makes a second run a no-op anyway). A
+  VM that cannot be given its script is deleted rather than left to idle
+  out. Spot machines use `priority: Spot` with `evictionPolicy: Delete`
+  and no price cap. Trusted Launch is requested only for images that
+  require it or Windows images that support it, with secure boot off (the
+  GPU driver path loads unsigned modules). `enable_public_ip: false`
+  creates one NAT gateway per region (`airship-nat-<region>` with a
+  static address of its own) and attaches it to the subnet. The default
+  is a public address per machine: Azure retired implicit outbound
+  access for networks created after September 2025, so a machine without
+  an address and without a NAT would never reach GitHub. Listing uses the
+  subscription's `virtualMachines?statusOnly=true` (the only list that
+  carries the power state) filtered by resource group, region and the
+  installation tag; a VM whose power state is stopped or deallocated
+  lists as stopped, one `Deleting` as stopping, one `Failed` with no
+  power state at all (never allocated) as stopped. Deleting a machine is
+  `forceDeletion`, not waited for. The scan then sweeps interfaces and
+  addresses of the installation in the region that no VM uses and that
+  are older than fifteen minutes (a launch that died between making the
+  interface and the VM leaves them), at most every five minutes per
+  scope. Every call is bounded; the SDK's own retries are kept short so
+  a deadline is spent on the call. The secret is a Microsoft Entra
+  application (tenant, client ID, client secret) with the Contributor
+  role on the subscription, as Cirun asks for; `Verify` reads the
+  subscription (an application that cannot see it gets a 404, reported
+  as bad credentials), refuses a disabled one, and checks the default
+  region is one the subscription offers.
 - **Launching on Daytona.** A sandbox runs nothing at boot (Daytona's
   daemon is PID 1 and waits for commands), so the control plane boots the
   runner itself, in idempotent steps: look the sandbox up by the runner's
@@ -302,14 +402,17 @@ once:
 ## Security model
 
 - **Credentials.** Access keys are verified with STS (service account
-  keys with `projects.get`, Daytona API keys by reading the key's own
+  keys with `projects.get`, Azure service principals by reading the
+  subscription and its regions, Daytona API keys by reading the key's own
   record, which must belong to an organization, be unexpired and carry the
   sandbox write and delete permissions, and the organization's regions,
   which must include the default) before they are stored, sealed with
   AES-256-GCM under `CREDENTIALS_KEY`, opened only for the duration of a
   cloud call, and never returned by any endpoint. The GCP identity shown
   is the service account's email; the project is the account ID. The
-  Daytona identity is the organization ID and the key's name. A sealed
+  Azure identity is the application (client) ID; the subscription is the
+  account ID. The Daytona identity is the organization ID and the key's
+  name. A sealed
   blob is bound to its row (installation and cloud, or runner), so it
   cannot be moved and opened elsewhere. Disconnecting a cloud, or
   replacing its key with one for another account, is refused while
@@ -320,9 +423,12 @@ once:
   errors never echo the value that failed, and upstream failures are
   reported without GitHub's or the database's error text.
 - **Tenancy.** Every query is scoped by GitHub installation ID; instances
-  are tagged (AWS) or labelled (GCP, Daytona) and listed by it, and a
-  terminate refuses an instance not marked for the installation. Two
-  installations sharing one Daytona organization rest on that label alone,
+  are tagged (AWS, Azure) or labelled (GCP, Daytona) and listed by it, and
+  a terminate refuses an instance not marked for the installation. Two
+  installations sharing one Azure subscription share the resource group
+  and the per-region networks (tagged `airship-managed`, not per
+  installation) and rest on the VM tag alone. Two installations sharing
+  one Daytona organization rest on that label alone,
   and a sandbox's toolbox is open to anyone holding an API key of the
   organization: a Daytona organization per installation is the stronger
   boundary.
@@ -344,17 +450,33 @@ once:
   activated repository can pick machines for that branch's jobs, as with
   any workflow; `max_runners` bounds what that can cost.
 - **Images.** Any AMI or Compute Engine image the account can launch is
-  allowed, as on Cirun, and on Daytona any container image Daytona can
-  pull, with a tag or digest (`latest` is refused, so a definition names
-  what it runs), or any snapshot of the organization. The default is
-  Canonical's current Ubuntu 22.04 (the `ubuntu-2204-lts` family on GCP,
-  `ubuntu:22.04` on Daytona). An image whose architecture is known and
-  differs from the machine's is refused before the launch.
+  allowed, as on Cirun, on Azure any marketplace image (whose terms the
+  subscription has accepted) or a managed or gallery image of the
+  connected subscription (another subscription's is refused by its ID),
+  and on Daytona any container image Daytona can pull, with a tag or
+  digest (`latest` is refused, so a definition names what it runs), or
+  any snapshot of the organization. The default is Canonical's current
+  Ubuntu 22.04 (the `ubuntu-2204-lts` family on GCP, the `22_04-lts-gen2`
+  SKU on Azure, `ubuntu:22.04` on Daytona). An image whose architecture
+  is known and differs from the machine's is refused before the launch;
+  a marketplace image its publisher deprecated is refused too.
 - **GCP machines** get no service account unless `serviceAccounts` sets
   one, and the service account key Airship holds is never on the machine.
   The JIT config travels in instance metadata, readable by anyone in the
   project with `compute.instances.get` until the runner registers, as the
   AWS user data is; `provision_via: pull_from_api` avoids it.
+- **Azure machines** are provisioned with an `airship` account whose
+  SSH key (Linux) is generated once per process and never written
+  anywhere, or whose password (Windows) is random and discarded: nobody
+  can log in. No managed identity is assigned, so a job cannot act on
+  the subscription with the machine's credentials; the application
+  secret Airship holds never reaches the machine. The JIT config travels
+  as `customData` (readable by anyone with `virtualMachines/read` on the
+  resource group until the runner registers, as AWS user data is) or in
+  the Run Command's script (readable with `runCommands/read`);
+  `provision_via: pull_from_api` avoids both. The security group has no
+  rules of Airship's own: Azure's defaults deny inbound traffic from the
+  internet and allow all outbound.
 - **Daytona sandboxes** are containers Daytona runs as privileged (so a
   Docker daemon can run inside when `docker: true`), with the toolbox
   API as the only way in; Airship never opens a shell, it writes one file
@@ -375,9 +497,25 @@ caching with one namespace per account bucket.
 
 Different, on purpose:
 
-- **Clouds.** AWS, GCP and Daytona. `azure`, `do`, `openstack`, `oracle`,
+- **Clouds.** AWS, GCP, Azure and Daytona. `do`, `openstack`, `oracle`,
   `vast_ai` and `on_prem` are refused with "not supported yet" rather than
   ignored. Each is a provider implementation; none can be trusted unrun.
+- **Azure defaults.** Cirun launches Azure machines without a public
+  address unless `enable_public_ip: true`; Airship gives each machine a
+  static public address unless `enable_public_ip: false`, which creates
+  a NAT gateway per region instead. Azure retired implicit outbound
+  access for new virtual networks in September 2025, so Cirun's default
+  on a fresh subscription would boot machines that cannot reach GitHub.
+  Cirun also leaves the VM's security to the subscription's defaults;
+  Airship creates a security group per region (no rules of its own) so
+  the subnet is explicit about allowing no inbound traffic. The OS disk
+  defaults to 75 GB on Linux and the image's size on Windows, on the
+  image's default disk kind, where Cirun documents only
+  `storageProfile.osDisk.diskSizeGB`. Windows and specialized images boot
+  through a Run Command, which Cirun's docs do not describe (an
+  implementation detail: Azure runs no custom data on Windows). The
+  resource group, networks and NAT are shared by every installation that
+  connects the subscription.
 - **Daytona** is an addition; Cirun has no Daytona cloud, so its fields
   were given meanings rather than copied: `instance_type` is a sandbox
   shape (`2vcpu-4gb`) or a snapshot name, `machine_image` a container
@@ -474,6 +612,63 @@ Different, on purpose:
   `AIRSHIP_LIVE_GCP_LOCATION` are set; it costs one machine's minutes.
   Until it has run, the GCP provider should be treated as unexercised
   against Google, however thorough the fake is.
+- **Azure: not run against Azure.** The provider is driven through the
+  real `azure-sdk-for-go` clients (`armcompute` v8, `armnetwork` v8,
+  `armresources`, `armsubscriptions`) against `azure/azuretest`, a fake
+  of Resource Manager written from Microsoft's reference (case-insensitive
+  paths, long-running operations through `Azure-AsyncOperation`,
+  creations that fail after acceptance and leave a `Failed` VM, dropped
+  answers that the SDK's retries then repeat, hung and failing operation
+  polls, resources that cascade on delete by their `deleteOption`,
+  subscriptions, locations, marketplace versions, managed and gallery
+  images, networks, addresses, interfaces, NAT gateways, run commands).
+  The tests cover verification (a subscription the principal cannot see,
+  a disabled one, an unknown region), the request shapes for Linux,
+  Windows (Trusted Launch, no custom data, a Run Command started once and
+  not again on relaunch), spot and disk options, idempotent relaunch and
+  the refusal of a foreign VM with the runner's name, every error class
+  after and before acceptance with the interface and address cleaned up,
+  lost answers settled by lookup, a creation still in progress reported
+  ambiguous and adopted later, a `Failed` VM removed and relaunched, Run
+  Command failures deleting the VM, NAT creation shared across launches,
+  a network with Airship's name but not its tag refused, ownership
+  checks on delete, listing by region, installation and state, a list
+  that fails or hangs failing rather than reporting nothing, the orphan
+  sweep's age, scope and rate limit, and image resolution for URNs
+  (newest version for properties, `latest` left to Azure, deprecation,
+  purchase plans), managed and gallery images (specialized ones with no
+  OS profile, versions, architecture mismatches, another subscription).
+  The machine's side of the lifecycle ran for real on 2026-10-27: the
+  `customData` the provider builds for a Linux launch (captured through
+  the fake, 6288 bytes raw and 8384 encoded, against the 65535 limit),
+  carrying a JIT config minted with the labels Airship registers
+  (`self-hosted`, the arch, `azure`, `cpu`, `airship`, the definition's
+  own), ran unmodified in an `ubuntu:22.04` container with only
+  `/sbin/shutdown` stubbed (and `sudo`, `curl` and CA certificates
+  installed first, which Canonical's Azure images ship and the bare
+  Docker image does not): it downloaded the runner, connected in about
+  two minutes, took a real `workflow_dispatch` job whose steps checked
+  the architecture, that the `env_vars` reach the job, that the runner
+  can `sudo`, and that the JIT config is gone from the step's
+  environment; the job succeeded, the runner exited after it, the script
+  reached its `shutdown -P now` trap, and GitHub removed the ephemeral
+  registration. No subscription was available, so no request body has
+  been accepted by Azure itself; the first real launch is the thing to
+  watch, in particular the
+  `customData` size, the Trusted Launch and size combinations, the NAT
+  gateway attachment, the Run Command on a Windows image, and whether
+  `statusOnly=true` lists carry the power state as documented. The opt-in
+  `TestAgainstLiveAzure` in `internal/cloud/azure` verifies a service
+  principal, launches one `Standard_B2s`, checks idempotent relaunch,
+  listing with power state, the ownership refusal, deletion with its
+  interface and address, and an empty sweep, when
+  `AIRSHIP_LIVE_AZURE_{SUBSCRIPTION_ID,TENANT_ID,CLIENT_ID,CLIENT_SECRET}`
+  are set; it costs a machine's minutes and leaves the resource group and
+  network behind. Until it has run, the Azure provider should be treated
+  as unexercised against Azure, however thorough the fake is. The fleet
+  tests exercise the Azure definition through the fake provider: the
+  fields carried to a launch, fallbacks, the scan's sweep, and the lease
+  renewal a slow launch depends on.
 - **Daytona: run against Daytona, with a real job.** The provider is
   driven through Daytona's generated Go clients (`api-client-go` and
   `toolbox-api-client-go`, v0.226.1) against `daytona/daytonatest` in CI:

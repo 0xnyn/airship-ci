@@ -1634,6 +1634,28 @@ func (q *Queries) ReleaseRunner(ctx context.Context, arg ReleaseRunnerParams) er
 	return err
 }
 
+const renewRunnerLease = `-- name: RenewRunnerLease :one
+update runners
+set lease_expires_at = now() + make_interval(secs => $1::float8)
+where id = $2 and state = 'launching' and lease_expires_at > now()
+returning lease_expires_at
+`
+
+type RenewRunnerLeaseParams struct {
+	LeaseSeconds float64
+	ID           uuid.UUID
+}
+
+// Extends the lease of a runner still being launched, so a cloud whose
+// machines take long to create keeps its launch. A runner the reconciler
+// already gave up on (expired, or finished for any reason) is not revived.
+func (q *Queries) RenewRunnerLease(ctx context.Context, arg RenewRunnerLeaseParams) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, renewRunnerLease, arg.LeaseSeconds, arg.ID)
+	var lease_expires_at *time.Time
+	err := row.Scan(&lease_expires_at)
+	return lease_expires_at, err
+}
+
 const reportInstances = `-- name: ReportInstances :many
 update runners
 set instance_seen_at = now(),

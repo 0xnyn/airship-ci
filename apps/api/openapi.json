@@ -251,7 +251,7 @@
         "additionalProperties": false,
         "properties": {
           "accountId": {
-            "description": "Cloud account ID (AWS account, GCP project, Daytona organization)",
+            "description": "Cloud account ID (AWS account, GCP project, Azure subscription, Daytona organization)",
             "type": [
               "string",
               "null"
@@ -262,6 +262,7 @@
             "enum": [
               "aws",
               "gcp",
+              "azure",
               "daytona"
             ],
             "type": "string"
@@ -283,7 +284,7 @@
             ]
           },
           "identity": {
-            "description": "Public half of the credential (AWS access key ID, GCP service account email, masked Daytona API key)",
+            "description": "Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, masked Daytona API key)",
             "type": "string"
           },
           "principal": {
@@ -337,6 +338,7 @@
             "enum": [
               "aws",
               "gcp",
+              "azure",
               "daytona"
             ],
             "type": "string"
@@ -345,7 +347,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for daytona: api_key and optionally api_url and region",
+            "description": "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region",
             "maxProperties": 20,
             "type": "object"
           }
@@ -528,6 +530,46 @@
         "required": [
           "accessKeyId",
           "secretAccessKey"
+        ],
+        "type": "object"
+      },
+      "ConnectAzure": {
+        "additionalProperties": false,
+        "properties": {
+          "clientId": {
+            "description": "Application (client) ID",
+            "format": "uuid",
+            "type": "string"
+          },
+          "clientSecret": {
+            "description": "A client secret of the application",
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "defaultRegion": {
+            "default": "eastus",
+            "description": "Region (eastus, westeurope) used when a config names none",
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9]{2,39}$",
+            "type": "string"
+          },
+          "subscriptionId": {
+            "description": "Subscription ID",
+            "format": "uuid",
+            "type": "string"
+          },
+          "tenantId": {
+            "description": "Directory (tenant) ID of the application",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscriptionId",
+          "tenantId",
+          "clientId",
+          "clientSecret"
         ],
         "type": "object"
       },
@@ -2973,6 +3015,59 @@
         ]
       }
     },
+    "/v1/orgs/{org}/clouds/azure": {
+      "put": {
+        "operationId": "connectAzure",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectAzure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Microsoft Azure",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
     "/v1/orgs/{org}/clouds/daytona": {
       "put": {
         "operationId": "connectDaytona",
@@ -3103,6 +3198,7 @@
               "enum": [
                 "aws",
                 "gcp",
+                "azure",
                 "daytona"
               ],
               "type": "string"

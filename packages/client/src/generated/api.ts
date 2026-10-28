@@ -302,6 +302,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/clouds/azure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Microsoft Azure */
+        put: operations["connectAzure"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/clouds/daytona": {
         parameters: {
             query?: never;
@@ -646,13 +663,13 @@ export interface components {
             installUrl: string | null;
         };
         Cloud: {
-            /** @description Cloud account ID (AWS account, GCP project, Daytona organization) */
+            /** @description Cloud account ID (AWS account, GCP project, Azure subscription, Daytona organization) */
             accountId: string | null;
             /**
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws" | "gcp" | "daytona";
+            cloud: "aws" | "gcp" | "azure" | "daytona";
             /**
              * Format: date-time
              * @description When it was connected
@@ -662,7 +679,7 @@ export interface components {
             defaultRegion: string;
             /** @description Why the credential stopped working */
             error: string | null;
-            /** @description Public half of the credential (AWS access key ID, GCP service account email, masked Daytona API key) */
+            /** @description Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, masked Daytona API key) */
             identity: string;
             /** @description Who the credential is, such as an IAM ARN or an API key's name */
             principal: string | null;
@@ -687,8 +704,8 @@ export interface components {
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws" | "gcp" | "daytona";
-            /** @description Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for daytona: api_key and optionally api_url and region */
+            cloud: "aws" | "gcp" | "azure" | "daytona";
+            /** @description Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region */
             credentials: {
                 [key: string]: string;
             };
@@ -746,6 +763,30 @@ export interface components {
             defaultRegion: string;
             /** @description IAM secret access key */
             secretAccessKey: string;
+        };
+        ConnectAzure: {
+            /**
+             * Format: uuid
+             * @description Application (client) ID
+             */
+            clientId: string;
+            /** @description A client secret of the application */
+            clientSecret: string;
+            /**
+             * @description Region (eastus, westeurope) used when a config names none
+             * @default eastus
+             */
+            defaultRegion: string;
+            /**
+             * Format: uuid
+             * @description Subscription ID
+             */
+            subscriptionId: string;
+            /**
+             * Format: uuid
+             * @description Directory (tenant) ID of the application
+             */
+            tenantId: string;
         };
         ConnectDaytona: {
             /** @description Organization API key (write:sandboxes and delete:sandboxes) */
@@ -2050,6 +2091,41 @@ export interface operations {
             };
         };
     };
+    connectAzure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectAzure"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     connectDaytona: {
         parameters: {
             query?: never;
@@ -2127,7 +2203,7 @@ export interface operations {
             path: {
                 org: string;
                 /** @description Cloud name */
-                cloud: "aws" | "gcp" | "daytona";
+                cloud: "aws" | "gcp" | "azure" | "daytona";
             };
             cookie?: never;
         };

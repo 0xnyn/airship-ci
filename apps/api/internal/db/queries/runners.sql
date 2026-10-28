@@ -211,6 +211,15 @@ where credential_id = sqlc.arg(credential_id)
     and coalesce(running_at, finished_at, created_at) < sqlc.arg(seen_before)::timestamptz
 returning *;
 
+-- name: RenewRunnerLease :one
+-- Extends the lease of a runner still being launched, so a cloud whose
+-- machines take long to create keeps its launch. A runner the reconciler
+-- already gave up on (expired, or finished for any reason) is not revived.
+update runners
+set lease_expires_at = now() + make_interval(secs => sqlc.arg(lease_seconds)::float8)
+where id = sqlc.arg(id) and state = 'launching' and lease_expires_at > now()
+returning lease_expires_at;
+
 -- name: ExpireRunnerLeases :many
 -- The instance may exist (the launcher died after the cloud call), so
 -- instance_gone_at is left for the inventory scan to decide: it revives

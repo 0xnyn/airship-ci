@@ -179,8 +179,14 @@ func (a AppGitHub) EnsureRunnerGroup(ctx context.Context, inst int64, org, name 
 // DefaultConfig.
 type Config struct {
 	// LeaseDuration is how long a launcher has to finish a launch it
-	// claimed before the runner is presumed never launched.
+	// claimed before the runner is presumed never launched. A launch still
+	// in flight renews its lease, up to LaunchTimeout.
 	LeaseDuration time.Duration
+	// LaunchTimeout bounds one launch attempt: the cloud call, including
+	// the creation of a machine and the start of its boot script. Clouds
+	// that take minutes to build a machine (Azure, Windows images) need
+	// more than one lease.
+	LaunchTimeout time.Duration
 	// InstanceGrace covers cloud APIs that list new instances late, and
 	// instances that are slow to disappear from listings.
 	InstanceGrace time.Duration
@@ -226,6 +232,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		LeaseDuration:       5 * time.Minute,
+		LaunchTimeout:       15 * time.Minute,
 		InstanceGrace:       2 * time.Minute,
 		IdleTimeout:         10 * time.Minute,
 		BusyLostAfter:       10 * time.Minute,

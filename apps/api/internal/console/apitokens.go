@@ -14,6 +14,7 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
+	azurecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/azure"
 	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
@@ -230,11 +231,12 @@ func (h *handlers) apiListClouds(ctx context.Context, _ *struct{}) (*cloudListOu
 
 // CloudConnect is Cirun's cloud-connect request: a cloud name and that
 // cloud's credentials, as `cirun cloud connect` sends them: for aws the
-// access key, for gcp the service account key file's fields. Daytona, which
-// Cirun does not have, takes api_key (and api_url, region).
+// access key, for gcp the service account key file's fields, for azure the
+// subscription, tenant, client ID and client secret. Daytona, which Cirun
+// does not have, takes api_key (and api_url, region).
 type CloudConnect struct {
-	Cloud       string            `doc:"Cloud name" enum:"aws,gcp,daytona" json:"cloud"`
-	Credentials map[string]string `doc:"Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for daytona: api_key and optionally api_url and region" json:"credentials" maxProperties:"20"`
+	Cloud       string            `doc:"Cloud name" enum:"aws,gcp,azure,daytona" json:"cloud"`
+	Credentials map[string]string `doc:"Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region" json:"credentials" maxProperties:"20"`
 }
 
 type cloudConnectInput struct {
@@ -257,6 +259,19 @@ func (h *handlers) compatCloudConnect(ctx context.Context, in *cloudConnectInput
 		}
 		if _, _, ok := gcpcloud.SplitLocation(region); !ok {
 			return nil, huma.Error422UnprocessableEntity("region is not a GCP zone or region")
+		}
+	case cloud.Azure:
+		secret, err = azurecloud.EncodeSecret(azurecloud.Secret{
+			SubscriptionID: creds["subscription_id"], TenantID: creds["tenant_id"], ClientID: creds["client_id"], ClientSecret: creds["client_secret"],
+		})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials need subscription_id, tenant_id, client_id and client_secret: " + err.Error())
+		}
+		if region == "" {
+			region = azurecloud.DefaultRegion
+		}
+		if !azurecloud.IsRegion(region) {
+			return nil, huma.Error422UnprocessableEntity("region is not an Azure region")
 		}
 	case cloud.Daytona:
 		secret, err = daytonacloud.EncodeSecret(daytonacloud.Secret{APIKey: creds["api_key"], APIURL: creds["api_url"]})

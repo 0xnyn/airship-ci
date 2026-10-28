@@ -26,7 +26,12 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
-import { awsRegions, daytonaRegions, gcpLocations } from "@/lib/labels";
+import {
+  awsRegions,
+  azureRegions,
+  daytonaRegions,
+  gcpLocations,
+} from "@/lib/labels";
 import { CodeBlock } from "./copy-button";
 import { ErrorRow } from "./data-table";
 import { useOrg } from "./org-context";
@@ -38,6 +43,7 @@ const CLOUDS = "/v1/orgs/{org}/clouds";
 const DEFAULT_AWS_REGION = "eu-west-1";
 const DEFAULT_GCP_LOCATION = "us-central1-b";
 const DEFAULT_DAYTONA_REGION = "us";
+const DEFAULT_AZURE_REGION = "eastus";
 
 type CloudName = Schemas["Cloud"]["cloud"];
 
@@ -66,6 +72,24 @@ const cloudCopy: Record<
     ),
     location: "Default region",
     title: "Amazon Web Services",
+  },
+  azure: {
+    account: "Subscription",
+    identity: "Application",
+    intro: (
+      <>
+        Register an application in Microsoft Entra, give it the Contributor role
+        on the subscription, create a client secret for it and paste the IDs and
+        the secret here. Runners get a virtual machine each, in the{" "}
+        <code className="font-mono">airship-runners</code> resource group and
+        the region an <code className="font-mono">airship.yaml</code> names, or
+        the default region below. Azure has no object storage the cache proxy
+        speaks, so <code className="font-mono">cache: true</code> launches
+        without it.
+      </>
+    ),
+    location: "Default region",
+    title: "Microsoft Azure",
   },
   daytona: {
     account: "Organization",
@@ -129,12 +153,19 @@ export function CloudPage() {
       />
       <CloudSection
         clouds={clouds}
+        existing={find("azure")}
+        form={(existing) => <ConnectAzureForm existing={existing} />}
+        name="azure"
+      />
+      <CloudSection
+        clouds={clouds}
         existing={find("daytona")}
         form={(existing) => <ConnectDaytonaForm existing={existing} />}
         name="daytona"
       />
       <AWSPolicy />
       <GCPRole />
+      <AzureApp />
       <DaytonaKey />
     </>
   );
@@ -466,6 +497,143 @@ function ConnectGCPForm({
   );
 }
 
+function ConnectAzureForm({
+  existing,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [subscriptionId, setSubscriptionId] = useState("");
+  const [tenantId, setTenantId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [region, setRegion] = useState(
+    existing?.defaultRegion ?? DEFAULT_AZURE_REGION
+  );
+  const connect = $api.useMutation("put", "/v1/orgs/{org}/clouds/azure", {
+    onSuccess: async (cloud) => {
+      setClientSecret("");
+      toast.success(
+        `Connected Azure subscription ${cloud.accountId ?? ""}`.trim()
+      );
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title="Microsoft Azure" />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    connect.mutate({
+      body: {
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        defaultRegion: region,
+        subscriptionId: subscriptionId.trim(),
+        tenantId: tenantId.trim(),
+      },
+      params: { path: { org: org.login } },
+    });
+  };
+  const guid = {
+    autoComplete: "off",
+    className: "font-mono",
+    pattern:
+      "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+    placeholder: "00000000-0000-0000-0000-000000000000",
+    required: true,
+    spellCheck: false,
+  } as const;
+
+  return (
+    <form
+      aria-label={
+        existing ? "Replace Azure credentials" : "Connect Microsoft Azure"
+      }
+      className="grid gap-4 border-t pt-4"
+      onSubmit={submit}
+    >
+      <ReplaceNote existing={existing} />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Field>
+          <FieldLabel htmlFor="azure-subscription-id">
+            Subscription ID
+          </FieldLabel>
+          <Input
+            {...guid}
+            id="azure-subscription-id"
+            onChange={(event) => setSubscriptionId(event.target.value)}
+            value={subscriptionId}
+          />
+          <FieldDescription>
+            The subscription the application has the Contributor role on.
+          </FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="azure-tenant-id">
+            Directory (tenant) ID
+          </FieldLabel>
+          <Input
+            {...guid}
+            id="azure-tenant-id"
+            onChange={(event) => setTenantId(event.target.value)}
+            value={tenantId}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="azure-client-id">
+            Application (client) ID
+          </FieldLabel>
+          <Input
+            {...guid}
+            id="azure-client-id"
+            onChange={(event) => setClientId(event.target.value)}
+            value={clientId}
+          />
+        </Field>
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor="azure-client-secret">Client secret</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id="azure-client-secret"
+            onChange={(event) => setClientSecret(event.target.value)}
+            required
+            spellCheck={false}
+            type="password"
+            value={clientSecret}
+          />
+          <FieldDescription>
+            The secret&apos;s value, shown once when it is created.
+          </FieldDescription>
+        </Field>
+        <LocationSelect
+          id="azure-region"
+          label="Default region"
+          onChange={setRegion}
+          options={azureRegions}
+          value={region}
+        />
+      </div>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, "Could not connect Microsoft Azure")}
+        </FieldError>
+      ) : null}
+      <div>
+        <Button disabled={connect.isPending} type="submit">
+          {connect.isPending ? "Verifying…" : "Save"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function ConnectDaytonaForm({
   existing,
 }: {
@@ -671,6 +839,42 @@ gcloud iam service-accounts keys create service-account.json \\
         need a GPU quota in the zone, which new projects have at zero.
       </p>
       <CodeBlock label="Copy gcloud commands" value={commands} />
+    </section>
+  );
+}
+
+function AzureApp() {
+  const commands = [
+    "az login",
+    'SUBSCRIPTION_ID="$(az account show --query id -o tsv)"',
+    "az ad sp create-for-rbac --name airship-runners --role Contributor \\",
+    '  --scopes "/subscriptions/$SUBSCRIPTION_ID"',
+    "# appId is the application (client) ID, password the client secret,",
+    "# tenant the directory (tenant) ID.",
+  ].join("\n");
+
+  return (
+    <section aria-labelledby="azure-app" className="grid gap-3">
+      <h2 className="font-medium text-sm" id="azure-app">
+        Registering the Azure application
+      </h2>
+      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
+        Airship creates one resource group,{" "}
+        <code className="font-mono">airship-runners</code>, in the subscription,
+        with a virtual network and security group per region (and a NAT gateway
+        where definitions set{" "}
+        <code className="font-mono">enable_public_ip: false</code>). Each runner
+        is a virtual machine with its own network interface, public address and
+        OS disk, all deleted with it. The Contributor role covers that; a custom
+        role needs the Microsoft.Compute, Microsoft.Network and
+        Microsoft.Resources write and delete actions. Marketplace images with
+        terms (most third-party ones) must have them accepted on the
+        subscription first (
+        <code className="font-mono">az vm image terms accept</code>), and the
+        sizes a definition names need quota in its regions. Client secrets
+        expire; the next launch fails until a new one is pasted here.
+      </p>
+      <CodeBlock label="Copy az commands" value={commands} />
     </section>
   );
 }

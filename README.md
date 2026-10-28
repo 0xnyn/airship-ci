@@ -78,6 +78,10 @@ generated file is stale.
 
 ## Running locally
 
+The full guide, including a development GitHub App, tunnels, real cloud
+machines and every test suite, is [docs/development.md](docs/development.md).
+The short version:
+
 You need Go 1.27+, Node 24+, pnpm 11 and Docker.
 
 ```bash
@@ -160,6 +164,14 @@ TEST_DATABASE_URL='postgres://airship:airship@localhost:5432/airship?sslmode=dis
 ```
 
 ## Deploying
+
+Step-by-step guides for [AWS](docs/deploy/aws.md) (ECS Fargate and RDS),
+[Google Cloud](docs/deploy/gcp.md) (Cloud Run and Cloud SQL),
+[Azure](docs/deploy/azure.md) (Container Apps and PostgreSQL flexible
+server) and [a single server](docs/deploy/server.md) (Docker Compose and
+Caddy), with the production checklist they share, are in
+[docs/deploy/](docs/deploy/README.md). Postgres 18 or newer is required.
+In short:
 
 The control plane is one container plus Postgres:
 

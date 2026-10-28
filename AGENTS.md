@@ -26,6 +26,7 @@ generated from it and must never be edited by hand.
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
 | `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
 | `packages/typescript-config` | Shared `tsconfig` presets |
+| `deploy/` | Production env templates (`production/`) and a single-server Docker Compose stack (`compose/`). Guides: `docs/development.md`, `docs/deploy/` |
 
 ## How types flow
 

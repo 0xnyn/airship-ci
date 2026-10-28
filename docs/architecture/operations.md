@@ -7,6 +7,9 @@ yourself.
 **Audience.** Whoever gets paged. Also customers who want the control plane
 inside their own perimeter.
 
+Step-by-step deployment on AWS, Google Cloud, Azure or one server, and the
+production checklist, are in [../deploy/](../deploy/README.md).
+
 ---
 
 ## The deployment
@@ -108,7 +111,7 @@ production.
 | `DEV_LOGIN` | Accepted only with `APP_ENV=development`. Startup fails otherwise |
 | `CREDENTIALS_KEY` set to the published example key | Startup fails, naming `.env.example` |
 | `PUBLIC_URL` on plain HTTP | Startup fails |
-| `AWS_ENDPOINT`, `GCP_ENDPOINT`, `DAYTONA_ENDPOINT` | Test-only; point the providers at moto or a fake API |
+| `AWS_ENDPOINT`, `GCP_ENDPOINT`, `AZURE_ENDPOINT`, `DAYTONA_ENDPOINT` | Test-only; point the providers at moto or a fake API |
 
 These are startup failures on purpose: a misconfigured control plane should
 not come up at all rather than come up insecurely.
@@ -131,7 +134,7 @@ the session cookie is sent.
 | inbound | browsers | `PUBLIC_URL`, `WEB_URL` | Dashboard and API |
 | inbound | **runner machines** | `PUBLIC_URL` | Only for `cache: true`: the proxy binary and its hour-long credentials |
 | outbound | control plane | `api.github.com` | JIT configs, job and runner lookups, file reads, redelivery |
-| outbound | control plane | AWS EC2/S3/STS endpoints, `compute.googleapis.com`, `oauth2.googleapis.com`, `app.daytona.io` and `proxy.app.daytona.io` (or your Daytona API URL and the toolbox proxy it reports) | Launching, listing, terminating, cache grants; on Daytona also writing and starting the boot script inside each sandbox |
+| outbound | control plane | AWS EC2/S3/STS endpoints, `compute.googleapis.com`, `oauth2.googleapis.com`, `management.azure.com` and `login.microsoftonline.com`, `app.daytona.io` and `proxy.app.daytona.io` (or your Daytona API URL and the toolbox proxy it reports) | Launching, listing, terminating, cache grants; on Daytona also writing and starting the boot script inside each sandbox |
 | outbound | control plane | Postgres | — |
 
 The third row is the one people miss: **if the control plane is not
@@ -147,7 +150,7 @@ continues to function; the Events page records `cache.unavailable`.
 | **Several replicas** | Supported and recommended. Launchers run on every replica and claim work with row locks and `FOR UPDATE SKIP LOCKED`, within `max_runners` counted under a lock on the installation row — two replicas can never both take the last slot |
 | **The reconciler** | One leader per pass, elected with `pg_try_advisory_lock`. The steps are individually safe to run concurrently; the lock only avoids duplicate GitHub calls |
 | **Losing the leader** | Costs one pass. The next replica to tick takes the lock |
-| **Losing a replica mid-launch** | The runner's 5-minute lease expires, the job is retried, and if the machine did launch, the inventory scan revives the original runner. The duplicate idles out after 10 minutes |
+| **Losing a replica mid-launch** | The runner's 5-minute lease (renewed only by the launcher that holds it) expires, the job is retried, and if the machine did launch, the inventory scan revives the original runner. The duplicate idles out after 10 minutes |
 | **Losing every replica** | No new runners. Running jobs finish — the runner talks to GitHub, not to us. **Every machine still powers itself off at its own deadline**, so nothing runs forever |
 | **Rolling deploys** | Requests in flight finish during a 30-second drain; background loops stop at once. Launches already in flight are covered by the lease |
 
@@ -157,7 +160,7 @@ continues to function; the Events page records `cache.unavailable`.
 
 | Loop | Interval | Leader-only | Does |
 | --- | --- | --- | --- |
-| launcher | 2s, plus woken by a webhook | no | Claims pending runners under capacity; registers with GitHub; calls the cloud. Concurrency 8, batch 50 |
+| launcher | 2s, plus woken by a webhook | no | Claims pending runners under capacity; registers with GitHub; calls the cloud, renewing the runner's lease while the call runs. Concurrency 8, batch 50 |
 | reconciler | 15s | **yes** | The twelve steps below |
 | webhook redeliverer | 2m | one replica | GitHub never retries a failed delivery; this scans the app's delivery log and asks for redelivery with backoff |
 | role refresher | 1m | no | Re-checks dashboard roles older than an hour, 100 at a time |
@@ -182,7 +185,8 @@ Timings worth knowing when reading logs:
 
 | Constant | Default |
 | --- | --- |
-| Launch lease | 5m (the cloud call is cut off 30s before it expires) |
+| Launch lease | 5m, renewed every half lease while the cloud call runs |
+| One launch attempt | at most 15m (an Azure Windows machine plus its Run Command can take minutes); cut off 30s before the last renewed lease expires |
 | Instance grace before "gone" | 2m |
 | Busy runner written off after its instance vanished | 10m |
 | Deregister from GitHub after finishing | 2m |
@@ -191,6 +195,7 @@ Timings worth knowing when reading logs:
 | Failed launches per job | 3, or one per fallback attempt |
 | Event retention | 30 days |
 | Cache grant TTL / bucket retention | 1h / 7 days |
+| Azure orphan sweep (interfaces and addresses no VM uses) | after each inventory pass, at most every 5m per scope, for parts older than 15m |
 
 ---
 
@@ -227,7 +232,9 @@ page — not failed jobs.
 
 **If you lose Postgres entirely:** running jobs finish, every machine
 destroys itself at its deadline, and you are left with instances to sweep by
-tag (`airship:installation` / `airship-installation`) if any were mid-life.
+tag (`airship:installation` on AWS, `airship-installation` on GCP, Azure and
+Daytona) if any were mid-life. On Azure everything is in the `airship-runners`
+resource group.
 Reinstalling and reconnecting rebuilds everything else from GitHub. This is
 the one failure the design does not absorb, which is why it is the one thing
 to back up.
@@ -295,12 +302,14 @@ Log lines worth alerting on: `reconcile` errors that persist across passes,
 | Symptom | First checks | Likely cause |
 | --- | --- | --- |
 | **No jobs appear at all** | GitHub App → Advanced → recent deliveries; `/healthz` | Webhook URL or secret wrong, or the control plane is unreachable from GitHub. The redeliverer recovers lost deliveries once reachability is restored |
-| **Jobs appear but nothing launches** | Events page; the Cloud page's credential status | Invalid credential, `max_runners` reached, or a cloud quota |
+| **Jobs appear but nothing launches** | Cloud page (**Credentials rejected** once a check finds the cloud refuses the key), then the Events page | A credential revoked or expired since it was connected, `max_runners` reached, or a cloud quota |
 | **Everything is slow to start** | Reconciler error logs; GitHub rate limit headers | Rate limiting, or a reconcile pass failing before the launcher's wake path |
 | **Runners stuck in `pending`** | `max_runners` versus live runners; launcher logs | Capacity cap, or every launch failing and retrying |
 | **Runners finish `idle` repeatedly** | The job's labels versus the runner's | A `--${{ github.run_id }}` suffix mismatch, or jobs cancelled during boot |
 | **Runners finish `launch_unconfirmed` repeatedly** | Network path to the cloud API | Lost answers. Handled correctly, but it points at a real network problem |
-| **Instances in the cloud with no runner row** | Instance tags; the inventory scan's logs | Normally terminated within a pass. Persisting means the credential cannot list or terminate — check the IAM policy |
+| **Instances in the cloud with no runner row** | Instance tags; the inventory scan's logs | Normally terminated within a pass. Persisting means the credential cannot list or terminate — check the IAM policy (on Azure, the role must be on the subscription, since the list is subscription-wide) |
+| **Stopped VMs or powered-off instances linger (GCP, Azure)** | Events page; the inventory scan's logs | They are deleted by the scan, not by the cloud. Lingering means the scan cannot list or delete in that region — usually an expired Azure client secret or a narrowed role |
+| **Orphaned Azure interfaces or addresses** | `sweep orphaned resources` warnings | The sweep removes them after 15 minutes. Persisting means the role lacks `networkInterfaces/delete` or `publicIPAddresses/delete` |
 | **Caching silently off** | Events page for `cache.unavailable` | A missing S3 permission, a control plane built without the proxy binary, or runners that cannot reach `PUBLIC_URL` |
 | **Dashboard sign-in loops** | `WEB_URL`, `CORS_ORIGINS`, cookie domain | The API and dashboard are not on the same site, so the session cookie is not sent |
 | **Reconciler not running** | Whether any replica holds the advisory lock | A replica holding the lock while wedged. Restart it; the next replica takes over |
@@ -321,7 +330,7 @@ The control plane is not the bottleneck; your cloud quotas are. For scale:
 | Dimension | Notes |
 | --- | --- |
 | Replicas | Two for availability. The launcher batches 50 runners per pass with concurrency 8, so one replica handles a lot of churn |
-| Postgres | A small managed instance. Connection pooling via pgx; indexes exist for every lifecycle query path |
+| Postgres | A small managed instance, **version 18 or newer** (the schema uses `uuidv7()`). Connection pooling via pgx; indexes exist for every lifecycle query path |
 | Runners per installation | `max_runners`, 1–10,000. Keep it below your cloud quotas so the ceiling is a dashboard message, not a wall of cloud errors |
 | Jobs per hour | Bounded in practice by GitHub's 5,000 calls/hour per installation. Each runner costs a handful of calls |
 | Regions and clouds | Free. Each definition names its own; the inventory scan lists per (credential, region) |

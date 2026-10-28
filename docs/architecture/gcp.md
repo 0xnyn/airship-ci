@@ -349,7 +349,7 @@ legitimately block) and enforces the 1-minute list deadline from outside it.
 | **Retryable** | `QUOTA_EXCEEDED`, `RATE_LIMIT_EXCEEDED`, `RESOURCE_NOT_READY`, `INTERNAL_ERROR`, `RESOURCE_IN_USE_BY_ANOTHER_RESOURCE` (an `existingDisk` held by another runner) | The chain starts over, up to the attempt cap |
 | **Ambiguous** | a conflict, a 5xx, a transport error, a failed or timed-out `operations.wait` | Look the instance up by name; if it exists and is this runner's, that *is* the launch. Otherwise `launch_unconfirmed` and the scan settles it |
 | **Permanent** | a missing image, a bad subnetwork, an invalid combination | Next fallback; stop once every attempt has been tried |
-| **Credential** | the key is rejected, or the Compute Engine API is not enabled | The credential is marked invalid in the dashboard |
+| **Credential** | the key is rejected, or the Compute Engine API is not enabled | Refused at connect time (`projects.get`), so such a key is never stored. At launch it is permanent: the job moves to its next fallback and then fails, with Google's message on the Events page. Airship then checks the credential again (at most every five minutes) and, if the cloud refuses it, the Cloud page shows **Credentials rejected** with the cloud's message and Events records `cloud.credentials_rejected`; reconnecting, or the cloud accepting it again, clears it |
 
 An insert that Compute Engine **accepted and then failed** is read from the
 finished operation's error codes — the service removes whatever it created,

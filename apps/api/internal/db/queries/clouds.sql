@@ -25,10 +25,12 @@ select * from cloud_credentials where installation_id = $1 order by cloud;
 -- name: DeleteCloudCredential :execrows
 delete from cloud_credentials where installation_id = $1 and cloud = $2;
 
--- name: SetCloudCredentialStatus :exec
+-- name: SetCloudCredentialStatus :execrows
+-- Records whether a credential still works, as long as it is still the
+-- sealed secret that was checked: a reconnect in between wins.
 update cloud_credentials
 set status = sqlc.arg(status), error = sqlc.narg(error), updated_at = now()
-where id = sqlc.arg(id);
+where id = sqlc.arg(id) and secret = sqlc.arg(secret) and status <> sqlc.arg(status);
 
 -- name: SetCloudCredentialDefaultRegion :one
 update cloud_credentials set default_region = $3, updated_at = now()

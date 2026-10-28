@@ -137,8 +137,9 @@ func (p *Provider) ensureVirtualNetwork(ctx context.Context, c *Clients, region 
 					AddressPrefix:        to.Ptr(networkAddressSpace),
 					NetworkSecurityGroup: &armnetwork.SecurityGroup{ID: nsg.ID},
 					// Egress is always explicit: a public address per
-					// machine or the NAT gateway. Azure retired the implicit
-					// default outbound access for new networks anyway.
+					// machine or the NAT gateway. Azure makes new networks'
+					// subnets private by default from API versions released
+					// after March 31, 2026 anyway.
 					DefaultOutboundAccess: to.Ptr(false),
 				},
 			}},

@@ -1,0 +1,94 @@
+# Airship on one server: Postgres, the API, the dashboard and Caddy for
+# TLS. See docs/deploy/server.md. Run from this directory:
+#   cp .env.example .env   # then fill it in
+#   docker compose up -d --build
+name: airship
+
+x-api-env: &api-env
+  APP_ENV: production
+  DATABASE_URL: postgres://airship:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/airship?sslmode=disable
+  PUBLIC_URL: https://${API_DOMAIN:?set API_DOMAIN in .env}
+  WEB_URL: https://${WEB_DOMAIN:?set WEB_DOMAIN in .env}
+  CORS_ORIGINS: https://${WEB_DOMAIN}
+  CREDENTIALS_KEY: ${CREDENTIALS_KEY:?set CREDENTIALS_KEY in .env}
+  GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+  GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}
+  GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+  GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?set GITHUB_WEBHOOK_SECRET in .env}
+  GITHUB_PRIVATE_KEY_FILE: /run/secrets/github-app.pem
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airship
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: airship
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airship -d airship"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Applies migrations, then exits. The API waits for it on every start.
+  migrate:
+    image: airship-api:${AIRSHIP_VERSION:-local}
+    build:
+      context: ../../apps/api
+      args:
+        VERSION: ${AIRSHIP_VERSION:-local}
+    entrypoint: ["/usr/local/bin/migrate"]
+    command: ["up"]
+    environment:
+      DATABASE_URL: postgres://airship:${POSTGRES_PASSWORD}@postgres:5432/airship?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: airship-api:${AIRSHIP_VERSION:-local}
+    restart: unless-stopped
+    environment: *api-env
+    volumes:
+      - ${GITHUB_PRIVATE_KEY_PATH:-./github-app.pem}:/run/secrets/github-app.pem:ro
+    stop_grace_period: 40s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: airship-web:${AIRSHIP_VERSION:-local}
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+      WEB_DOMAIN: ${WEB_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  postgres:
+  caddy-data:
+  caddy-config:

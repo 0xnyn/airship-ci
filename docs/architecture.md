@@ -297,9 +297,10 @@ once:
   GPU driver path loads unsigned modules). `enable_public_ip: false`
   creates one NAT gateway per region (`airship-nat-<region>` with a
   static address of its own) and attaches it to the subnet. The default
-  is a public address per machine: Azure retired implicit outbound
-  access for networks created after September 2025, so a machine without
-  an address and without a NAT would never reach GitHub. Listing uses the
+  is a public address per machine: the subnet is private
+  (`defaultOutboundAccess: false`, which Azure also makes the default for
+  new networks from API versions released after March 31, 2026), so a
+  machine without an address and without a NAT would never reach GitHub. Listing uses the
   subscription's `virtualMachines?statusOnly=true` (the only list that
   carries the power state) filtered by resource group, region and the
   installation tag; a VM whose power state is stopped or deallocated
@@ -503,9 +504,11 @@ Different, on purpose:
 - **Azure defaults.** Cirun launches Azure machines without a public
   address unless `enable_public_ip: true`; Airship gives each machine a
   static public address unless `enable_public_ip: false`, which creates
-  a NAT gateway per region instead. Azure retired implicit outbound
-  access for new virtual networks in September 2025, so Cirun's default
-  on a fresh subscription would boot machines that cannot reach GitHub.
+  a NAT gateway per region instead. Cirun's docs route such a machine
+  through Azure's default outbound access, which Microsoft is retiring
+  (subnets of new networks are private by default from API versions
+  released after March 31, 2026), so on a fresh network Cirun's default
+  would boot machines that cannot reach GitHub.
   Cirun also leaves the VM's security to the subscription's defaults;
   Airship creates a security group per region (no rules of its own) so
   the subnet is explicit about allowing no inbound traffic. The OS disk

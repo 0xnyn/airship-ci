@@ -158,21 +158,32 @@ func (q *Queries) SetCloudCredentialDefaultRegion(ctx context.Context, arg SetCl
 	return i, err
 }
 
-const setCloudCredentialStatus = `-- name: SetCloudCredentialStatus :exec
+const setCloudCredentialStatus = `-- name: SetCloudCredentialStatus :execrows
 update cloud_credentials
 set status = $1, error = $2, updated_at = now()
-where id = $3
+where id = $3 and secret = $4 and status <> $1
 `
 
 type SetCloudCredentialStatusParams struct {
 	Status string
 	Error  *string
 	ID     uuid.UUID
+	Secret []byte
 }
 
-func (q *Queries) SetCloudCredentialStatus(ctx context.Context, arg SetCloudCredentialStatusParams) error {
-	_, err := q.db.Exec(ctx, setCloudCredentialStatus, arg.Status, arg.Error, arg.ID)
-	return err
+// Records whether a credential still works, as long as it is still the
+// sealed secret that was checked: a reconnect in between wins.
+func (q *Queries) SetCloudCredentialStatus(ctx context.Context, arg SetCloudCredentialStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setCloudCredentialStatus,
+		arg.Status,
+		arg.Error,
+		arg.ID,
+		arg.Secret,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertCloudCredential = `-- name: UpsertCloudCredential :one

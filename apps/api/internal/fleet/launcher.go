@@ -239,6 +239,11 @@ func (s *Service) launch(ctx context.Context, runner db.Runner) {
 			return
 		}
 		s.failLaunch(ctx, runner, truncate(err.Error(), 2000), retryable)
+		if !retryable {
+			// A failed launch leaves no machine for the inventory scan to
+			// list, so find out here whether the credential is the cause.
+			s.checkRunnerCredential(ctx, runner, provider)
+		}
 
 		return
 	}

@@ -78,7 +78,10 @@ Daytona itself.
    directory was present, root-owned, in the snapshot sandbox. *(observed)*
 4. **The boot label is the last step of a launch and the only sign of a
    runner.** A sandbox without it is a launch in progress for ten minutes
-   (twice the launcher's lease), then a leak the scan deletes. It is never
+   (longer than the provider's own steps can take once the sandbox exists:
+   four minutes to start, then four toolbox calls and three label tries
+   of thirty seconds each, about seven and a half minutes at worst), then
+   a leak the scan deletes. It is never
    revived, because nothing will ever start in it. A sandbox created and
    started but never labelled, left as a control plane that died between
    the create and the label leaves it, was hidden from `List` inside the
@@ -101,8 +104,10 @@ Daytona itself.
    later and ended its job six minutes later, so a job cut off this way
    finishes on GitHub's clock, not the sandbox's. *(observed)*
 7. **Every call is bounded.** Thirty seconds per request, one minute per
-   list, four minutes to start (inside the launcher's lease), two minutes
-   at the HTTP client. A hung Daytona cannot stall the reconciler.
+   list, four minutes to start, two minutes at the HTTP client. The
+   launcher's own bound sits outside them: it renews the runner's lease
+   while a launch runs, for up to fifteen minutes, which a Daytona launch
+   never needs. A hung Daytona cannot stall the reconciler.
 8. **The API key never leaves the control plane.** It travels in one
    request header to Daytona's API and to the toolbox proxy, is never
    written into a sandbox, a log, an error or a response, and the dashboard
@@ -148,7 +153,7 @@ Daytona itself.
 ## Why a sandbox is not a VM
 
 Four differences shaped the provider. Each explains a decision that looks
-odd next to the AWS and GCP paths.
+odd next to the AWS, GCP and Azure paths.
 
 | Daytona | Consequence in Airship |
 | --- | --- |
@@ -200,7 +205,7 @@ Every sandbox carries:
    region other than the one asked for is deleted and the launch fails,
    because the inventory scan would never list it under its scope.
 3. **Wait for `started`.** Polling every two seconds, up to four minutes
-   (the launcher's lease bounds it from outside). `build_failed` is
+   (the launcher's fifteen-minute bound on a launch sits outside it). `build_failed` is
    permanent (the definition can never launch); `error`, `destroyed` (for
    instance after Daytona's own queue timed out waiting for capacity) and
    a timeout are retryable; `stopped` or `archived` here is an error.
@@ -304,7 +309,7 @@ runner, whatever its image.
 ## Caching
 
 `cache: true` on a Daytona runner launches **without** the cache proxy and
-records a `cache.unavailable` warning on the Events page, as on GCP. Daytona
+records a `cache.unavailable` warning on the Events page, as on GCP and Azure. Daytona
 has no object storage to back it. The job runs normally against GitHub's
 own cache.
 
@@ -320,7 +325,7 @@ Same loop as the other clouds, with Daytona's states mapped:
 | A runner row whose sandbox is no longer listed (after a two-minute grace) | Marks the runner `lost`; retries its job if still queued |
 | A `stopped`, `archived`, `paused`, `error` or `build_failed` sandbox | Treats it as gone and deletes it: nothing runs in it and nothing will |
 | A `stopping` or `destroying` sandbox | Waits |
-| A sandbox without `airship-boot`, younger than ten minutes | Leaves it alone: a launch may still be at work (a launch is bounded by the five-minute lease) |
+| A sandbox without `airship-boot`, younger than ten minutes | Leaves it alone: a launch may still be at work (its steps take about seven and a half minutes at worst once the sandbox exists) |
 | A sandbox without `airship-boot`, older than ten minutes | Treats it as gone and deletes it: a crashed launch left it, and no runner will ever start in it |
 | A runner whose lease expired but whose labelled sandbox exists | Revives it, after GitHub confirms the registration still exists |
 | A list that fails | Nothing. No sandbox is presumed gone |
@@ -345,7 +350,7 @@ list, two minutes at the HTTP client.
 | --- | --- | --- |
 | **Retryable** | `429`, `408`, any 5xx, a transport error; a `400`, `403` or `409` whose message speaks of quota, capacity, a limit exceeded or too many requests (`Total memory limit exceeded. Maximum allowed: 10GiB`, the organization's total, which Daytona charges creates in flight against); a sandbox that reached `error` or was destroyed while starting (Daytona's queue timed out); a start that took more than four minutes | The chain starts over, up to the attempt cap |
 | **Permanent** | `build_failed` (the image does not exist or does not build); a shape above the tier's per-sandbox maximum (`exceeds maximum allowed per sandbox`); an allow list on a tier that forbids them (`Network access is restricted and cannot be overridden at the sandbox level`); no GPU credits (`Organization doesn't have GPU credits`); a region without builds or without the snapshot; a `400` on the request body; a sandbox placed in another region | Next fallback; stop once every attempt has been tried |
-| **Credential** | `401`, `403` on the key itself, a key with no organization, an expired key, a key without `write:sandboxes` or `delete:sandboxes` | Refused at connect time; at launch time the failure is on the Events page with Daytona's message |
+| **Credential** | `401`, `403` on the key itself, a key with no organization, an expired key, a key without `write:sandboxes` or `delete:sandboxes` | Refused at connect time; at launch time the failure is on the Events page with Daytona's message. Airship then checks the credential again (at most every five minutes) and, if the cloud refuses it, the Cloud page shows **Credentials rejected** with the cloud's message and Events records `cloud.credentials_rejected`; reconnecting, or the cloud accepting it again, clears it |
 | **Never ambiguous** | — | A launch the provider cannot finish deletes its sandbox and fails retryably. There is no `launch_unconfirmed` on Daytona |
 
 ---
@@ -376,7 +381,7 @@ tried; none is used, for the reason given.
 | GPU credits | A GPU sandbox needs GPU credits (spot credits for `preemptible: true`) in the organization's wallet; without them Daytona refuses the create and Airship moves to the next fallback. With them, spot GPU sandboxes may wait in Daytona's queue and be destroyed when it times out; Airship retries on the next attempt |
 | Network tier | Tier 1 and 2 cannot set a sandbox-level allow list; Tier 3 and 4 can, strictly. `GET /organizations/<id>/usage` shows the per-region quotas Daytona enforces |
 | Dedicated regions and sandbox classes | A region in the organization's list may host a sandbox class other than `container` (`GET /organizations/<id>/available-sandbox-classes` says which: ours lists `us` for containers, `us-west-4` for Windows only, and a GPU-capable region that is not a valid `target`). Connecting with a region that hosts no containers is refused with the regions that do. Snapshots are per region and image builds may be unavailable in a dedicated one; the shared `us` and `eu` are always there |
-| Windows and `linux-vm` sandboxes | Daytona also offers Windows Server 2025 sandboxes (`windows-small` to `windows-xlarge`) and KVM Linux VMs (`daytona-vm-*`), but Windows is refused for Tier 1 and 2 organizations (`Windows sandboxes are not available for Tier 1 and Tier 2 organizations`) and the VM class is not in this organization's class list. Airship runs Linux containers on Daytona; a Windows job belongs on an EC2 or Compute Engine image |
+| Windows and `linux-vm` sandboxes | Daytona also offers Windows Server 2025 sandboxes (`windows-small` to `windows-xlarge`) and KVM Linux VMs (`daytona-vm-*`), but Windows is refused for Tier 1 and 2 organizations (`Windows sandboxes are not available for Tier 1 and Tier 2 organizations`) and the VM class is not in this organization's class list. Airship runs Linux containers on Daytona; a Windows job belongs on an EC2, Compute Engine or Azure image |
 | GPU capacity | `GET /organizations/<id>/gpu-capacity` reports Daytona's fleet per type on demand and spot (hundreds of H100 and RTX-PRO-6000, a few dozen H200, RTX-4090 and RTX-5090, no B300 or MI355X when we looked); it is the fleet, not the organization's quota, and a sandbox still needs GPU credits |
 
 ---

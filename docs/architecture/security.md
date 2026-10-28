@@ -20,13 +20,14 @@ adversarially.
 │ your job logs         │   │ API tokens (hashed)     │   │                           │
 │                       │   │                         │   │                           │
 │ Airship can:          │   │ A job cannot reach      │   │ Airship can:              │
-│  read airship.yaml      │   │ this. There is no       │   │  launch a machine         │
+│  read airship.yaml    │   │ this. There is no       │   │  launch a machine         │
 │  read job/runner      │   │ inbound path from a     │   │  list machines it tagged  │
 │    metadata           │   │ runner except the two   │   │  destroy machines it      │
 │  register/remove      │   │ runner endpoints, and   │   │    tagged                 │
-│    runners            │   │ those answer only to a  │   │  create one bucket and    │
-│  open a PR on .airship  │   │ live runner's own token │   │    one security group     │
-│    (if you grant it)  │   │                         │   │                           │
+│    runners            │   │ those answer only to a  │   │  create, once each, the   │
+│  open a PR on         │   │ live runner's own token │   │    shared pieces it needs:│
+│    .airship (if you   │   │                         │   │    bucket, security group,│
+│    grant it)          │   │                         │   │    network, NAT           │
 └───────────────────────┘   └─────────────────────────┘   └───────────────────────────┘
        ▲                             │                            ▲
        │  the runner talks to        │  one API call at a time,   │
@@ -46,7 +47,7 @@ machines, and there is no inbound network path to them.
 
 | Data | Where | Protection |
 | --- | --- | --- |
-| Cloud credential (AWS access key, GCP service account key, Daytona API key) | `cloud_credentials.secret` | Verified before storage, sealed with **AES-256-GCM** under `CREDENTIALS_KEY`, the blob **bound to its row** so it cannot be moved and opened elsewhere. Never returned by any endpoint |
+| Cloud credential (AWS access key, GCP service account key, Azure application client secret, Daytona API key) | `cloud_credentials.secret` | Verified before storage, sealed with **AES-256-GCM** under `CREDENTIALS_KEY`, the blob **bound to its row** so it cannot be moved and opened elsewhere. Never returned by any endpoint |
 | Dashboard session | `sessions` | Only a **SHA-256 of the cookie value** is stored. The cookie itself is HttpOnly, `Secure` outside development, `SameSite=Lax` |
 | Developer API token (`asa_`) | `api_tokens` | Only a **SHA-256**, plus a display hint. Shown once at creation |
 | Runner cache token (`asr_`) | `runners.cache_token_hash` | Only a SHA-256. Dead the moment the runner finishes |
@@ -74,17 +75,18 @@ This is the sharpest edge of the design, so it gets the most rules.
 
 | Rule | Detail |
 | --- | --- |
-| **Verified before stored** | AWS with `sts:GetCallerIdentity`, GCP with a Compute `projects.get`, Daytona by reading the key's own record (it must belong to an organization, be unexpired and carry the sandbox write and delete permissions) and the organization's regions. A key that does not work is never written |
+| **Verified before stored** | AWS with `sts:GetCallerIdentity`, GCP with a Compute `projects.get`, Azure by signing in to Microsoft Entra and reading the subscription (it must be visible to the application and not disabled) and its regions, Daytona by reading the key's own record (it must belong to an organization, be unexpired and carry the sandbox write and delete permissions) and the organization's regions. A key that does not work is never written |
 | **Sealed at rest** | AES-256-GCM under `CREDENTIALS_KEY`, a base64 32-byte key held by the control plane's environment, not in the database. The example key shipped for local development is explicitly refused in production |
 | **Bound to its row** | The sealed blob's additional authenticated data ties it to its installation and cloud. Lifting the row into another installation's record makes it undecryptable |
 | **Opened per call** | Decrypted, handed to the provider for one API call, discarded. It is never written to a log, an error, a metric or a response |
-| **Never echoed** | No endpoint returns a secret. The dashboard shows the account ID and principal — the public half the cloud told us at verification (on Daytona the organization ID and the key's name, with the key itself masked to its first and last three characters) |
+| **Never echoed** | No endpoint returns a secret. The dashboard shows the account ID and principal — the public half the cloud told us at verification (on Azure the subscription ID and the application's client ID; on Daytona the organization ID and the key's name, with the key itself masked to its first and last three characters) |
 | **Rotation** | Replacing a key *within the same account or project* is always allowed. `CREDENTIALS_KEY` itself rotates by listing the new key first and the old one after a comma, redeploying, reconnecting each cloud, then dropping the old key |
 | **Deletion is guarded** | Disconnecting a cloud — or replacing its key with one for a *different* account — is **refused while runners launched with it are alive**, because without that key their machines could not be terminated. The check and the delete take the installation lock, so no runner can slip in between |
 
 What the credential can do is your choice, and it should be the minimum:
 [aws-setup.md](aws-setup.md#step-1--create-the-iam-user-aws-admin) and
-[gcp-setup.md](gcp-setup.md#step-3--grant-roles-gcp-admin) give
+[gcp-setup.md](gcp-setup.md#step-3--grant-roles-gcp-admin) and
+[azure-setup.md](azure-setup.md#step-3--least-privilege-optional-azure-admin) give
 least-privilege policies, and [daytona-setup.md](daytona-setup.md#step-2--create-an-api-key-daytona-admin)
 the two permissions a Daytona key needs. On AWS the terminate permission can be conditioned
 on Airship's own tag, so the credential **cannot destroy anything Airship did
@@ -97,13 +99,13 @@ not create**.
 | Property | How |
 | --- | --- |
 | **One job per machine** | A runner registers with a single-use JIT configuration and exits after one job. No machine is ever reused, so no job can read another's checkout, caches on disk, environment or in-memory state |
-| **The machine destroys itself** | Every exit path of the boot script powers the machine off: the job finishing, the runner crashing, the script failing, the hard deadline. On AWS `InstanceInitiatedShutdownBehavior=terminate` turns that into a delete; on GCP the reconciler deletes the `TERMINATED` machine, disks included; on Daytona the script stops the sandbox's daemon and the sandbox, created to delete itself on stop, is gone within seconds |
+| **The machine destroys itself** | Every exit path of the boot script powers the machine off: the job finishing, the runner crashing, the script failing, the hard deadline. On AWS `InstanceInitiatedShutdownBehavior=terminate` turns that into a delete; on GCP the reconciler deletes the `TERMINATED` machine, disks included; on Azure the reconciler deletes the stopped VM with its disk, interface and address; on Daytona the script stops the sandbox's daemon and the sandbox, created to delete itself on stop, is gone within seconds |
 | **A deadline that does not depend on us** | `shutdown -P +<max lifetime>` is scheduled before anything else runs. On Daytona the runner runs under `timeout` with the same deadline and the sandbox carries a TTL fifteen minutes past it, so a sandbox whose script never ran is removed by Daytona itself. A control plane that disappears entirely leaves no machine running forever |
-| **One boot, one registration** | The startup script writes a marker; a rebooted machine powers off rather than registering again (GCP and EC2Launch both re-run startup scripts). On Daytona the script takes a lock directory before anything else, so a repeated launch cannot start a second runner in the same sandbox |
-| **No inbound access** | AWS: a security group with **no ingress rules**. GCP: no firewall rules added at all, plus a `airship-runner` network tag for your own policy. No SSH key is installed, by Airship or anyone else. Daytona: the toolbox API is the way in, and it is open to anyone holding one of the organization's API keys, so the organization's membership is the boundary (see exposure 8) |
+| **One boot, one registration** | The startup script writes a marker; a rebooted machine powers off rather than registering again (GCP and EC2Launch both re-run startup scripts). On Azure Linux, cloud-init runs custom data once; on Windows the Run Command is read back before it is written, so a relaunch never starts the script twice. On Daytona the script takes a lock directory before anything else, so a repeated launch cannot start a second runner in the same sandbox |
+| **No inbound access** | AWS: a security group with **no ingress rules**. GCP: no firewall rules added at all, plus a `airship-runner` network tag for your own policy. Azure: a per-region security group with no rules of Airship's, so Azure's default denies inbound traffic from the internet. No usable SSH key exists: none is installed on AWS or GCP, and the key Azure requires at creation has its private half generated in memory and never written anywhere (Windows gets a random password that is discarded). Daytona: the toolbox API is the way in, and it is open to anyone holding one of the organization's API keys, so the organization's membership is the boundary (see exposure 8) |
 | **Metadata service locked down** | AWS: IMDSv2 required with **hop limit 1**, so a process inside a container cannot reach instance metadata |
-| **No cloud identity by default** | GCP machines get **no service account** unless a definition asks for one. AWS machines get no instance profile unless a definition asks for one. Daytona sandboxes never hold the organization's API key |
-| **Encrypted disks** | AWS root volumes are always encrypted. GCP disks are encrypted by Google by default |
+| **No cloud identity by default** | GCP machines get **no service account** unless a definition asks for one. AWS machines get no instance profile unless a definition asks for one. Azure machines get **no managed identity**, and no field offers one. Daytona sandboxes never hold the organization's API key |
+| **Encrypted disks** | AWS root volumes are always encrypted. GCP disks are encrypted by Google by default; Azure managed disks by Azure with platform-managed keys |
 
 ---
 
@@ -196,7 +198,10 @@ some of them are a deliberate price for Cirun parity.
 **1. The JIT registration travels in instance metadata.**
 On AWS, anyone in your account who can call `ec2:DescribeInstanceAttribute`
 can read the user data until the runner registers. On GCP, anyone with
-`compute.instances.get` can read the metadata the same way. The window is
+`compute.instances.get` can read the metadata the same way, and on Azure
+the configuration travels as `customData` (treat it as readable by anyone
+with `virtualMachines/read` on the `airship-runners` resource group) or, on
+Windows, in the Run Command's script (`runCommands/read`). The window is
 seconds, the configuration is single-use, and using it would steal one job
 rather than grant access to anything. `provision_via: pull_from_api` avoids
 it entirely, at the cost of putting an API token in your image. On Daytona
@@ -224,17 +229,24 @@ for public access. Treat it exactly as you would a repository secret.
 
 **5. Any image the account can launch is allowed.**
 As on Cirun, there is no image allowlist. An `airship.yaml` can name any AMI or
-Compute Engine image your credential can boot, or on Daytona any container
+Compute Engine image your credential can boot, any Azure marketplace image
+whose terms the subscription accepted or managed or gallery image of the
+connected subscription, or on Daytona any container
 image Daytona can pull (with a tag or digest; `latest` is refused so a
 definition says what it runs) or any snapshot of the organization.
-Architecture mismatches are refused; trustworthiness is not something
+Architecture mismatches are refused, and so are marketplace images their
+publisher deprecated; trustworthiness is not something
 Airship can judge.
 
 **6. Two installations can share one cloud account.**
 Isolation then rests on the installation tag/label: listing filters on it and
 terminating refuses an instance without it. It holds, but a dedicated account
 or project per installation is the stronger boundary and what we recommend.
-On Daytona this matters more, because of exposure 8: use one organization
+On Azure the installations also share the `airship-runners` resource group,
+the per-region networks and security groups and the NAT gateways, which
+carry no installation; only the machines are separated, by tag. A
+subscription per installation keeps a rule one organization adds to the
+security group from applying to another's runners. On Daytona this matters more, because of exposure 8: use one organization
 per installation.
 
 **7. Losing `CREDENTIALS_KEY` loses every connected cloud.**
@@ -253,7 +265,7 @@ registration in `/tmp`. Treat the organization's membership and its API keys
 as you treat the people who can read your repository's Actions secrets, and
 give Airship its own organization if that set differs.
 
-**8. Postgres is the single point of truth.**
+**9. Postgres is the single point of truth.**
 Lose it and you lose the mapping from runners to machines. Machines still
 destroy themselves at their deadlines, so nothing runs forever, but you may
 be left with instances to clean up by tag. [operations.md](operations.md)
@@ -267,11 +279,14 @@ The tenant is the GitHub App installation — one organization or user
 account.
 
 - Every database query is scoped by installation ID.
-- Every instance carries the installation as a tag (`airship:installation`)
-  or label (`airship-installation`); every list filters on it.
+- Every instance carries the installation as a tag (`airship:installation`
+  on AWS, `airship-installation` on Azure) or label (`airship-installation`
+  on GCP and Daytona); every list filters on it.
 - Every terminate **reads the instance first** and refuses when the tag is
   not the installation's, so an instance ID recorded wrongly — or reused by
   the cloud for someone else's machine — can never destroy the wrong thing.
+- Azure's orphan sweep deletes only interfaces and addresses carrying the
+  installation's tag, attached to nothing and older than fifteen minutes.
 - Cache buckets are named from a hash of the installation ID and
   owner-checked on every call.
 - `asa_` tokens are scoped to one installation; `asr_` tokens to one runner.
@@ -313,9 +328,11 @@ ownership refusal on terminate, the credential binding, lease and revival
 logic, the tag/label scoping, boot script validation — have tests, and the
 cache path has run end to end with a real runner, a real GitHub job and an
 S3 emulator. What has **not** run is a launch on real EC2 in CI, a Windows
-machine, and anything at all against Google; Daytona has run three real
+machine, and anything at all against Google or Azure (Azure's Linux boot
+script has run a real job in a container, but no request has been accepted
+by Azure); Daytona has run three real
 jobs through the real provider (image, snapshot, volume), with GPU and
 allow-list requests sent and refused by the organization's tier and
 credits. The status notes in
-[aws.md](aws.md), [gcp.md](gcp.md) and [daytona.md](daytona.md) say so in detail, and we would rather
+[aws.md](aws.md), [gcp.md](gcp.md), [azure.md](azure.md) and [daytona.md](daytona.md) say so in detail, and we would rather
 you heard it here than found it later.

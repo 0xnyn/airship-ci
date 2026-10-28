@@ -33,8 +33,10 @@ var (
 	azureURNPattern     = regexp.MustCompile(`^` + azureImageSeg + `:` + azureImageSeg + `:` + azureImageSeg + `:(latest|[0-9]+\.[0-9]+\.[0-9]+)$`)
 	azureManagedPattern = regexp.MustCompile(`(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\.Compute/images/` + azureImageSeg + `$`)
 	azureGalleryPattern = regexp.MustCompile(`(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\.Compute/galleries/` + azureImageSeg + `/images/` + azureImageSeg + `(/versions/[0-9]+\.[0-9]+\.[0-9]+)?$`)
-	// Managed disk kinds.
-	azureDiskTypes = []string{"Standard_LRS", "StandardSSD_LRS", "Premium_LRS", "StandardSSD_ZRS", "Premium_ZRS", "PremiumV2_LRS", "UltraSSD_LRS"}
+	// Managed disk kinds an OS disk can be. Premium SSD v2
+	// (PremiumV2_LRS) and Ultra Disk (UltraSSD_LRS) are data disks only,
+	// which Azure would refuse at every launch.
+	azureDiskTypes = []string{"Standard_LRS", "StandardSSD_LRS", "Premium_LRS", "StandardSSD_ZRS", "Premium_ZRS"}
 )
 
 const (

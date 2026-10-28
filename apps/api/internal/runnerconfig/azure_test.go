@@ -92,6 +92,8 @@ func TestAzureRunnerRejects(t *testing.T) {
 		"mapping without sku":  {`{name: a, cloud: azure, instance_type: Standard_B2s, machine_image: {publisher: Canonical, offer: x}, labels: [airship-a]}`, "publisher, offer and sku"},
 		"disk too small":       {`{name: a, cloud: azure, instance_type: Standard_B2s, labels: [airship-a], extra_config: {storageProfile: {osDisk: {diskSizeGB: 8}}}}`, "diskSizeGB must be between"},
 		"disk kind":            {`{name: a, cloud: azure, instance_type: Standard_B2s, labels: [airship-a], extra_config: {storageProfile: {osDisk: {managedDisk: {storageAccountType: gp3}}}}}`, "storageAccountType must be one of"},
+		"data-only disk kind":  {`{name: a, cloud: azure, instance_type: Standard_D2s_v5, labels: [airship-a], extra_config: {storageProfile: {osDisk: {managedDisk: {storageAccountType: PremiumV2_LRS}}}}}`, "storageAccountType must be one of"},
+		"ultra disk kind":      {`{name: a, cloud: azure, instance_type: Standard_D2s_v5, labels: [airship-a], extra_config: {storageProfile: {osDisk: {managedDisk: {storageAccountType: UltraSSD_LRS}}}}}`, "storageAccountType must be one of"},
 		"gcp key":              {`{name: a, cloud: azure, instance_type: Standard_B2s, labels: [airship-a], extra_config: {project_id: acme}}`, "project_id is a GCP setting"},
 		"aws key":              {`{name: a, cloud: azure, instance_type: Standard_B2s, labels: [airship-a], extra_config: {SubnetId: subnet-0123456789abcdef0}}`, "SubnetId is an AWS setting"},
 		"azure key on aws":     {`{name: a, cloud: aws, instance_type: c7i.xlarge, labels: [airship-a], extra_config: {storageProfile: {osDisk: {diskSizeGB: 64}}}}`, "storageProfile is an Azure setting"},

@@ -413,7 +413,7 @@ the behaviour everything else rests on.
 | Launch fails: `AuthFailure`, `InvalidClientTokenId` | The key was deleted or deactivated | Reconnect. The credential shows as invalid on the Cloud page |
 | Instance launches, runner never appears in GitHub | The machine cannot reach GitHub, or the AMI is missing something | Private subnet with no route out, or a custom AMI without `curl`/`tar`. Check the instance's console output |
 | Runner appears, job never starts | Label mismatch between the registration and `runs-on` | Compare the labels on the Runners page with the job's |
-| Jobs run but caching does nothing | Expected on GCP; on AWS check Events | Events records `cache.unavailable` with the reason — usually a missing S3 permission or a control plane built without the proxy binary |
+| Jobs run but caching does nothing | Expected on GCP, Azure and Daytona; on AWS check Events | Events records `cache.unavailable` with the reason — usually a missing S3 permission or a control plane built without the proxy binary |
 | Runner finished `idle` | It booted and no job arrived within 10 minutes | Usually a suffix mismatch, or the job was cancelled while the machine booted |
 | Runner finished `launch_unconfirmed` | The cloud's answer was lost | Expected and handled: the job is retried and the scan reconciles the machine. Repeated occurrences mean a network problem between the control plane and EC2 |
 | An instance you did not expect | Check its tags | Untagged instances are not Airship's. Tagged ones with no live runner are terminated by the next inventory pass |

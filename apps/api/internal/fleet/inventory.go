@@ -59,9 +59,13 @@ func (s *Service) scanScope(ctx context.Context, credentialID uuid.UUID, region 
 	instances, err := provider.List(ctx, secret, region, cred.InstallationID)
 	if err != nil {
 		// Never act on a partial view: an instance missing from a list
-		// would be presumed gone.
+		// would be presumed gone. A list can fail because the cloud no
+		// longer accepts the credential; find out, so the dashboard says so.
+		s.checkCredential(ctx, cred, provider, secret)
+
 		return fmt.Errorf("list instances: %w", err)
 	}
+	s.setCredentialStatus(ctx, cred, credentialOK, nil)
 
 	ids := make([]uuid.UUID, 0, len(instances))
 	instanceIDs := make([]string, 0, len(instances))
@@ -280,4 +284,83 @@ func (s *Service) terminateSoon(ctx context.Context, runnerID uuid.UUID) {
 		return
 	}
 	s.terminateRunner(context.WithoutCancel(ctx), runner)
+}
+
+// Credential states the dashboard shows.
+const (
+	credentialOK      = "ok"
+	credentialInvalid = "invalid"
+)
+
+// credentialCheckInterval bounds how often a credential whose lists keep
+// failing is verified again: each check is a call to the cloud.
+const credentialCheckInterval = 5 * time.Minute
+
+// credentialCheckTimeout bounds one such check.
+const credentialCheckTimeout = time.Minute
+
+// checkRunnerCredential is checkCredential for the credential a runner
+// was launched with, as stored now: the secret is opened again so that a
+// reconnect since the launch is what gets checked.
+func (s *Service) checkRunnerCredential(ctx context.Context, runner db.Runner, provider cloud.Provider) {
+	if runner.CredentialID == nil {
+		return
+	}
+	cred, err := s.q.GetCloudCredentialByID(context.WithoutCancel(ctx), *runner.CredentialID)
+	if err != nil {
+		return
+	}
+	secret, err := s.secrets.Open(cred.Secret, credentialContext(cred.InstallationID, cred.Cloud))
+	if err != nil {
+		return
+	}
+	s.checkCredential(ctx, cred, provider, secret)
+}
+
+// checkCredential verifies a credential again after a list failed, with
+// the same check that admitted it, and marks it invalid when the cloud
+// rejects it. Any other failure (the cloud unreachable, throttling) says
+// nothing about the credential and changes nothing.
+func (s *Service) checkCredential(ctx context.Context, cred db.CloudCredential, provider cloud.Provider, secret []byte) {
+	s.credentialChecksMu.Lock()
+	if last, ok := s.credentialChecks[cred.ID]; ok && time.Since(last) < credentialCheckInterval {
+		s.credentialChecksMu.Unlock()
+
+		return
+	}
+	s.credentialChecks[cred.ID] = time.Now()
+	s.credentialChecksMu.Unlock()
+
+	verifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), credentialCheckTimeout)
+	defer cancel()
+	_, err := provider.Verify(verifyCtx, secret, cred.DefaultRegion)
+	if !errors.Is(err, cloud.ErrBadCredentials) {
+		return
+	}
+	reason := truncate(err.Error(), 1000)
+	if s.setCredentialStatus(ctx, cred, credentialInvalid, &reason) {
+		s.record(ctx, cred.InstallationID, "cloud.credentials_rejected", levelError,
+			fmt.Sprintf("%s no longer accepts the connected credential: %s. Reconnect it to launch again.", cred.Cloud, reason), eventFields{})
+	}
+}
+
+// setCredentialStatus records whether a credential works, unless it was
+// replaced since it was read. It reports whether the status changed.
+func (s *Service) setCredentialStatus(ctx context.Context, cred db.CloudCredential, status string, reason *string) bool {
+	if cred.Status == status {
+		return false
+	}
+	n, err := s.q.SetCloudCredentialStatus(context.WithoutCancel(ctx), db.SetCloudCredentialStatusParams{
+		ID: cred.ID, Secret: cred.Secret, Status: status, Error: reason,
+	})
+	if err != nil {
+		s.log.WarnContext(ctx, "set credential status", slog.String("cloud", cred.Cloud), slog.Any("error", err))
+
+		return false
+	}
+	if n > 0 && status == credentialOK {
+		s.record(ctx, cred.InstallationID, "cloud.credentials_accepted", levelInfo, cred.Cloud+" accepts the connected credential again", eventFields{})
+	}
+
+	return n > 0
 }

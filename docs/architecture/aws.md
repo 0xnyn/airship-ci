@@ -312,7 +312,7 @@ powers off when the runner exits and at its 8-hour deadline, with
 | **Retryable** | `InstanceLimitExceeded`, `VcpuLimitExceeded`, `RequestLimitExceeded`, `Throttling`, `InternalError`, `ServiceUnavailable`, `MaxSpotInstanceCountExceeded` | The chain starts over, up to the attempt cap (3, or one per attempt) |
 | **Ambiguous** | timeout, connection reset, EOF *after* the request was sent | Describe by client token; if that fails, `launch_unconfirmed` and the scan settles it |
 | **Permanent** | a missing AMI, an instance type the account cannot launch, a bad subnet | Move to the next fallback; stop once every attempt has been tried |
-| **Credential** | `AuthFailure`, `InvalidClientTokenId`, `SignatureDoesNotMatch`, `ExpiredToken` | The credential is marked invalid in the dashboard; nothing is retried blindly |
+| **Credential** | `AuthFailure`, `InvalidClientTokenId`, `SignatureDoesNotMatch`, `ExpiredToken` | Refused at connect time, so such a key is never stored. At launch (a key revoked or expired since) it is permanent: the job moves to its next fallback and then fails, with EC2's message on the Events page; nothing is retried blindly. Airship then checks the credential again (at most every five minutes) and, if the cloud refuses it, the Cloud page shows **Credentials rejected** with the cloud's message and Events records `cloud.credentials_rejected`; reconnecting, or the cloud accepting it again, clears it |
 
 Every message that reaches the dashboard carries the EC2 error code and
 message. No credential value is ever echoed into an error.

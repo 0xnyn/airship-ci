@@ -207,7 +207,7 @@ On submit, Airship reads the project through the Compute API to prove the
 key works *and* that the API is enabled, then echoes back the project ID and
 the service account's email so you can confirm it is the identity you meant.
 
-One credential per cloud per installation — you can have AWS and GCP
+One credential per cloud per installation — you can have AWS, GCP, Azure and Daytona
 connected at the same time, and each runner definition names its own
 `cloud:`. Rotating the key within the same project is always allowed;
 swapping it for another project's key, or disconnecting, is refused while

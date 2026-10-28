@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
@@ -262,6 +263,11 @@ type Service struct {
 	configs *configCache
 	// wake nudges the launcher when new runners are pending.
 	wake chan struct{}
+
+	// credentialChecks is when each credential whose lists fail was last
+	// verified again, to bound those checks.
+	credentialChecksMu sync.Mutex
+	credentialChecks   map[uuid.UUID]time.Time
 }
 
 // New returns a Service.
@@ -276,6 +282,8 @@ func New(pool *pgxpool.Pool, gh GitHub, clouds cloud.Registry, keyring *secrets.
 		log:     logger,
 		configs: newConfigCache(),
 		wake:    make(chan struct{}, 1),
+
+		credentialChecks: map[uuid.UUID]time.Time{},
 	}
 }
 

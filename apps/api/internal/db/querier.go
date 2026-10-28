@@ -224,7 +224,9 @@ type Querier interface {
 	// within max_runners.
 	ReviveRunners(ctx context.Context, arg ReviveRunnersParams) ([]ReviveRunnersRow, error)
 	SetCloudCredentialDefaultRegion(ctx context.Context, arg SetCloudCredentialDefaultRegionParams) (CloudCredential, error)
-	SetCloudCredentialStatus(ctx context.Context, arg SetCloudCredentialStatusParams) error
+	// Records whether a credential still works, as long as it is still the
+	// sealed secret that was checked: a reconnect in between wins.
+	SetCloudCredentialStatus(ctx context.Context, arg SetCloudCredentialStatusParams) (int64, error)
 	SetIdlePoolRunnerGroup(ctx context.Context, arg SetIdlePoolRunnerGroupParams) error
 	SetInstallationMaxRunners(ctx context.Context, arg SetInstallationMaxRunnersParams) (Installation, error)
 	SetInstallationSuspended(ctx context.Context, arg SetInstallationSuspendedParams) error

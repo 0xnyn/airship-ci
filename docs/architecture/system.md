@@ -17,9 +17,11 @@ the set reads on its own; this one is the map.
 | **system.md** (this one) | How the whole thing fits together, what runs where, how a job becomes a machine, how it fails safely |
 | [aws.md](aws.md) | What Airship does inside an AWS account, call by call |
 | [gcp.md](gcp.md) | The same for Google Cloud, and where Compute Engine forced different decisions |
+| [azure.md](azure.md) | The same for Microsoft Azure, where a machine is several resources and egress has to be made explicit |
 | [daytona.md](daytona.md) | The same for Daytona, where a job gets a sandbox rather than a VM, and what that changes |
 | [aws-setup.md](aws-setup.md) | Standing it up on AWS: IAM, VPC, quotas, first green job |
 | [gcp-setup.md](gcp-setup.md) | Standing it up on Google Cloud: APIs, service account, roles, quotas |
+| [azure-setup.md](azure-setup.md) | Standing it up on Azure: an Entra application, its role, quotas, first green job |
 | [daytona-setup.md](daytona-setup.md) | Standing it up on Daytona: an API key, a region, a tier, first green job |
 | [security.md](security.md) | Trust boundaries, credential handling, job isolation, and the exposures we state plainly |
 | [operations.md](operations.md) | Running the control plane: deployment, HA, scaling, key rotation, incident runbook |
@@ -56,7 +58,8 @@ that matters.
                           │     │  Postgres    the only state               │
                           │     │  dashboard   Next.js                      │
                           │     └───────────────────┬───────────────────────┘
-                          │                         │  RunInstances / instances.insert
+                          │                         │  RunInstances / instances.insert /
+                          │                         │    virtualMachines PUT
                           │                         │  Describe / List
                           │                         │  Terminate / Delete
 ┌─────────── your cloud account ──────────────────── ▼ ──────────────────────┐
@@ -73,7 +76,7 @@ that matters.
 
 | | Control plane | Data plane |
 | --- | --- | --- |
-| Runs where | Airship's deployment (or yours — one container plus Postgres) | Your cloud account, your VPC/VPC network; or your Daytona organization |
+| Runs where | Airship's deployment (or yours — one container plus Postgres) | Your cloud account, your VPC, VPC network or virtual network; or your Daytona organization |
 | Holds | Installation metadata, runner and job rows, sealed cloud credentials | Nothing durable. The machine is gone after one job |
 | Talks to | GitHub, your cloud's control API, your runners | GitHub, your cache bucket, whatever your job reaches |
 | Never does | Log in to your machines. There is no SSH key, no agent, no inbound port (on Daytona it writes one file and starts one command through the sandbox's toolbox API, and that is all) | Hold your cloud credential. It gets a scoped, hour-long cache grant at most |
@@ -99,15 +102,18 @@ runner machines to download.
 | **role refresher** | Re-checks dashboard roles against GitHub, so removing someone from your org revokes their access within the hour | Control plane |
 | **Postgres** | The only state in the system. 13 tables | Control plane |
 | **dashboard** | Repositories, Cloud, Runners, Jobs, API keys, Teams, Analytics, Events, Settings | Next.js, served next to the API |
-| **boot script** | Rendered per launch; installs `actions/runner`, registers it with a single-use config, runs one job, powers the machine off (stops the sandbox, on Daytona) | Your VM, as user data / startup script; your Daytona sandbox, started by the control plane |
+| **boot script** | Rendered per launch; installs `actions/runner`, registers it with a single-use config, runs one job, powers the machine off (stops the sandbox, on Daytona) | Your VM, as user data, startup script or Azure custom data (a Run Command on Azure Windows); your Daytona sandbox, started by the control plane |
 | **cache proxy** | Serves GitHub's cache API from an S3 bucket in your account, on `127.0.0.1` only | Your VM, when `extra_config.cache: true` |
 
 The provider boundary is deliberate: `internal/cloud` is an interface with
-four methods (`Verify`, `Launch`, `List`, `Terminate`) plus an optional
-`Cacher`. The scheduler cannot import a cloud SDK. A new cloud is a new
+four methods (`Verify`, `Launch`, `List`, `Terminate`) plus two optional
+ones: `Cacher` (object storage for the cache proxy, AWS today) and
+`Sweeper` (cleanup of parts a failed launch can leave behind, Azure today).
+The scheduler cannot import a cloud SDK. A new cloud is a new
 implementation of that interface and nothing else; Daytona, whose
-"machines" are containers that run nothing at boot, fit behind it without
-a change to the scheduler.
+"machines" are containers that run nothing at boot, and Azure, whose
+machines are four resources made in order, fit behind it without a change
+to the scheduler's lifecycle.
 
 ---
 
@@ -122,19 +128,22 @@ A typical timeline, from GitHub's webhook to a terminated machine:
                          fallback chain (machine shapes × regions × spot)
  0.1s   runners row      state=pending, spec frozen, labels recorded
  0.1s   launcher         claim under max_runners (row lock on installation)
-                         → state=launching, 5-minute lease
+                         → state=launching, 5-minute lease (renewed while
+                         a slow cloud call runs, up to 15 minutes)
  0.3s   GitHub           mint JIT config (single-use, repo-scoped, labelled)
                          store the GitHub runner ID *before* calling the cloud
  0.4s   re-check         is the job still queued? cancelled or taken → no machine
- 0.5s   your cloud       RunInstances / instances.insert, idempotency key
-                         derived from the runner ID
+ 0.5s   your cloud       RunInstances / instances.insert / virtualMachines
+                         PUT, idempotent per runner (a token derived from
+                         the runner ID, or the runner's name)
  2.0s   runners row      state=running, instance_id recorded
 ~40s    your VM          boot script: install runner, trust cache CA,
                          write .env, start ./run.sh with the JIT config
 ~50s    GitHub           workflow_job: in_progress → state=busy
   …     job runs
   —     GitHub           workflow_job: completed → state=finished (completed)
-  +0s   your cloud       TerminateInstances / instances.delete
+  +0s   your cloud       TerminateInstances / instances.delete /
+                         virtualMachines DELETE
   +0s   your VM          the runner exits, the boot script's trap powers off,
                          and the machine terminates on shutdown anyway
  +2m    GitHub           delete the runner registration (only if not busy)
@@ -197,17 +206,20 @@ rests on rules, not on any single call succeeding exactly once.
    after a grace period. A runner whose machine is genuinely unknown has
    neither, and only the inventory scan may decide.
 2. **A launch is idempotent per runner.** AWS gets a `ClientToken` and GCP a
-   `requestId` derived from the runner ID; GCP instances are named after the
-   runner and looked up by name before every insert. A retried call returns
-   the first machine. It never makes a second.
+   `requestId` derived from the runner ID; GCP, Azure and Daytona machines
+   are named after the runner and looked up by name before every create.
+   On Azure each part of a machine (address, interface, VM) is a PUT by
+   name, so a retry re-finds what an earlier attempt made. A retried call
+   returns the first machine. It never makes a second.
 3. **One machine serves at most one job, and a machine Airship did not make
-   is never touched.** Instances carry the installation as a tag (AWS) or
-   label (GCP). Listing filters by it; terminating reads the instance first
-   and refuses when the tag is not the installation's.
+   is never touched.** Instances carry the installation as a tag (AWS,
+   Azure) or label (GCP, Daytona). Listing filters by it; terminating reads
+   the instance first and refuses when the tag is not the installation's.
 4. **Registration precedes the machine, and is bounded.** See above.
 5. **Ambiguity is resolved by observation, not assumption.** A transport
    error after the request was sent, a lost poll, a timed-out operation —
-   each is settled by looking the machine up. Only when that also fails is
+   each is settled by looking the machine up. Only when that also fails (or,
+   on Azure, when the machine is still being created at the deadline) is
    the launch `launch_unconfirmed`, and such a runner keeps its registration
    and is revived the moment its machine is listed. GitHub's word counts as
    an observation too: an `in_progress` event naming a runner Airship gave
@@ -219,7 +231,8 @@ rests on rules, not on any single call succeeding exactly once.
 7. **Every machine has its own deadline.** The boot script powers the
    machine off when the runner exits and at the maximum lifetime, and runs
    once per boot. A control plane that disappears entirely leaves no machine
-   running forever.
+   running forever. (On GCP and Azure a powered-off machine still costs its
+   disk, and on Azure its allocation, until the reconciler deletes it.)
 
 The full argument for each, including the edge cases they were written for,
 is in [`../architecture.md`](../architecture.md).
@@ -316,9 +329,11 @@ Full reference: [`../airship-yaml.md`](../airship-yaml.md).
   stale jobs per installation per pass, so one installation's backlog cannot
   exhaust its own budget or delay another's recovery, and launch concurrency
   is capped at 8 to avoid GitHub's secondary limits on POST bursts.
-- **Cloud calls are bounded.** Every call has a timeout; a launch is cut off
-  30 seconds before its lease expires so a runner is never given up while
-  its launch is still in flight.
+- **Cloud calls are bounded.** Every call has a timeout. A launch renews its
+  lease every half lease while the cloud works, up to 15 minutes (an Azure
+  Windows machine can take that long), and is cut off 30 seconds before the
+  last lease it knows of expires, so a runner is never given up while its
+  launch is still in flight.
 
 | Loop | Interval | Leader only |
 | --- | --- | --- |
@@ -339,9 +354,9 @@ Full reference: [`../airship-yaml.md`](../airship-yaml.md).
 | The cloud's answer to a launch is lost | The launch is `launch_unconfirmed`; the machine is found (or not) by the next inventory scan, and the job is retried meanwhile |
 | An instance disappears | The runner is `lost` and its job retried if it was still queued; a busy runner's job ends as GitHub reports it |
 | A machine is stopped by hand | It runs no job and still costs its disk, so the scan treats it as gone and removes it |
-| Your credential is revoked | Launches fail with a credential error on the dashboard's Events page; existing machines still hit their own deadlines |
+| Your credential is revoked | Launches fail with a credential error on the dashboard's Events page; the next failed launch or inventory list checks the credential again (at most every five minutes per credential) and the Cloud page shows **Credentials rejected** until you reconnect; existing machines still hit their own deadlines |
 | `airship.yaml` is broken | The job is skipped with a reason that names the field. Nothing launches |
-| A region is out of capacity | The next fallback attempt, then the next subnet/zone, then the chain again — up to the attempt cap |
+| A region is out of capacity | The next subnet or zone where the cloud has them, then the next fallback attempt, then the chain again — up to the attempt cap |
 | Postgres is lost | This is the one unsurvivable failure. See [operations.md](operations.md) for backup and what `CREDENTIALS_KEY` loss means |
 
 ---
@@ -376,6 +391,7 @@ We are precise about this, because "it compiles" is not "it works".
 | **A real GitHub job on a real runner, Linux** | The rendered boot script, unmodified, in a fresh `ubuntu:22.04` container: installed packages, fetched the cache proxy, obtained a grant, trusted the CA, wrote the runner's `.env`, started `actions/runner` 2.338.2 with a single-use JIT registration and ran one `workflow_dispatch` job on a private repository. `actions/cache/save` wrote 90 MB as a multipart upload; `restore` hit by exact key and by `restore-keys` prefix with matching checksums; unknown keys missed. Only `shutdown` was stubbed, because a container cannot power itself off |
 | **The EC2 provider, cache bucket and federation grant** | Against moto in CI: request shapes, tags, default VPC and security group, lifecycle rules, termination |
 | **The Compute Engine provider** | Through the real Google SDK against a hand-written fake of the REST API: request IDs, zone operations, per-zone lists with unreachable zones, capacity and quota errors, dropped connections, hung operations, image families, machine images, subnetworks, routers |
+| **The Azure provider, and its Linux boot script with a real job** | Through the real `azure-sdk-for-go` clients against a hand-written fake of Resource Manager: long-running operations, creations that fail after acceptance and leave a `Failed` VM, dropped answers, hung polls, cascading deletes, marketplace, managed and gallery images, networks, NAT gateways, run commands. The exact `customData` script the provider builds for a Linux launch ran unmodified in an `ubuntu:22.04` container on 2026-10-27 and passed a real `workflow_dispatch` job (architecture, `env_vars`, `sudo`, the JIT config gone from the job's environment), then reached its shutdown |
 | **Three real GitHub jobs on real Daytona sandboxes: image with Docker, snapshot, volume** | Through `Provider.Launch` against `app.daytona.io` on 2026-10-27, with a JIT config minted on a private repository and `docker: true`: the sandbox was built from `ubuntu:22.04`, started, scripted and labelled in 42 s; a second `Launch` returned the same sandbox; the runner was online on GitHub 85 s in; a `workflow_dispatch` job ran every step green (`uname`, `actions/checkout@v4`, `docker run --rm alpine:3.20` on the Docker 28.3.3 daemon the script started in the sandbox, `sudo`); the runner deregistered after its one job, the script stopped the sandbox, Daytona deleted it 2 m 8 s in, and the organization listed nothing afterwards. Two more jobs ran green on a sandbox from the `daytona-medium` snapshot (3 s to launch, running as a sudoer) and on one with a Daytona volume mounted at `/mnt/probe` (`mountpoint-s3`, writable). Allow lists, GPUs and the dedicated region were sent and refused by Daytona for this organization (tier, credits, region), each a clear permanent error. The failure modes ran against Daytona too: five launches of one runner racing got one sandbox (the rest a retryable organization-quota error), a launch cancelled while its sandbox was `creating` left nothing behind, a sandbox orphaned before its label was hidden inside the boot grace, reported gone past it and adopted by a relaunch, and `Terminate` on a runner mid-job returned in 500 ms, had the sandbox gone within a minute and was a no-op when repeated. The opt-in `TestAgainstLiveDaytona` separately verified the key, a repeated launch, listing, the ownership refusal and the self-destruct path. In CI the provider runs through Daytona's generated clients against a fake of its API and toolbox |
 | **Boot scripts** | Linux checked with `bash -n`; both Windows scripts parsed by PowerShell 7.4.6 itself |
 | **Races and lifecycle edge cases** | `internal/fleet` tests against real Postgres, a fake GitHub and a fake cloud; `internal/e2e` drives the whole HTTP surface |
@@ -384,6 +400,7 @@ We are precise about this, because "it compiles" is not "it works".
 | --- | --- |
 | A launch on real EC2 | The opt-in `TestAgainstLiveAWS` launches and terminates one instance when credentials are set. The first real deployment exercises exactly the `RunInstances` call moto accepted |
 | A launch in a real GCP project | The GCP provider should be treated as unexercised against Google, however thorough the fake. The opt-in `TestAgainstLiveGCP` launches one `e2-micro` and deletes it. See [gcp.md](gcp.md) for the specific things to watch on a first launch |
+| A launch in a real Azure subscription | No request has been accepted by Azure itself. The opt-in `TestAgainstLiveAzure` launches one `Standard_B2s` and deletes it. See [azure.md](azure.md) for the five things to watch on a first launch: `customData` size, Trusted Launch with the size, the NAT gateway, the Windows Run Command, and power states in the list |
 | A Windows machine | The scripts parse; no Windows VM has booted them |
 | A GPU sandbox that started, a sandbox in a dedicated Daytona region, or a sandbox-level allow list | Every request was sent and refused for this organization (no GPU credits; a dedicated region of Windows hosts only, which connect now refuses up front; a tier below 3 for allow lists). Each needs a paid change to the organization. The provider's handling of a started GPU sandbox and an accepted allow list are the Daytona paths not yet seen. See [daytona.md](daytona.md) |
 
@@ -396,8 +413,8 @@ Yes — that is the model. You give it a credential scoped to launching and
 destroying machines, it holds that credential sealed, and it opens it only
 for the duration of one API call. [security.md](security.md) says exactly
 what the credential needs and what it is used for; [aws-setup.md](aws-setup.md),
-[gcp-setup.md](gcp-setup.md) and [daytona-setup.md](daytona-setup.md) give
-the least-privilege policies.
+[gcp-setup.md](gcp-setup.md), [azure-setup.md](azure-setup.md) and
+[daytona-setup.md](daytona-setup.md) give the least-privilege policies.
 
 **Can a developer run up a bill?**
 Anyone who can push to an activated repository can choose machine types for

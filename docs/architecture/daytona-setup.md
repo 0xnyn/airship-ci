@@ -117,7 +117,7 @@ permissions) and the organization's regions, refuses a region the
 organization cannot launch in, and echoes back the organization ID and the
 key's name so you can confirm it is the one you meant.
 
-One credential per cloud per installation: AWS, GCP and Daytona can be
+One credential per cloud per installation: AWS, GCP, Azure and Daytona can be
 connected at the same time, and each runner definition names its own
 `cloud:`. Replacing the key with another key of the same organization is
 always allowed; a key of a different organization, or disconnecting, is

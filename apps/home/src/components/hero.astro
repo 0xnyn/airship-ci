@@ -80,7 +80,7 @@ const { content } = Astro.props;
     height: 760px;
     transform: translateX(-50%);
     background-image: radial-gradient(
-      rgba(255, 255, 255, 0.09) 1px,
+      var(--halftone) 1px,
       transparent 1.2px
     );
     background-size: 6px 6px;
@@ -168,9 +168,7 @@ const { content } = Astro.props;
     bottom: -40px;
     border-radius: 4px 4px 0 0;
     overflow: hidden;
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.06),
-      0 40px 120px rgba(0, 0, 0, 0.8);
+    box-shadow: var(--shadow-hero);
   }
 
   .hero-code {

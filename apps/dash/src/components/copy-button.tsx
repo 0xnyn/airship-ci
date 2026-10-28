@@ -27,16 +27,180 @@ export function CopyButton({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** A block of copyable text, such as a token or a command. */
-export function CodeBlock({ label, value }: { label: string; value: string }) {
+// A small highlighter for the YAML and shell snippets the dashboard shows:
+// keys, strings, ${{ }} expressions and comments, in the landing page's code
+// card colours. Anything it does not recognise stays plain.
+const LINE = /^(\s*-?\s*)([\w.-]+)(:)(.*)$/;
+const EXPRESSION = /(\$\{\{[^}]*\}\})/;
+
+function Value({ text }: { text: string }) {
+  const comment = text.indexOf(" #");
+  const body = comment >= 0 ? text.slice(0, comment) : text;
+  const note = comment >= 0 ? text.slice(comment) : "";
   return (
-    <div className="relative">
-      <pre className="overflow-x-auto bg-muted p-3 pr-10 font-mono text-[11px]/relaxed">
-        {value}
-      </pre>
-      <div className="absolute top-1 right-1">
-        <CopyButton label={label} value={value} />
+    <>
+      {body.split(EXPRESSION).map((part, index) =>
+        EXPRESSION.test(part) ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: parts of one line.
+          <span className="text-syntax-expression" key={index}>
+            {part}
+          </span>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: parts of one line.
+          <span className="text-syntax-string" key={index}>
+            {part}
+          </span>
+        )
+      )}
+      {note ? <span className="text-syntax-comment">{note}</span> : null}
+    </>
+  );
+}
+
+function Highlighted({ value }: { value: string }) {
+  return value.split("\n").map((line, index) => {
+    const match = LINE.exec(line);
+    const key = `${index}:${line}`;
+    if (line.trimStart().startsWith("#")) {
+      return (
+        <span className="block text-syntax-comment" key={key}>
+          {line || " "}
+        </span>
+      );
+    }
+    if (!match) {
+      return (
+        <span className="block" key={key}>
+          {line.startsWith(" ") || line.startsWith("-") ? (
+            <Value text={line} />
+          ) : (
+            line || " "
+          )}
+        </span>
+      );
+    }
+    const [, lead, name, colon, rest] = match;
+    return (
+      <span className="block" key={key}>
+        {lead}
+        <span className="text-syntax-key">{name}</span>
+        {colon}
+        <Value text={rest ?? ""} />
+      </span>
+    );
+  });
+}
+
+const WHITESPACE = /^\s+$/;
+const SHELL_TOKEN = /("[^"]*"|'[^']*'|\s+|[^\s"']+)/;
+
+/** Shell: the command in the key colour, flags as literals, quotes as strings. */
+function Shell({ value }: { value: string }) {
+  let continued = false;
+  return value.split("\n").map((line, index) => {
+    const key = `${index}:${line}`;
+    if (line.trimStart().startsWith("#")) {
+      continued = false;
+      return (
+        <span className="block text-syntax-comment" key={key}>
+          {line}
+        </span>
+      );
+    }
+    const first = !continued;
+    continued = line.trimEnd().endsWith("\\");
+    let commandSeen = !first;
+    return (
+      <span className="block" key={key}>
+        {line.split(SHELL_TOKEN).map((part, at) => {
+          if (part === "") {
+            return null;
+          }
+          const partKey = `${at}:${part}`;
+          if (WHITESPACE.test(part)) {
+            return part;
+          }
+          if (!commandSeen) {
+            commandSeen = true;
+            return (
+              <span className="text-syntax-key" key={partKey}>
+                {part}
+              </span>
+            );
+          }
+          if (part.startsWith('"') || part.startsWith("'")) {
+            return (
+              <span className="text-syntax-string" key={partKey}>
+                {part}
+              </span>
+            );
+          }
+          if (part.startsWith("-")) {
+            return (
+              <span className="text-syntax-literal" key={partKey}>
+                {part}
+              </span>
+            );
+          }
+          return part;
+        })}
+      </span>
+    );
+  });
+}
+
+/**
+ * A block of copyable text, such as a token or a command. With a `file` it
+ * is drawn as the landing page's code card: a window bar naming the file,
+ * and the contents highlighted.
+ */
+export function CodeBlock({
+  file,
+  label,
+  language = "yaml",
+  value,
+}: {
+  file?: string;
+  label: string;
+  language?: "yaml" | "shell";
+  value: string;
+}) {
+  if (!file) {
+    return (
+      <div className="relative">
+        <pre className="overflow-x-auto rounded-md border bg-muted/60 p-3 pr-10 font-mono text-[11px]/relaxed">
+          {value}
+        </pre>
+        <div className="absolute top-1 right-1">
+          <CopyButton label={label} value={value} />
+        </div>
       </div>
-    </div>
+    );
+  }
+  return (
+    <figure className="overflow-hidden rounded-lg border bg-card">
+      <figcaption className="flex h-9 items-center gap-3 border-b pr-1 pl-3">
+        <span aria-hidden="true" className="flex gap-1">
+          <span className="size-2 rounded-full bg-faint/60" />
+          <span className="size-2 rounded-full bg-faint/60" />
+          <span className="size-2 rounded-full bg-faint/60" />
+        </span>
+        <span className="truncate font-mono text-[11px] text-muted-foreground">
+          {file}
+        </span>
+        <span className="ml-auto">
+          <CopyButton label={label} value={value} />
+        </span>
+      </figcaption>
+      <pre className="overflow-x-auto p-4 font-mono text-[12px]/[19px] text-soft-foreground">
+        <code>
+          {language === "shell" ? (
+            <Shell value={value} />
+          ) : (
+            <Highlighted value={value} />
+          )}
+        </code>
+      </pre>
+    </figure>
   );
 }

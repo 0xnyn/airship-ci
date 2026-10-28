@@ -1,35 +1,49 @@
 import type { Schemas } from "@airship/client";
 import { cn } from "@airship/ui/lib/utils";
 
-type Tone = "neutral" | "info" | "success" | "warning" | "danger";
+type Tone = "neutral" | "info" | "active" | "success" | "warning" | "danger";
 
+// The landing page's runner states, in the same colours: busy is blue, idle
+// is green, launching is gold. Values come from @airship/tokens.
 const toneDot: Record<Tone, string> = {
-  danger: "bg-destructive",
-  info: "bg-sky-500",
-  neutral: "bg-muted-foreground/60",
-  success: "bg-emerald-500",
-  warning: "bg-amber-500",
+  active: "bg-active",
+  danger: "bg-danger",
+  info: "bg-info",
+  neutral: "bg-faint",
+  success: "bg-success",
+  warning: "bg-warning",
 };
 
 export function StatusDot({
   label,
+  muted = false,
   pulse = false,
   tone,
 }: {
   label: string;
+  /** A settled, past state: the label steps back. */
+  muted?: boolean;
   pulse?: boolean;
   tone: Tone;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-      <span
-        aria-hidden="true"
-        className={cn(
-          "size-1.5 shrink-0",
-          toneDot[tone],
-          pulse && "animate-pulse"
-        )}
-      />
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 whitespace-nowrap",
+        muted && "text-muted-foreground"
+      )}
+    >
+      <span aria-hidden="true" className="relative flex size-1.5 shrink-0">
+        {pulse ? (
+          <span
+            className={cn(
+              "absolute inset-0 animate-ping rounded-full opacity-60 [animation-duration:1.8s]",
+              toneDot[tone]
+            )}
+          />
+        ) : null}
+        <span className={cn("relative size-1.5 rounded-full", toneDot[tone])} />
+      </span>
       {label}
     </span>
   );
@@ -51,13 +65,15 @@ export function JobStatus({ job }: { job: Schemas["Job"] }) {
     return <StatusDot label="Queued" pulse tone="warning" />;
   }
   if (job.status === "in_progress") {
-    return <StatusDot label="Running" pulse tone="info" />;
+    return <StatusDot label="Running" pulse tone="active" />;
   }
   const conclusion = job.conclusion ?? "completed";
+  const tone = conclusionTone[conclusion] ?? "neutral";
   return (
     <StatusDot
       label={humanize(conclusion)}
-      tone={conclusionTone[conclusion] ?? "neutral"}
+      muted={tone === "neutral"}
+      tone={tone}
     />
   );
 }
@@ -89,19 +105,21 @@ const finishLabel: Record<string, string> = {
 export function RunnerState({ runner }: { runner: Schemas["Runner"] }) {
   switch (runner.state) {
     case "pending":
-      return <StatusDot label="Waiting for capacity" pulse tone="warning" />;
+      return <StatusDot label="Waiting for capacity" pulse tone="neutral" />;
     case "launching":
-      return <StatusDot label="Launching" pulse tone="info" />;
+      return <StatusDot label="Launching" pulse tone="warning" />;
     case "running":
-      return <StatusDot label="Idle" tone="info" />;
+      return <StatusDot label="Idle" tone="success" />;
     case "busy":
-      return <StatusDot label="Running job" pulse tone="success" />;
+      return <StatusDot label="Running job" pulse tone="active" />;
     default: {
       const reason = runner.finishReason ?? "completed";
+      const tone = finishTone[reason] ?? "neutral";
       return (
         <StatusDot
           label={finishLabel[reason] ?? humanize(reason)}
-          tone={finishTone[reason] ?? "neutral"}
+          muted={tone === "neutral" || tone === "success"}
+          tone={tone}
         />
       );
     }
@@ -122,7 +140,13 @@ const levelTone: Record<Schemas["Event"]["level"], Tone> = {
 };
 
 export function EventLevel({ level }: { level: Schemas["Event"]["level"] }) {
-  return <StatusDot label={humanize(level)} tone={levelTone[level]} />;
+  return (
+    <StatusDot
+      label={humanize(level)}
+      muted={level === "info"}
+      tone={levelTone[level]}
+    />
+  );
 }
 
 function humanize(value: string): string {

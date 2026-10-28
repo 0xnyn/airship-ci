@@ -10,10 +10,11 @@ import Link from "next/link";
 import { $api } from "@/lib/api";
 import { formatDuration, formatInteger } from "@/lib/format";
 import { CodeBlock } from "./copy-button";
-import { ErrorRow } from "./data-table";
+import { EmptyRow, ErrorRow } from "./data-table";
 import { EventRow } from "./events";
 import { useOrg } from "./org-context";
-import { PageHeader } from "./page-header";
+import { PageHeader, SectionHeading } from "./page-header";
+import { MoreLink, Panel, PanelList, Stat, StatGrid } from "./panel";
 import { JobStatus } from "./status";
 import { RelativeTime } from "./time";
 
@@ -51,7 +52,7 @@ export function Overview() {
       ) : null}
       {overview.data ? <Stats overview={overview.data} /> : null}
       {overview.isPending ? <StatsSkeleton /> : null}
-      <div className="grid gap-8 lg:grid-cols-2">
+      <div className="grid gap-x-6 gap-y-8 lg:grid-cols-2">
         <RecentJobs />
         <RecentEvents />
       </div>
@@ -67,105 +68,144 @@ function Stats({ overview }: { overview: Schemas["Overview"] }) {
     finished > 0
       ? `${Math.round((overview.succeeded / finished) * PERCENT)}%`
       : "—";
-  const { runners } = overview;
 
   return (
-    <div className="grid gap-6">
-      <section
-        aria-label="Jobs"
-        className="grid grid-cols-2 gap-px bg-border ring-1 ring-border lg:grid-cols-4"
-      >
-        <Stat
-          hint={`${formatInteger(overview.jobs)} queued in total`}
-          label="Jobs on Airship"
-          value={formatInteger(overview.airshipJobs)}
-        />
-        <Stat
-          hint={`${formatInteger(overview.queued)} waiting, ${formatInteger(overview.inProgress)} running`}
-          label="Success rate"
-          value={successRate}
-        />
-        <Stat
-          hint={`p90 ${overview.airshipJobs > 0 ? formatDuration(overview.queueP90Seconds) : "—"}`}
-          label="Median queue time"
-          value={
-            overview.airshipJobs > 0
-              ? formatDuration(overview.queueP50Seconds)
-              : "—"
-          }
-        />
-        <Stat
-          hint="Time jobs spent on your machines"
-          label="Runner minutes"
-          value={formatInteger(Math.round(overview.runnerMinutes))}
-        />
-      </section>
-      <section aria-labelledby="runners-now" className="grid gap-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="font-medium text-sm" id="runners-now">
-            Runners now
-          </h2>
-          <Link
-            className="text-muted-foreground text-xs hover:text-foreground"
-            href={`/${org.login}/runners` as Route}
-          >
-            View runners
-          </Link>
-        </div>
-        <div className="grid grid-cols-2 gap-px bg-border ring-1 ring-border lg:grid-cols-4">
+    <div className="grid gap-8">
+      <RunnersNow org={org.login} runners={overview.runners} />
+      <section aria-labelledby="last-day" className="grid gap-3">
+        <SectionHeading id="last-day">Last 24 hours</SectionHeading>
+        <StatGrid label="Jobs">
           <Stat
-            hint="Waiting for a free slot"
-            label="Pending"
-            value={formatInteger(runners.pending)}
+            hint={`${formatInteger(overview.jobs)} queued in total`}
+            label="Jobs on Airship"
+            value={formatInteger(overview.airshipJobs)}
           />
           <Stat
-            hint="Registering and launching"
-            label="Launching"
-            value={formatInteger(runners.starting)}
+            dot={overview.failed > 0 ? "bg-danger" : "bg-success"}
+            hint={`${formatInteger(overview.failed)} failed, ${formatInteger(overview.queued)} waiting`}
+            label="Success rate"
+            value={successRate}
           />
           <Stat
-            hint="Booted, waiting for a job"
-            label="Idle"
-            value={formatInteger(runners.idle)}
+            hint={`p90 ${overview.airshipJobs > 0 ? formatDuration(overview.queueP90Seconds) : "—"}`}
+            label="Median queue time"
+            value={
+              overview.airshipJobs > 0
+                ? formatDuration(overview.queueP50Seconds)
+                : "—"
+            }
           />
           <Stat
-            hint="Running a job"
-            label="Busy"
-            value={formatInteger(runners.busy)}
+            hint="Time jobs spent on your machines"
+            label="Runner minutes"
+            value={formatInteger(Math.round(overview.runnerMinutes))}
           />
-        </div>
+        </StatGrid>
       </section>
     </div>
   );
 }
 
-function Stat({
-  hint,
-  label,
-  value,
+const runnerStates = [
+  {
+    dot: "bg-faint",
+    hint: "Waiting for a free slot",
+    key: "pending",
+    label: "Pending",
+  },
+  {
+    dot: "bg-warning",
+    hint: "Registering and booting",
+    key: "starting",
+    label: "Launching",
+  },
+  {
+    dot: "bg-success",
+    hint: "Booted, waiting for a job",
+    key: "idle",
+    label: "Idle",
+  },
+  { dot: "bg-active", hint: "Running a job", key: "busy", label: "Busy" },
+] as const;
+
+/**
+ * The fleet as it stands, drawn like the landing page's runner panel: a
+ * header with the live dot, one cell per state, and a bar splitting the
+ * fleet by state so the mix reads at a glance.
+ */
+function RunnersNow({
+  org,
+  runners,
 }: {
-  hint: string;
-  label: string;
-  value: string;
+  org: string;
+  runners: Schemas["Overview"]["runners"];
 }) {
+  const total = runnerStates.reduce(
+    (sum, state) => sum + runners[state.key],
+    0
+  );
+
   return (
-    <div className="grid gap-1 bg-card p-4">
-      <span className="text-muted-foreground text-xs">{label}</span>
-      <span className="font-medium font-mono text-2xl tabular-nums tracking-tight">
-        {value}
-      </span>
-      <span className="truncate text-[11px] text-muted-foreground">{hint}</span>
-    </div>
+    <section aria-labelledby="runners-now">
+      <Panel className="relative">
+        <div className="flex items-center justify-between gap-4 border-b px-4 py-3 md:px-5">
+          <h2
+            className="flex items-center gap-2 font-medium text-[15px] tracking-tight"
+            id="runners-now"
+          >
+            Runners now
+            <span className="figure font-mono font-normal text-muted-foreground text-xs">
+              {formatInteger(total)}
+            </span>
+          </h2>
+          <MoreLink href={`/${org}/runners`}>View runners</MoreLink>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4">
+          {runnerStates.map((state, index) => (
+            <div
+              className={cn(
+                "border-border",
+                index % 2 === 1 && "border-l",
+                index >= 2 && "max-lg:border-t",
+                index === 2 && "lg:border-l"
+              )}
+              key={state.key}
+            >
+              <Stat
+                dot={state.dot}
+                hint={state.hint}
+                label={state.label}
+                value={formatInteger(runners[state.key])}
+              />
+            </div>
+          ))}
+        </div>
+        <div aria-hidden="true" className="flex h-1 w-full gap-px bg-muted">
+          {total > 0
+            ? runnerStates.map((state) =>
+                runners[state.key] > 0 ? (
+                  <span
+                    className={cn(
+                      "h-full transition-[flex-grow] duration-500 ease-smooth",
+                      state.dot
+                    )}
+                    key={state.key}
+                    style={{ flexGrow: runners[state.key] }}
+                  />
+                ) : null
+              )
+            : null}
+        </div>
+      </Panel>
+    </section>
   );
 }
 
 function StatsSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <Skeleton className="h-24" />
-      <Skeleton className="h-24" />
-      <Skeleton className="h-24" />
-      <Skeleton className="h-24" />
+    <div className="grid gap-8">
+      <Skeleton className="h-36 rounded-lg" />
+      <Skeleton className="h-28 rounded-lg" />
     </div>
   );
 }
@@ -210,51 +250,58 @@ function GettingStarted({
   ];
 
   return (
-    <section
-      aria-labelledby="getting-started"
-      className="grid gap-3 border p-4"
-    >
-      <h2 className="font-medium text-sm" id="getting-started">
-        Get started
-      </h2>
-      <ol className="grid gap-3">
-        {steps.map((step, index) => (
-          <li className="flex items-start gap-3" key={step.title}>
-            <span
-              aria-hidden="true"
-              className={cn(
-                "grid size-5 shrink-0 place-items-center border font-mono text-[10px]",
-                step.done && "border-emerald-500 bg-emerald-500 text-white"
-              )}
-            >
-              {step.done ? <Check className="size-3" /> : index + 1}
-            </span>
-            <div className="grid flex-1 gap-0.5">
+    <Panel className="relative">
+      <section aria-labelledby="getting-started" className="grid gap-4 p-5">
+        <div className="grid gap-1">
+          <h2
+            className="font-medium text-[15px] tracking-tight"
+            id="getting-started"
+          >
+            Get started
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            {steps.filter((step) => step.done).length} of {steps.length} done
+          </p>
+        </div>
+        <ol className="grid gap-px overflow-hidden rounded-md border bg-border">
+          {steps.map((step, index) => (
+            <li className="flex items-start gap-3 bg-card p-3" key={step.title}>
               <span
+                aria-hidden="true"
                 className={cn(
-                  "font-medium text-xs",
-                  step.done && "text-muted-foreground line-through"
+                  "grid size-5 shrink-0 place-items-center rounded-full border font-mono text-[10px] text-muted-foreground",
+                  step.done && "border-transparent bg-success text-background"
                 )}
               >
-                {step.title}
-                <span className="sr-only">{step.done ? " (done)" : ""}</span>
+                {step.done ? <Check className="size-3" /> : index + 1}
               </span>
-              <span className="text-muted-foreground text-xs/relaxed">
-                {step.description}
-              </span>
-            </div>
-            {step.done ? null : (
-              <Link
-                className={buttonVariants({ size: "sm", variant: "outline" })}
-                href={step.href as Route}
-              >
-                Open
-              </Link>
-            )}
-          </li>
-        ))}
-      </ol>
-    </section>
+              <div className="grid flex-1 gap-0.5">
+                <span
+                  className={cn(
+                    "font-medium text-xs",
+                    step.done && "text-muted-foreground line-through"
+                  )}
+                >
+                  {step.title}
+                  <span className="sr-only">{step.done ? " (done)" : ""}</span>
+                </span>
+                <span className="text-muted-foreground text-xs/relaxed">
+                  {step.description}
+                </span>
+              </div>
+              {step.done ? null : (
+                <Link
+                  className={buttonVariants({ size: "sm", variant: "outline" })}
+                  href={step.href as Route}
+                >
+                  Open
+                </Link>
+              )}
+            </li>
+          ))}
+        </ol>
+      </section>
+    </Panel>
   );
 }
 
@@ -270,51 +317,50 @@ function RecentJobs() {
 
   return (
     <section aria-labelledby="recent-jobs" className="grid content-start gap-3">
-      <div className="flex items-baseline justify-between">
-        <h2 className="font-medium text-sm" id="recent-jobs">
-          Recent jobs
-        </h2>
-        <Link
-          className="text-muted-foreground text-xs hover:text-foreground"
-          href={`/${org.login}/jobs` as Route}
-        >
-          All jobs
-        </Link>
-      </div>
-      {jobs.isPending ? <Skeleton className="h-40" /> : null}
+      <SectionHeading
+        action={<MoreLink href={`/${org.login}/jobs`}>All jobs</MoreLink>}
+        id="recent-jobs"
+      >
+        Recent jobs
+      </SectionHeading>
+      {jobs.isPending ? <Skeleton className="h-72 rounded-lg" /> : null}
       {jobs.isError ? (
         <ErrorRow error={jobs.error} fallback="Could not load jobs" />
       ) : null}
       {jobs.isSuccess && items.length === 0 ? (
-        <p className="border border-dashed p-6 text-center text-muted-foreground text-xs">
+        <EmptyRow>
           No jobs yet. Push to an activated repository to see them here.
-        </p>
+        </EmptyRow>
       ) : null}
       {items.length > 0 ? (
-        <ul className="divide-y border">
+        <PanelList>
           {items.map((job) => (
             <li
-              className="grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2 text-xs"
+              className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-xs transition-colors hover:bg-muted/40"
               key={job.id}
             >
-              <div className="grid gap-0.5">
-                <span className="truncate font-medium">
-                  {job.workflowName ? `${job.workflowName} / ` : ""}
+              <div className="grid min-w-0 gap-1">
+                <span className="truncate font-medium text-[13px]">
+                  {job.workflowName ? (
+                    <span className="text-muted-foreground">
+                      {job.workflowName} /{" "}
+                    </span>
+                  ) : null}
                   {job.name}
                 </span>
-                <span className="truncate text-muted-foreground">
+                <span className="truncate font-mono text-[11px] text-muted-foreground">
                   {job.repository}
                 </span>
               </div>
-              <div className="grid justify-items-end gap-0.5">
+              <div className="grid justify-items-end gap-1">
                 <JobStatus job={job} />
-                <span className="text-muted-foreground">
+                <span className="font-mono text-[11px] text-muted-foreground">
                   <RelativeTime value={job.queuedAt} />
                 </span>
               </div>
             </li>
           ))}
-        </ul>
+        </PanelList>
       ) : null}
     </section>
   );
@@ -335,32 +381,25 @@ function RecentEvents() {
       aria-labelledby="recent-events"
       className="grid content-start gap-3"
     >
-      <div className="flex items-baseline justify-between">
-        <h2 className="font-medium text-sm" id="recent-events">
-          Recent events
-        </h2>
-        <Link
-          className="text-muted-foreground text-xs hover:text-foreground"
-          href={`/${org.login}/events` as Route}
-        >
-          All events
-        </Link>
-      </div>
-      {events.isPending ? <Skeleton className="h-40" /> : null}
+      <SectionHeading
+        action={<MoreLink href={`/${org.login}/events`}>All events</MoreLink>}
+        id="recent-events"
+      >
+        Recent events
+      </SectionHeading>
+      {events.isPending ? <Skeleton className="h-72 rounded-lg" /> : null}
       {events.isError ? (
         <ErrorRow error={events.error} fallback="Could not load events" />
       ) : null}
       {events.isSuccess && items.length === 0 ? (
-        <p className="border border-dashed p-6 text-center text-muted-foreground text-xs">
-          Nothing has happened yet.
-        </p>
+        <EmptyRow>Nothing has happened yet.</EmptyRow>
       ) : null}
       {items.length > 0 ? (
-        <ul className="divide-y border">
+        <PanelList>
           {items.map((event) => (
-            <EventRow event={event} key={event.id} />
+            <EventRow compact event={event} key={event.id} />
           ))}
-        </ul>
+        </PanelList>
       ) : null}
     </section>
   );
@@ -382,9 +421,7 @@ function Usage() {
       - uses: actions/checkout@v5`;
   return (
     <section aria-labelledby="usage" className="grid gap-3">
-      <h2 className="font-medium text-sm" id="usage">
-        Define a runner and use it
-      </h2>
+      <SectionHeading id="usage">Define a runner and use it</SectionHeading>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
         Commit an <code className="font-mono">airship.yaml</code> at the root of
         an activated repository, then set{" "}
@@ -393,8 +430,16 @@ function Usage() {
         own machine.
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
-        <CodeBlock label="Copy airship.yaml" value={config} />
-        <CodeBlock label="Copy workflow snippet" value={workflow} />
+        <CodeBlock
+          file="airship.yaml"
+          label="Copy airship.yaml"
+          value={config}
+        />
+        <CodeBlock
+          file=".github/workflows/ci.yml"
+          label="Copy workflow snippet"
+          value={workflow}
+        />
       </div>
     </section>
   );

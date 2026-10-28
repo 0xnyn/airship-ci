@@ -21,6 +21,7 @@ import {
 import { Input } from "@airship/ui/components/input";
 import { Skeleton } from "@airship/ui/components/skeleton";
 import { Textarea } from "@airship/ui/components/textarea";
+import { cn } from "@airship/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -46,6 +47,14 @@ const DEFAULT_DAYTONA_REGION = "us";
 const DEFAULT_AZURE_REGION = "eastus";
 
 type CloudName = Schemas["Cloud"]["cloud"];
+
+/** Each cloud's own colour, as the landing page names clouds. */
+const cloudDot: Record<CloudName, string> = {
+  aws: "bg-cloud-aws",
+  azure: "bg-cloud-azure",
+  daytona: "bg-cloud-daytona",
+  gcp: "bg-cloud-gcp",
+};
 
 /** What the dashboard says about each cloud. */
 const cloudCopy: Record<
@@ -189,17 +198,31 @@ function CloudSection({
 }) {
   const copy = cloudCopy[name];
   return (
-    <section aria-labelledby={name} className="grid gap-4 border p-4">
+    <section
+      aria-labelledby={name}
+      className="grid gap-5 rounded-lg border bg-card p-5"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="grid gap-1">
-          <h2 className="font-medium text-sm" id={name}>
+        <div className="grid gap-1.5">
+          <h2
+            className="flex items-center gap-2 font-medium text-[15px] tracking-tight"
+            id={name}
+          >
+            <span
+              aria-hidden="true"
+              className={cn("h-2 w-3.5 rounded-full", cloudDot[name])}
+            />
             {copy.title}
           </h2>
           <p className="max-w-prose text-muted-foreground text-xs/relaxed">
             {copy.intro}
           </p>
         </div>
-        {existing ? <CloudStatus cloud={existing} /> : null}
+        {existing ? (
+          <span className="rounded-full border px-2.5 py-1 font-mono text-[11px]">
+            <CloudStatus cloud={existing} />
+          </span>
+        ) : null}
       </div>
       {clouds.isPending ? <Skeleton className="h-32" /> : null}
       {clouds.isError ? (
@@ -219,7 +242,7 @@ function Connected({ cloud }: { cloud: Schemas["Cloud"] }) {
   const copy = cloudCopy[cloud.cloud];
   return (
     <div className="grid gap-3">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-xs">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 rounded-md border bg-muted/40 p-3.5 text-xs">
         <dt className="text-muted-foreground">{copy.identity}</dt>
         <dd className="truncate font-mono">{cloud.identity}</dd>
         <dt className="text-muted-foreground">{copy.account}</dt>
@@ -296,7 +319,7 @@ function LocationSelect({
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <select
-        className="h-8 border bg-transparent px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="h-8 rounded-md border border-input bg-transparent px-2.5 font-mono text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 dark:bg-input/30"
         id={id}
         onChange={(event) => onChange(event.target.value)}
         value={value}
@@ -802,7 +825,7 @@ aws iam attach-user-policy --user-name airship \\
 aws iam create-access-key --user-name airship`;
   return (
     <section aria-labelledby="iam" className="grid gap-3">
-      <h2 className="font-medium text-sm" id="iam">
+      <h2 className="font-medium text-[15px] tracking-tight" id="iam">
         Creating the IAM user
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
@@ -812,7 +835,12 @@ aws iam create-access-key --user-name airship`;
         machines themselves get no AWS credentials unless a definition sets an
         instance profile.
       </p>
-      <CodeBlock label="Copy IAM commands" value={commands} />
+      <CodeBlock
+        file="terminal"
+        label="Copy IAM commands"
+        language="shell"
+        value={commands}
+      />
     </section>
   );
 }
@@ -827,7 +855,7 @@ gcloud iam service-accounts keys create service-account.json \\
   --iam-account airship@PROJECT_ID.iam.gserviceaccount.com`;
   return (
     <section aria-labelledby="gcp-role" className="grid gap-3">
-      <h2 className="font-medium text-sm" id="gcp-role">
+      <h2 className="font-medium text-[15px] tracking-tight" id="gcp-role">
         Creating the service account
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
@@ -838,7 +866,12 @@ gcloud iam service-accounts keys create service-account.json \\
         <code className="font-mono">serviceAccounts</code>. GPU runners also
         need a GPU quota in the zone, which new projects have at zero.
       </p>
-      <CodeBlock label="Copy gcloud commands" value={commands} />
+      <CodeBlock
+        file="terminal"
+        label="Copy gcloud commands"
+        language="shell"
+        value={commands}
+      />
     </section>
   );
 }
@@ -855,7 +888,7 @@ function AzureApp() {
 
   return (
     <section aria-labelledby="azure-app" className="grid gap-3">
-      <h2 className="font-medium text-sm" id="azure-app">
+      <h2 className="font-medium text-[15px] tracking-tight" id="azure-app">
         Registering the Azure application
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
@@ -874,7 +907,12 @@ function AzureApp() {
         sizes a definition names need quota in its regions. Client secrets
         expire; the next launch fails until a new one is pasted here.
       </p>
-      <CodeBlock label="Copy az commands" value={commands} />
+      <CodeBlock
+        file="terminal"
+        label="Copy az commands"
+        language="shell"
+        value={commands}
+      />
     </section>
   );
 }
@@ -882,7 +920,7 @@ function AzureApp() {
 function DaytonaKey() {
   return (
     <section aria-labelledby="daytona-key" className="grid gap-3">
-      <h2 className="font-medium text-sm" id="daytona-key">
+      <h2 className="font-medium text-[15px] tracking-tight" id="daytona-key">
         Creating the Daytona API key
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">

@@ -446,7 +446,7 @@ const short = (m: number): string =>
   }
 
   .plan-highlight {
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--white) 18%, transparent);
   }
 
   .plan-name {
@@ -686,10 +686,10 @@ const short = (m: number): string =>
   .swatch-credits {
     background: repeating-linear-gradient(
       135deg,
-      rgba(158, 250, 255, 0.55) 0 2px,
+      color-mix(in srgb, var(--dot-cyan) 55%, transparent) 0 2px,
       transparent 2px 5px
     );
-    box-shadow: inset 0 0 0 1px rgba(158, 250, 255, 0.45);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dot-cyan) 45%, transparent);
   }
 
 
@@ -698,7 +698,7 @@ const short = (m: number): string =>
   }
 
   .seg-other {
-    background: rgb(70, 74, 80);
+    background: var(--chip-bg);
   }
 
   .bar-value {
@@ -739,7 +739,7 @@ const short = (m: number): string =>
   }
 
   .swatch-other {
-    background: rgb(70, 74, 80);
+    background: var(--chip-bg);
   }
 
   /* Table */

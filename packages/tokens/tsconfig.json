@@ -1,0 +1,8 @@
+{
+  "extends": "@airship/typescript-config/library.json",
+  "include": ["src", "scripts"],
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false
+  }
+}

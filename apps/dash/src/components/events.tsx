@@ -15,6 +15,7 @@ import {
 } from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
+import { PanelList } from "./panel";
 import { RelativeTime } from "./time";
 
 const POLL_MS = 10_000;
@@ -71,11 +72,11 @@ export function Events() {
         </EmptyRow>
       ) : null}
       {items.length > 0 ? (
-        <ul className="divide-y border">
+        <PanelList>
           {items.map((event) => (
             <EventRow event={event} key={event.id} />
           ))}
-        </ul>
+        </PanelList>
       ) : null}
       <LoadMore
         fetchNextPage={events.fetchNextPage}
@@ -87,28 +88,44 @@ export function Events() {
 }
 
 const levelBar: Record<Schemas["Event"]["level"], string> = {
-  error: "bg-destructive",
-  info: "bg-border",
-  warning: "bg-amber-500",
+  error: "bg-danger",
+  info: "bg-transparent",
+  warning: "bg-warning",
 };
 
 /** One event, as a list item. The left edge carries the level. */
-export function EventRow({ event }: { event: Schemas["Event"] }) {
+export function EventRow({
+  compact = false,
+  event,
+}: {
+  compact?: boolean;
+  event: Schemas["Event"];
+}) {
   return (
-    <li className="grid grid-cols-[3px_1fr_auto] gap-3 py-2 pr-3 text-xs">
+    <li
+      className={cn(
+        "relative grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 px-4 text-xs transition-colors hover:bg-muted/40",
+        compact ? "py-3" : "py-3.5"
+      )}
+    >
       <span
         aria-hidden="true"
-        className={cn("self-stretch", levelBar[event.level])}
+        className={cn(
+          "absolute inset-y-2 left-0 w-[3px] rounded-r-full",
+          levelBar[event.level]
+        )}
       />
-      <div className="grid gap-0.5">
-        <span className="text-pretty">{event.message}</span>
-        <span className="truncate font-mono text-[11px] text-muted-foreground">
-          {event.kind}
-          {event.repository ? ` · ${event.repository}` : ""}
-        </span>
-      </div>
-      <span className="whitespace-nowrap text-muted-foreground">
+      <span
+        className={cn("text-pretty text-[13px]", compact && "line-clamp-2")}
+      >
+        {event.message}
+      </span>
+      <span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">
         <RelativeTime value={event.createdAt} />
+      </span>
+      <span className="col-span-2 truncate font-mono text-[11px] text-muted-foreground">
+        <span className="text-soft-foreground">{event.kind}</span>
+        {event.repository ? ` · ${event.repository}` : ""}
       </span>
     </li>
   );

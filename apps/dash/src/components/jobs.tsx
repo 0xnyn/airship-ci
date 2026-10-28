@@ -175,7 +175,7 @@ function RunsOnDetail({ job }: { job: Schemas["Job"] }) {
   if (job.skipReason) {
     return (
       <span
-        className="text-amber-700 dark:text-amber-400"
+        className="text-warning-foreground"
         title={job.skipDetail ?? undefined}
       >
         Not run by Airship: {skipReasonLabel[job.skipReason] ?? job.skipReason}

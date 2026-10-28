@@ -1,14 +1,19 @@
 <!doctype html>
 <!--
-  The social card. render.mjs loads this page at 1200x630, calls
-  window.render(t) for each moment of a seamless loop, and screenshots it:
-  one frame becomes og.jpg, all of them og.mp4. Edit OG below to change the
-  copy; nothing here runs on the site.
+  The social card for every Airship site. render.mjs loads this page at
+  1200x630 with window.CARD set (the variant's copy, the mark and the beam,
+  all from @airship/tokens), calls window.render(t) for each moment of a
+  seamless loop and screenshots it. Colours come from the tokens' brand.css.
+  Change the copy in render.mjs; nothing here runs on a site.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Airship OG card</title>
+    <title>Airship social card</title>
+    <link
+      href="../../../packages/tokens/src/generated/brand.css"
+      rel="stylesheet"
+    >
     <link href="https://fonts.googleapis.com" rel="preconnect">
     <link crossorigin href="https://fonts.gstatic.com" rel="preconnect">
     <link
@@ -22,27 +27,15 @@
       margin: 0;
     }
 
-    :root {
-      --white: #fff;
-      --white-80: rgba(255, 255, 255, 0.8);
-      --white-50: rgba(255, 255, 255, 0.5);
-      --white-30: rgba(255, 255, 255, 0.3);
-      --line: rgba(255, 255, 255, 0.08);
-      --green: rgb(145, 207, 181);
-      --gold: rgb(212, 177, 68);
-      --blue: rgb(48, 100, 255);
-      --yellow: rgb(243, 255, 201);
-    }
-
     html,
     body {
       width: 1200px;
       height: 630px;
       overflow: hidden;
-      font-family: "Geist", sans-serif;
+      font-family: var(--font-sans);
       -webkit-font-smoothing: antialiased;
       color: var(--white);
-      background: #080a09;
+      background: var(--bg);
     }
 
     .card {
@@ -55,6 +48,8 @@
     #sky {
       position: absolute;
       inset: 0;
+      width: 100%;
+      height: 100%;
     }
 
     /* Darken the left so the type reads over the light. */
@@ -63,10 +58,10 @@
       inset: 0;
       background: linear-gradient(
         90deg,
-        rgba(8, 10, 9, 0.96) 0%,
-        rgba(8, 10, 9, 0.88) 38%,
-        rgba(8, 10, 9, 0.15) 62%,
-        rgba(8, 10, 9, 0) 100%
+        color-mix(in srgb, var(--bg) 96%, transparent) 0%,
+        color-mix(in srgb, var(--bg) 88%, transparent) 38%,
+        color-mix(in srgb, var(--bg) 15%, transparent) 62%,
+        transparent 100%
       );
     }
 
@@ -90,12 +85,17 @@
       letter-spacing: -1px;
     }
 
+    .brand svg {
+      width: 34px;
+      height: 34px;
+    }
+
     .label {
       display: flex;
       gap: 10px;
       align-items: center;
       margin-bottom: 22px;
-      font-family: "Geist Mono", monospace;
+      font-family: var(--font-mono);
       font-size: 16px;
       color: var(--white-80);
     }
@@ -103,8 +103,8 @@
     .pill {
       width: 18px;
       height: 10px;
-      background: var(--white);
-      border-radius: 9999px;
+      background: var(--accent, var(--white));
+      border-radius: var(--radius-full);
     }
 
     h1 {
@@ -113,10 +113,11 @@
       font-weight: 500;
       line-height: 68px;
       letter-spacing: -2.8px;
+      white-space: pre-line;
     }
 
     .sub {
-      font-family: "Geist Mono", monospace;
+      font-family: var(--font-mono);
       font-size: 19px;
       line-height: 28px;
       color: var(--white-80);
@@ -127,13 +128,13 @@
       display: flex;
       gap: 10px;
       align-items: center;
-      font-family: "Geist Mono", monospace;
+      font-family: var(--font-mono);
       font-size: 17px;
       color: var(--white-80);
     }
 
     .url .pill {
-      background: var(--yellow);
+      background: var(--dot-yellow);
     }
 
     /* Runner list */
@@ -143,14 +144,12 @@
       right: -24px;
       width: 520px;
       overflow: hidden;
-      font-family: "Geist Mono", monospace;
+      font-family: var(--font-mono);
       font-size: 14px;
       color: var(--white-80);
-      background: rgb(10, 11, 13);
-      border-radius: 6px 0 0 6px;
-      box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.07),
-        0 40px 100px rgba(0, 0, 0, 0.75);
+      background: var(--panel-bg);
+      border-radius: var(--radius-md) 0 0 var(--radius-md);
+      box-shadow: var(--shadow-hero);
     }
 
     .bar {
@@ -175,8 +174,8 @@
     .live i {
       width: 7px;
       height: 7px;
-      background: var(--green);
-      border-radius: 50%;
+      background: var(--dot-green);
+      border-radius: var(--radius-full);
     }
 
     .row {
@@ -186,7 +185,7 @@
       align-items: center;
       padding: 14px 22px;
       white-space: nowrap;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid var(--line-faint);
     }
 
     .row:last-child {
@@ -203,7 +202,7 @@
       display: block;
       margin-top: 3px;
       font-size: 12px;
-      color: var(--yellow);
+      color: var(--dot-yellow);
     }
 
     .machine {
@@ -221,156 +220,50 @@
       width: 7px;
       height: 7px;
       background: var(--white-30);
-      border-radius: 50%;
+      border-radius: var(--radius-full);
     }
 
     .state[data-s="launching"] i {
-      background: var(--gold);
+      background: var(--dot-gold);
     }
 
     .state[data-s="running"] i {
-      background: var(--green);
+      background: var(--dot-green);
     }
 
     .state[data-s="busy"] i {
-      background: var(--blue);
+      background: var(--dot-blue);
     }
 
     .state[data-s="finished"] {
       color: var(--white-50);
     }
+    /* A backdrop only (the docs' page thumbnails write their own title). */
+    [data-backdrop] .copy,
+    [data-backdrop] .panel {
+      display: none;
+    }
     </style>
   </head>
   <body>
-    <div class="card">
-      <svg aria-hidden="true" id="sky" viewBox="0 0 1200 630">
-        <defs>
-          <filter
-            color-interpolation-filters="sRGB"
-            height="100%"
-            id="dither"
-            width="100%"
-            x="0"
-            y="0"
-          >
-            <feTurbulence
-              baseFrequency="0.95"
-              id="noise"
-              numOctaves="2"
-              result="noise"
-              seed="7"
-              type="fractalNoise"
-            />
-            <feColorMatrix
-              in="noise"
-              result="na"
-              type="matrix"
-              values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  2.6 0 0 0 -0.8"
-            />
-            <feComposite
-              in="SourceGraphic"
-              in2="na"
-              k1="0"
-              k2="1"
-              k3="1"
-              k4="-0.52"
-              operator="arithmetic"
-              result="sum"
-            />
-            <feComponentTransfer in="sum" result="mask">
-              <feFuncA tableValues="0 1" type="discrete" />
-            </feComponentTransfer>
-            <feFlood flood-color="#fff" />
-            <feComposite in2="mask" operator="in" />
-          </filter>
-          <linearGradient
-            gradientUnits="userSpaceOnUse"
-            id="beam"
-            x1="140"
-            x2="1540"
-            y1="0"
-            y2="0"
-          >
-            <stop offset="0" stop-color="#fff" stop-opacity="0.14" />
-            <stop offset="0.2" stop-color="#fff" stop-opacity="0.18" />
-            <stop offset="0.32" stop-color="#fff" stop-opacity="0.26" />
-            <stop offset="0.42" stop-color="#fff" stop-opacity="0.42" />
-            <stop offset="0.5" stop-color="#fff" stop-opacity="0.62" />
-            <stop offset="0.58" stop-color="#fff" stop-opacity="0.88" />
-            <stop offset="0.66" stop-color="#fff" stop-opacity="1" />
-            <stop offset="0.78" stop-color="#fff" stop-opacity="0.8" />
-            <stop offset="0.9" stop-color="#fff" stop-opacity="0.55" />
-            <stop offset="1" stop-color="#fff" stop-opacity="0.4" />
-          </linearGradient>
-          <linearGradient id="fade" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stop-color="#fff" stop-opacity="1" />
-            <stop offset="0.2" stop-color="#fff" stop-opacity="0.92" />
-            <stop offset="0.45" stop-color="#fff" stop-opacity="0.7" />
-            <stop offset="0.7" stop-color="#fff" stop-opacity="0.48" />
-            <stop offset="1" stop-color="#fff" stop-opacity="0.32" />
-          </linearGradient>
-          <mask id="fade-mask" maskContentUnits="userSpaceOnUse">
-            <rect fill="url(#fade)" height="630" width="1200" />
-          </mask>
-          <linearGradient
-            gradientUnits="userSpaceOnUse"
-            id="tint"
-            x1="140"
-            x2="1540"
-            y1="0"
-            y2="0"
-          >
-            <stop offset="0" stop-color="#5d6168" />
-            <stop offset="0.36" stop-color="#8a9097" />
-            <stop offset="0.42" stop-color="#ff6a3d" />
-            <stop offset="0.46" stop-color="#ff3d7f" />
-            <stop offset="0.5" stop-color="#7a5cff" />
-            <stop offset="0.55" stop-color="#5ad8ff" />
-            <stop offset="0.64" stop-color="#ffffff" />
-            <stop offset="1" stop-color="#d8dde3" />
-          </linearGradient>
-        </defs>
-        <rect fill="#000" height="630" width="1200" />
-        <rect
-          fill="url(#beam)"
-          height="630"
-          mask="url(#fade-mask)"
-          opacity="0.6"
-          width="1200"
-        />
-        <g filter="url(#dither)" opacity="0.45">
-          <rect
-            fill="url(#beam)"
-            height="630"
-            mask="url(#fade-mask)"
-            width="1200"
-          />
-        </g>
-        <rect
-          fill="url(#tint)"
-          height="630"
-          style="mix-blend-mode: multiply"
-          width="1200"
-        />
-      </svg>
+    <div class="card" id="card">
+      <svg
+        aria-hidden="true"
+        id="sky"
+        preserveAspectRatio="xMidYMid slice"
+      ></svg>
       <div class="shade"></div>
 
       <div class="copy">
         <div class="brand">
-          <svg aria-hidden="true" height="34" viewBox="4 4 16 16" width="34">
-            <path
-              d="M12 5.1L4 18.9H8.53L14.27 9.01ZM16.53 12.92H12L15.47 18.9H20Z"
-              fill="#fff"
-              fill-opacity="0.92"
-            />
-          </svg>
-          airship
+          <svg aria-hidden="true" id="mark"><path></path></svg>
+          <span id="name"></span>
         </div>
         <div>
           <p class="label">
             <span class="pill"></span><span id="label"></span>
           </p>
-          <h1 id="title">Your CI,<br>on your cloud.</h1>
+          <h1 id="title">Airship</h1>
           <p class="sub" id="sub"></p>
         </div>
         <p class="url"><span class="pill"></span><span id="url"></span></p>
@@ -378,7 +271,7 @@
 
       <div class="panel">
         <div class="bar">
-          <span>acme / <b>Runners</b></span>
+          <span>acme / <b id="section"></b></span>
           <span class="live"><i id="live"></i><span id="busy"></span></span>
         </div>
         <div id="rows"></div>
@@ -387,29 +280,58 @@
 
     <script>
     "use strict";
-    const OG = {
-      label: "Self-hosted GitHub Actions runners",
-      rows: [
-        {
-          job: "test (node 24)",
-          label: "airship-build",
-          machine: "c7i.xlarge",
-        },
-        { job: "train-smoke", label: "airship-gpu", machine: "g2-standard-8" },
-        {
-          job: "e2e (shard 3/4)",
-          label: "airship-build",
-          machine: "m7i.xlarge",
-        },
-        { job: "msbuild release", label: "airship-windows", machine: "D4s_v5" },
-        { job: "cargo build", label: "airship-arm", machine: "c7g.2xlarge" },
-      ],
-      sub: "A fresh machine in your AWS, Google Cloud or Azure account for every job.",
-      url: "airshipci.com",
-    };
+    const { beam, brand, copy } = window.CARD;
+    const card = document.getElementById("card");
 
-    // One pass through the lifecycle per loop; each row starts at a
-    // different point, so the list is always mid-flight.
+    // The mark and the copy.
+    const mark = document.getElementById("mark");
+    mark.setAttribute("viewBox", brand.markViewBox);
+    mark.firstElementChild.setAttribute("d", brand.mark);
+    mark.firstElementChild.setAttribute("fill", "var(--white)");
+    mark.firstElementChild.setAttribute("fill-opacity", "0.92");
+    document.getElementById("name").textContent = brand.name;
+    for (const id of ["label", "title", "sub", "url", "section"]) {
+      document.getElementById(id).textContent = copy[id] ?? "";
+    }
+    if (copy.accent) {
+      card.style.setProperty("--accent", `var(--dot-${copy.accent})`);
+    }
+    if (copy.backdrop) {
+      card.dataset.backdrop = "";
+    }
+
+    // The sky: the same layers grain-field.astro draws, from the same numbers.
+    const g = beam.geometry;
+    const stops = (list, withOpacity = true) =>
+      list
+        .map(
+          (s) =>
+            `<stop offset="${s.offset}" stop-color="${s.color}"${withOpacity ? ` stop-opacity="${s.opacity}"` : ""} />`
+        )
+        .join("");
+    const sky = document.getElementById("sky");
+    sky.setAttribute("viewBox", `0 0 ${g.width} ${g.height}`);
+    sky.innerHTML = `<defs>
+        <filter color-interpolation-filters="sRGB" height="100%" id="dither" width="100%" x="0" y="0">
+          <feTurbulence baseFrequency="${g.grain}" numOctaves="${beam.dither.octaves}" result="noise" seed="${beam.dither.seed}" type="fractalNoise" />
+          <feColorMatrix in="noise" result="na" type="matrix" values="${beam.dither.matrix}" />
+          <feComposite in="SourceGraphic" in2="na" k1="0" k2="1" k3="1" k4="${beam.dither.threshold}" operator="arithmetic" result="sum" />
+          <feComponentTransfer in="sum" result="mask"><feFuncA tableValues="0 1" type="discrete" /></feComponentTransfer>
+          <feFlood flood-color="#fff" />
+          <feComposite in2="mask" operator="in" />
+        </filter>
+        <linearGradient gradientTransform="${g.transform}" gradientUnits="userSpaceOnUse" id="beam" x1="${g.x1}" x2="${g.x2}" y1="0" y2="0">${stops(g.across)}</linearGradient>
+        <linearGradient id="fade" x1="0" x2="0" y1="0" y2="1">${stops(g.down)}</linearGradient>
+        <mask id="fade-mask" maskContentUnits="userSpaceOnUse"><rect fill="url(#fade)" height="${g.height}" width="${g.width}" /></mask>
+        <linearGradient gradientTransform="${g.transform}" gradientUnits="userSpaceOnUse" id="tint" x1="${g.x1}" x2="${g.x2}" y1="0" y2="0">${stops(g.fringe, false)}</linearGradient>
+      </defs>
+      <rect fill="#000" height="${g.height}" width="${g.width}" />
+      <rect fill="url(#beam)" height="${g.height}" mask="url(#fade-mask)" opacity="${beam.layers.glow}" width="${g.width}" />
+      <g filter="url(#dither)" opacity="${beam.layers.grain}"><rect fill="url(#beam)" height="${g.height}" mask="url(#fade-mask)" width="${g.width}" /></g>
+      <rect fill="url(#tint)" height="${g.height}" style="mix-blend-mode: multiply" width="${g.width}" />`;
+
+    // The runner list. One pass through the lifecycle per loop; each row
+    // starts at a different point, so the list is always mid-flight.
     const LOOP = 6;
     const STATES = [
       "pending",
@@ -420,20 +342,18 @@
       "busy",
       "finished",
     ];
-
-    for (const id of ["label", "sub", "url"]) {
-      document.getElementById(id).textContent = OG[id];
-    }
     const rowsEl = document.getElementById("rows");
-    rowsEl.innerHTML = OG.rows
-      .map(
-        (r) => `<div class="row">
-            <span class="job">${r.job}<span class="label-code">${r.label}</span></span>
-            <span class="machine">${r.machine}</span>
-            <span class="state"><i></i><span></span></span>
-          </div>`
-      )
-      .join("");
+    for (const r of copy.rows ?? []) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<span class="job"><span></span><span class="label-code"></span></span>
+          <span class="machine"></span>
+          <span class="state"><i></i><span></span></span>`;
+      row.querySelector(".job").firstElementChild.textContent = r.job;
+      row.querySelector(".label-code").textContent = r.label;
+      row.querySelector(".machine").textContent = r.machine;
+      rowsEl.append(row);
+    }
     const stateEls = [...rowsEl.querySelectorAll(".state")];
     const live = document.getElementById("live");
     const busyEl = document.getElementById("busy");

@@ -7,11 +7,12 @@
   "scripts": {
     "build": "astro build",
     "dev": "astro dev --port 4000",
-    "og": "node og/render.mjs",
+    "media": "node og/render.mjs",
     "preview": "astro preview --port 4000",
     "typecheck": "astro check"
   },
   "dependencies": {
+    "@airship/tokens": "workspace:*",
     "astro": "^7.4.2"
   },
   "devDependencies": {

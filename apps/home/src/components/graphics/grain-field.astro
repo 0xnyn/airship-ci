@@ -3,55 +3,22 @@
 // as a smooth glow with fine static over it. The beam is a band that fades
 // down the frame, so there is no edge where the light stops. The static is a
 // dither: brightness decides how dense the white grain is, and a colour layer
-// multiplied on top tints it. Pure SVG, no raster.
-interface Props {
-  /** Angle of the beam in degrees. */
-  angle?: number;
-  /** Where the beam's bright core sits, as a fraction of the width. */
-  focus?: number;
-  /** Grain size: higher is finer. */
-  grain?: number;
-  id: string;
-  /** Overall brightness, 0 to 1. */
-  intensity?: number;
-}
-const {
-  id,
-  angle = -24,
-  focus = 0.62,
-  intensity = 1,
-  grain = 1.35,
-} = Astro.props;
-const cx = Math.round(focus * 1000);
-const at = (n: number): string => (n * intensity).toFixed(3);
+// multiplied on top tints it. Pure SVG, no raster. The numbers live in
+// @airship/tokens, which the dashboard's sign-in draws the same beam from.
+import { type BeamOptions, beamGeometry } from "@airship/tokens/beam";
+import { beam } from "@airship/tokens/tokens";
 
-// Brightness across the beam, eased so it never steps. The floor keeps a
-// soft glow over the whole frame, not just the beam.
-const beamStops: [number, number][] = [
-  [0, 0.14],
-  [0.2, 0.18],
-  [0.32, 0.26],
-  [0.42, 0.42],
-  [0.5, 0.62],
-  [0.58, 0.88],
-  [0.66, 1],
-  [0.78, 0.8],
-  [0.9, 0.55],
-  [1, 0.4],
-];
-// How the light falls off from the top of the frame to the bottom.
-const fadeStops: [number, number][] = [
-  [0, 1],
-  [0.2, 0.92],
-  [0.45, 0.7],
-  [0.7, 0.48],
-  [1, 0.32],
-];
+interface Props extends BeamOptions {
+  id: string;
+}
+const { id, ...options } = Astro.props;
+const g = beamGeometry(options);
+const { dither, layers } = beam;
 ---
 
 <svg
   class="grain-field"
-  viewBox="0 0 1000 700"
+  viewBox={`0 0 ${g.width} ${g.height}`}
   preserveAspectRatio="xMidYMid slice"
   aria-hidden="true"
   focusable="false"
@@ -67,14 +34,14 @@ const fadeStops: [number, number][] = [
     >
       <feTurbulence
         type="fractalNoise"
-        baseFrequency={grain}
-        numOctaves="2"
-        seed="7"
+        baseFrequency={g.grain}
+        numOctaves={dither.octaves}
+        seed={dither.seed}
         result="noise"></feTurbulence>
       <feColorMatrix
         in="noise"
         type="matrix"
-        values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  2.6 0 0 0 -0.8"
+        values={dither.matrix}
         result="noiseAlpha"></feColorMatrix>
       <feComposite
         in="SourceGraphic"
@@ -83,7 +50,7 @@ const fadeStops: [number, number][] = [
         k1="0"
         k2="1"
         k3="1"
-        k4="-0.52"
+        k4={dither.threshold}
         result="sum"></feComposite>
       <feComponentTransfer in="sum" result="mask">
         <feFuncA type="discrete" tableValues="0 1"></feFuncA>
@@ -95,68 +62,61 @@ const fadeStops: [number, number][] = [
     <linearGradient
       id={`${id}-beam`}
       gradientUnits="userSpaceOnUse"
-      x1={cx - 700}
+      x1={g.x1}
       y1="0"
-      x2={cx + 700}
+      x2={g.x2}
       y2="0"
-      gradientTransform={`rotate(${angle} ${cx} 0)`}
+      gradientTransform={g.transform}
     >
       {
-        beamStops.map(([o, a]) => (
-          <stop offset={o} stop-color="#fff" stop-opacity={at(a)} />
+        g.across.map((s) => (
+          <stop offset={s.offset} stop-color={s.color} stop-opacity={s.opacity} />
         ))
       }
     </linearGradient>
 
     <linearGradient id={`${id}-fade`} x1="0" y1="0" x2="0" y2="1">
       {
-        fadeStops.map(([o, a]) => (
-          <stop offset={o} stop-color="#fff" stop-opacity={a} />
+        g.down.map((s) => (
+          <stop offset={s.offset} stop-color={s.color} stop-opacity={s.opacity} />
         ))
       }
     </linearGradient>
     <mask id={`${id}-fade-mask`} maskContentUnits="userSpaceOnUse">
-      <rect width="1000" height="700" fill={`url(#${id}-fade)`}></rect>
+      <rect width={g.width} height={g.height} fill={`url(#${id}-fade)`}></rect>
     </mask>
 
     <linearGradient
       id={`${id}-tint`}
       gradientUnits="userSpaceOnUse"
-      x1={cx - 700}
+      x1={g.x1}
       y1="0"
-      x2={cx + 700}
+      x2={g.x2}
       y2="0"
-      gradientTransform={`rotate(${angle} ${cx} 0)`}
+      gradientTransform={g.transform}
     >
-      <stop offset="0" stop-color="#5d6168"></stop>
-      <stop offset="0.36" stop-color="#8a9097"></stop>
-      <stop offset="0.42" stop-color="#ff6a3d"></stop>
-      <stop offset="0.46" stop-color="#ff3d7f"></stop>
-      <stop offset="0.5" stop-color="#7a5cff"></stop>
-      <stop offset="0.55" stop-color="#5ad8ff"></stop>
-      <stop offset="0.64" stop-color="#ffffff"></stop>
-      <stop offset="1" stop-color="#d8dde3"></stop>
+      {g.fringe.map((s) => <stop offset={s.offset} stop-color={s.color} />)}
     </linearGradient>
   </defs>
 
-  <rect width="1000" height="700" fill="#000"></rect>
+  <rect width={g.width} height={g.height} fill="#000"></rect>
   <!-- A smooth glow carries the light; the static over it is texture. -->
   <rect
-    width="1000"
-    height="700"
+    width={g.width}
+    height={g.height}
     fill={`url(#${id}-beam)`}
     mask={`url(#${id}-fade-mask)`}
-    opacity="0.6"></rect>
-  <g filter={`url(#${id}-dither)`} opacity="0.45">
+    opacity={layers.glow}></rect>
+  <g filter={`url(#${id}-dither)`} opacity={layers.grain}>
     <rect
-      width="1000"
-      height="700"
+      width={g.width}
+      height={g.height}
       fill={`url(#${id}-beam)`}
       mask={`url(#${id}-fade-mask)`}></rect>
   </g>
   <rect
-    width="1000"
-    height="700"
+    width={g.width}
+    height={g.height}
     fill={`url(#${id}-tint)`}
     style="mix-blend-mode: multiply"></rect>
 </svg>

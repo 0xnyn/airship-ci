@@ -479,19 +479,19 @@ export const how = {
       visual: {
         clouds: [
           {
-            accent: "#ffb36b",
+            accent: "var(--cloud-aws)",
             name: "AWS",
             status: "connected",
             sub: "EC2 · S3 cache",
           },
           {
-            accent: "#8ab4ff",
+            accent: "var(--cloud-gcp)",
             name: "Google Cloud",
             status: "connected",
             sub: "Compute Engine · GPUs",
           },
           {
-            accent: "#6fd3ff",
+            accent: "var(--cloud-azure)",
             name: "Azure",
             status: "connected",
             sub: "Virtual Machines",

@@ -8,6 +8,7 @@ import { useEffect } from "react";
 
 import { $api } from "@/lib/api";
 
+import { AuthFrame, AuthHeading } from "./auth-frame";
 import { NotFound } from "./not-found";
 import { useSession } from "./shell";
 
@@ -46,26 +47,21 @@ function InstallApp() {
   const installUrl = config.data?.installUrl;
 
   return (
-    <div className="grid min-h-svh place-items-center p-4">
-      <div className="grid max-w-sm gap-4 text-center">
-        <h1 className="font-medium text-lg tracking-tight">
-          Install Airship on GitHub
-        </h1>
-        <p className="text-muted-foreground text-xs/relaxed">
-          Airship runs the workflows of organizations that installed its GitHub
-          App. Install it on yours, then come back here. If it is already
-          installed, you need to be a member of that organization.
+    <AuthFrame>
+      <AuthHeading eyebrow="Get started" title="Install Airship on GitHub">
+        Airship runs the workflows of organizations that installed its GitHub
+        App. Install it on yours, then come back here. If it is already
+        installed, you need to be a member of that organization.
+      </AuthHeading>
+      {installUrl ? (
+        <a className={buttonVariants({ size: "lg" })} href={installUrl}>
+          Install the GitHub App
+        </a>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          No GitHub App is configured for this Airship deployment.
         </p>
-        {installUrl ? (
-          <a className={buttonVariants()} href={installUrl}>
-            Install the GitHub App
-          </a>
-        ) : (
-          <p className="text-muted-foreground text-xs">
-            No GitHub App is configured for this Airship deployment.
-          </p>
-        )}
-      </div>
-    </div>
+      )}
+    </AuthFrame>
   );
 }

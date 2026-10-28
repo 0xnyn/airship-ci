@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@airship/client": "workspace:*",
+    "@airship/tokens": "workspace:*",
     "@airship/ui": "workspace:*",
     "@swc/helpers": "^0.5.23",
     "@tanstack/react-query": "catalog:",

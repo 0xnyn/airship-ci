@@ -14,8 +14,10 @@ export default function RouteError({
   reset: () => void;
 }) {
   return (
-    <main className="mx-auto grid max-w-md gap-4 p-10 text-center">
-      <h1 className="font-medium text-lg">Something went wrong</h1>
+    <main className="mx-auto grid min-h-svh max-w-md content-center gap-4 p-10 text-center">
+      <h1 className="font-medium text-2xl tracking-display">
+        Something went wrong
+      </h1>
       <p className="text-muted-foreground text-xs">
         {error.message || "This page could not be shown."}
       </p>

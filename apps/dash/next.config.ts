@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: fileURLToPath(new URL("../..", import.meta.url)),
   reactCompiler: true,
-  transpilePackages: ["@airship/client", "@airship/ui"],
+  transpilePackages: ["@airship/client", "@airship/tokens", "@airship/ui"],
   typedRoutes: true,
 };
 

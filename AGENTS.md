@@ -22,10 +22,11 @@ generated from it and must never be edited by hand.
 | --- | --- |
 | `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client, Azure SDK for Go (armcompute, armnetwork) |
 | `apps/dash` | Next.js 16 dashboard (App Router, React Compiler, Tailwind 4) |
-| `apps/home` | Marketing site: Astro 7, static, plain scoped CSS (tokens in `src/layouts/layout.astro`), on :4000. All copy, links and numbers live in `src/content/` (`site.ts`, `home.ts`, `pricing.ts`, `prices.ts`) and flow into the components as props; graphics are drawn in code (`src/components/graphics`). The social image and video (`public/og`) are rendered from `og/card.html` by `pnpm --filter @airship/home og` (Playwright + ffmpeg); rerun it after changing the card |
+| `apps/home` | Marketing site: Astro 7, static, plain scoped CSS (palette from `@airship/tokens/brand.css`, imported in `src/layouts/layout.astro`), on :4000. All copy, links and numbers live in `src/content/` (`site.ts`, `home.ts`, `pricing.ts`, `prices.ts`) and flow into the components as props; graphics are drawn in code (`src/components/graphics`). `og/render.mjs` (`pnpm --filter @airship/home media`, `make media`; Playwright + ffmpeg) renders every site's raster brand images from `@airship/tokens`: the social cards from `og/card.html` (the landing's `public/og`, the dashboard's `opengraph-image.jpg`, the docs' thumbnail backdrop) and the PNG and .ico icons; rerun it after changing the card, the mark or the palette |
 | `apps/docs` | User-facing documentation: Mintlify, MDX, on :4100 (`make docs`). Navigation and theme in `docs.json`. `api-reference/openapi.json` is **generated** from the API's own document by `scripts/openapi.mjs`, which keeps the `/api` paths and rewrites the handlers' wording for an API audience; `scripts/check.mjs` (`pnpm lint`) checks navigation, links, frontmatter and the names the docs may not use. `apps/docs/README.md` has the rules |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
-| `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
+| `packages/tokens` | `@airship/tokens`: the design tokens both `apps/home` and `apps/dash` draw from. `src/tokens.ts` is the source; `pnpm generate` writes `src/generated/brand.css` (the landing's names), `theme.css` (the dashboard's semantic roles, mapped to Tailwind) and, from `src/icon.ts`, every app's SVG favicon and the docs' logos; its `test` fails on stale CSS or an AA contrast failure. `DESIGN.md` explains each group |
+| `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles, themed entirely from `@airship/tokens` |
 | `packages/typescript-config` | Shared `tsconfig` presets |
 | `deploy/` | Production env templates (`production/`), the Render blueprint (`render/`) and a single-server Docker Compose stack (`compose/`). Guides: `docs/deploy/` — `development/` (a blank machine to a real job: prerequisites, first run, every local env var, test GitHub org and tunnel, the daily workflow, tests, troubleshooting), `stage-0/` (the pilot: Supabase, Render, Vercel, and `env.md` for where each production value comes from), `stage-1/` (AWS), `alternatives/` (GCP, Azure, one server, PlanetScale) |
 | `supabase/` | Local Supabase for development (`config.toml`, `seed.sql`): Postgres 17, matching the pilot's hosted project. `make supabase-up`; `docs/deploy/stage-0/local.md` |
@@ -128,9 +129,14 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
 - Config is environment variables only (`internal/config`); local values live
   in `apps/api/.env` (copy `.env.example`). `CREDENTIALS_KEY` is required.
   The dashboard's env is declared and typed in `apps/dash/.env.schema` via varlock.
+- Colours, radii, fonts and shadows come from `@airship/tokens`: no raw hex
+  or `rgb()` in `apps/home` components or dashboard classes, and no Tailwind
+  palette colours (`bg-emerald-500`); use the semantic roles (`bg-success`,
+  `text-warning-foreground`, `bg-cloud-aws`). A new value goes in
+  `packages/tokens/src/tokens.ts`, then `pnpm generate`.
 - Never edit `apps/api/internal/db/*.go` (except `queries/`),
-  `apps/api/openapi.json`, `packages/client/src/generated/` or
-  `apps/docs/api-reference/openapi.json`.
+  `apps/api/openapi.json`, `packages/client/src/generated/`,
+  `apps/docs/api-reference/openapi.json`, `packages/tokens/src/generated/`, or the icons and social images made from the tokens (`favicon.*`, `icon*`, `apple-*`, `opengraph-image.jpg`, `public/og`, `apps/docs/logo`, `apps/docs/og`).
 - `apps/docs` is the product's public voice: it covers AWS, Google Cloud and
   Azure, and names no other vendor or product. `pnpm lint` in that package
   fails if one appears, including in the generated spec.

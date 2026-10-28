@@ -6,7 +6,7 @@ import type * as React from "react";
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
     <div
-      className="relative w-full overflow-x-auto"
+      className="relative w-full overflow-x-auto rounded-lg border bg-card"
       data-slot="table-container"
     >
       <table
@@ -21,7 +21,10 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
-      className={cn("[&_tr]:border-b", className)}
+      className={cn(
+        "bg-muted/30 [&_tr]:border-b [&_tr]:hover:bg-transparent",
+        className
+      )}
       data-slot="table-header"
       {...props}
     />
@@ -55,7 +58,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   return (
     <tr
       className={cn(
-        "border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
+        "border-border/70 border-b transition-colors duration-150 hover:bg-muted/40 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
         className
       )}
       data-slot="table-row"
@@ -68,7 +71,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       className={cn(
-        "h-10 whitespace-nowrap px-2 text-left align-middle font-medium text-foreground [&:has([role=checkbox])]:pr-0",
+        "h-9 whitespace-nowrap px-4 text-left align-middle font-mono font-normal text-[11px] text-muted-foreground tracking-label [&:has([role=checkbox])]:pr-0",
         className
       )}
       data-slot="table-head"
@@ -81,7 +84,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       className={cn(
-        "whitespace-nowrap p-2 align-middle [&:has([role=checkbox])]:pr-0",
+        "whitespace-nowrap px-4 py-2.5 align-middle [&:has([role=checkbox])]:pr-0",
         className
       )}
       data-slot="table-cell"

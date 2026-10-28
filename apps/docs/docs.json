@@ -194,6 +194,10 @@
   "contextual": {
     "options": ["copy", "view", "claude", "chatgpt", "mcp"]
   },
+  "thumbnails": {
+    "appearance": "dark",
+    "background": "/og/background.jpg"
+  },
   "seo": {
     "metatags": {
       "og:site_name": "Airship documentation"

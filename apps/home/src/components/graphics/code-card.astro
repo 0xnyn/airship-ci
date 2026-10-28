@@ -47,11 +47,11 @@ const html = code
 
 <style>
   .code-card {
-    background: rgb(12, 13, 15);
+    background: var(--well-bg);
     border: 1px solid var(--line);
     border-radius: 6px;
     overflow: hidden;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    box-shadow: var(--shadow-float);
   }
 
   .code-file {
@@ -92,22 +92,22 @@ const html = code
   }
 
   pre :global(.t-key) {
-    color: var(--dot-cyan);
+    color: var(--syntax-key);
   }
 
   pre :global(.t-str) {
-    color: var(--dot-yellow);
+    color: var(--syntax-string);
   }
 
   pre :global(.t-lit) {
-    color: #ffb36b;
+    color: var(--syntax-literal);
   }
 
   pre :global(.t-expr) {
-    color: #c7b3ff;
+    color: var(--syntax-expression);
   }
 
   pre :global(.t-com) {
-    color: var(--white-30);
+    color: var(--syntax-comment);
   }
 </style>

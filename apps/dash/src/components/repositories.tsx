@@ -104,7 +104,7 @@ export function Repositories() {
 function Section({ children, title }: { children: ReactNode; title: string }) {
   return (
     <section className="grid gap-3">
-      <h2 className="font-medium text-sm">{title}</h2>
+      <h2 className="font-medium text-[15px] tracking-tight">{title}</h2>
       {children}
     </section>
   );
@@ -124,17 +124,20 @@ function Step({
   return (
     <section
       aria-labelledby={`step-${number}`}
-      className="grid gap-4 border p-4 md:grid-cols-[auto_1fr] md:gap-6"
+      className="grid gap-4 rounded-lg border bg-card p-5 md:grid-cols-[auto_1fr] md:gap-5"
     >
       <span
         aria-hidden="true"
-        className="grid size-6 place-items-center border font-mono text-[11px]"
+        className="grid size-6 place-items-center rounded-full border bg-muted font-mono text-[11px] text-muted-foreground"
       >
         {number}
       </span>
       <div className="grid gap-3">
         <div className="grid gap-1">
-          <h2 className="font-medium text-sm" id={`step-${number}`}>
+          <h2
+            className="font-medium text-[15px] tracking-tight"
+            id={`step-${number}`}
+          >
             {title}
           </h2>
           <p className="max-w-prose text-muted-foreground text-xs/relaxed">

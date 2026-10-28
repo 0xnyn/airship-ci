@@ -74,7 +74,10 @@ function MaxRunners({ initial }: { initial: number }) {
   };
 
   return (
-    <form className="grid max-w-md gap-4 border p-4" onSubmit={submit}>
+    <form
+      className="grid max-w-md gap-4 rounded-lg border bg-card p-5"
+      onSubmit={submit}
+    >
       <Field data-invalid={update.isError || undefined}>
         <FieldLabel htmlFor="max-runners">Most runners at once</FieldLabel>
         <Input

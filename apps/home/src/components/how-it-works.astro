@@ -236,10 +236,10 @@ const { content } = Astro.props;
   .life,
   .clouds-panel {
     width: 100%;
-    background: rgb(12, 13, 15);
+    background: var(--well-bg);
     border: 1px solid var(--line);
     border-radius: 6px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-float);
     font-family: var(--font-mono);
     font-size: 11px;
     line-height: 16px;
@@ -391,7 +391,7 @@ const { content } = Astro.props;
     margin-top: 14px;
     padding: 9px 12px;
     border-radius: 4px;
-    background: rgba(145, 207, 181, 0.08);
+    background: color-mix(in srgb, var(--dot-green) 8%, transparent);
     color: var(--dot-green);
   }
 
@@ -449,7 +449,7 @@ const { content } = Astro.props;
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: rgb(12, 13, 15);
+    background: var(--well-bg);
     border: 1px solid var(--white-70);
     animation: light 5s infinite;
     animation-delay: calc(var(--i) * 1s);
@@ -463,7 +463,7 @@ const { content } = Astro.props;
     }
     22%,
     100% {
-      background: rgb(12, 13, 15);
+      background: var(--well-bg);
       box-shadow: none;
     }
   }

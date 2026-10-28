@@ -1,5 +1,7 @@
 ---
 // Baseline's mark, used as Airship's: an "A" split by a runway.
+import { brand } from "@airship/tokens/tokens";
+
 interface Props {
   size?: number;
   wordmark?: boolean;
@@ -14,16 +16,16 @@ const { size = 20, wordmark = true } = Astro.props;
     fill="none"
     height={size}
     role="img"
-    viewBox="4 4 16 16"
+    viewBox={brand.markViewBox}
     width={size}
     xmlns="http://www.w3.org/2000/svg"
   >
     <path
-      d="M12 5.1L4 18.9H8.53L14.27 9.01ZM16.53 12.92H12L15.47 18.9H20Z"
+      d={brand.mark}
       fill="currentColor"
       fill-opacity="0.92"></path>
   </svg>
-  {wordmark && <span class="logo-word">airship</span>}
+  {wordmark && <span class="logo-word">{brand.name}</span>}
 </span>
 
 <style>

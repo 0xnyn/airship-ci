@@ -102,6 +102,7 @@ not come up at all rather than come up insecurely.
 | Variable | Where the value comes from | What breaks when it's wrong |
 | --- | --- | --- |
 | `NEXT_PUBLIC_API_URL` | Your API hostname, `https://api.example.com` | **Inlined at build time**, not read at runtime: changing it needs a rebuild. A production build with the localhost default fails deliberately (varlock, `apps/dash/.env.schema`). Pointing it at the wrong host makes every call fail in the browser |
+| `NEXT_PUBLIC_APP_URL` | The dashboard's own hostname, `https://app.example.com`. Optional on Vercel | Inlined at build time. Unset outside Vercel, link previews of the dashboard point at `localhost` and show no image |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1`, on Vercel only | Vercel may build with a pnpm version that ignores `pnpm-workspace.yaml` settings, which can fail the install |
 
 The dashboard holds **no secrets**. Every privileged call goes to the API

@@ -19,13 +19,17 @@ export function FilterTabs<T extends string>({
   value: T;
 }) {
   return (
-    <fieldset aria-label={label} className="flex w-fit border">
+    <fieldset
+      aria-label={label}
+      className="flex w-fit gap-0.5 rounded-lg border bg-muted/50 p-0.5"
+    >
       {options.map((option) => (
         <button
           aria-pressed={option.value === value}
           className={cn(
-            "px-3 py-1.5 text-muted-foreground text-xs hover:text-foreground",
-            option.value === value && "bg-muted font-medium text-foreground"
+            "h-7 rounded-md px-3 font-mono text-[11px] text-muted-foreground tracking-label transition-colors duration-150 hover:text-foreground",
+            option.value === value &&
+              "bg-background text-foreground shadow-xs ring-1 ring-border"
           )}
           key={option.value}
           onClick={() => onChange(option.value)}
@@ -40,20 +44,30 @@ export function FilterTabs<T extends string>({
 
 export function TableSkeleton() {
   return (
-    <div className="grid gap-2">
-      <Skeleton className="h-8" />
-      <Skeleton className="h-10" />
-      <Skeleton className="h-10" />
-      <Skeleton className="h-10" />
+    <div className="grid gap-px overflow-hidden rounded-lg border">
+      <Skeleton className="h-9 rounded-none" />
+      <Skeleton className="h-12 rounded-none opacity-70" />
+      <Skeleton className="h-12 rounded-none opacity-50" />
+      <Skeleton className="h-12 rounded-none opacity-30" />
     </div>
   );
 }
 
+/**
+ * What a list shows when it has nothing in it: a dashed frame over the
+ * landing page's halftone, so an empty page still has texture.
+ */
 export function EmptyRow({ children }: { children: ReactNode }) {
   return (
-    <p className="border border-dashed p-10 text-center text-muted-foreground text-xs">
-      {children}
-    </p>
+    <div className="relative grid place-items-center overflow-hidden rounded-lg border border-dashed px-6 py-14 text-center">
+      <div
+        aria-hidden="true"
+        className="mask-[radial-gradient(ellipse_60%_80%_at_50%_50%,black,transparent)] absolute inset-0 bg-halftone"
+      />
+      <p className="relative max-w-sm text-pretty text-muted-foreground text-xs/relaxed">
+        {children}
+      </p>
+    </div>
   );
 }
 
@@ -67,7 +81,7 @@ export function ErrorRow({
 }) {
   return (
     <p
-      className="border border-destructive/30 bg-destructive/10 p-6 text-center text-destructive text-xs"
+      className="flex items-center justify-center gap-2 rounded-lg border border-danger/25 bg-danger-surface p-5 text-center text-danger-foreground text-xs"
       role="alert"
     >
       {errorMessage(error, fallback)}

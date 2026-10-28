@@ -16,7 +16,12 @@
       "!**/src/generated",
       "!apps/dash/src/env.ts",
       "!apps/api/openapi.json",
-      "!apps/docs/api-reference/openapi.json"
+      "!apps/docs/api-reference/openapi.json",
+      // The icons and logos @airship/tokens writes (scripts/generate.mjs).
+      "!apps/home/public/favicon.svg",
+      "!apps/dash/src/app/icon.svg",
+      "!apps/docs/favicon.svg",
+      "!apps/docs/logo"
     ]
   },
   "css": {

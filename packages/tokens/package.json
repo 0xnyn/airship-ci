@@ -1,0 +1,25 @@
+{
+  "name": "@airship/tokens",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Airship's design tokens: the palette, type, radii, motion and backdrop both the marketing site and the dashboard draw from.",
+  "type": "module",
+  "exports": {
+    "./beam": "./src/beam.ts",
+    "./brand.css": "./src/generated/brand.css",
+    "./icon": "./src/icon.ts",
+    "./theme.css": "./src/generated/theme.css",
+    "./tokens": "./src/tokens.ts"
+  },
+  "scripts": {
+    "contrast": "node scripts/contrast.mjs --report",
+    "generate": "node scripts/generate.mjs",
+    "test": "node scripts/generate.mjs --check && node scripts/contrast.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@airship/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

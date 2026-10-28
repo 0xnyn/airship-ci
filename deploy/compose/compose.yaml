@@ -71,6 +71,7 @@ services:
       dockerfile: apps/dash/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: https://${API_DOMAIN}
+        NEXT_PUBLIC_APP_URL: https://${DASH_DOMAIN}
     restart: unless-stopped
 
   caddy:

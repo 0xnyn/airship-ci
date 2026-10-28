@@ -1,12 +1,7 @@
 import { buttonVariants } from "@airship/ui/components/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@airship/ui/components/empty";
 import Link from "next/link";
+
+import { AuthFrame, AuthHeading } from "./auth-frame";
 
 export function NotFound({
   description,
@@ -16,18 +11,15 @@ export function NotFound({
   title: string;
 }) {
   return (
-    <div className="grid min-h-svh place-items-center p-4">
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>{title}</EmptyTitle>
-          <EmptyDescription>{description}</EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
-          <Link className={buttonVariants({ variant: "outline" })} href="/">
-            Go home
-          </Link>
-        </EmptyContent>
-      </Empty>
-    </div>
+    <AuthFrame>
+      <AuthHeading eyebrow="Airship" title={title}>
+        {description}
+      </AuthHeading>
+      <div>
+        <Link className={buttonVariants({ variant: "outline" })} href="/">
+          Go home
+        </Link>
+      </div>
+    </AuthFrame>
   );
 }

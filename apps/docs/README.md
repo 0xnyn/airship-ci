@@ -26,6 +26,8 @@ pnpm --filter @airship/docs links   # Mintlify's own checker (also hits the web)
 | `self-hosting/` | Running the control plane yourself |
 | `api-reference/` | The developer API: one hand-written page, the rest generated |
 | `scripts/` | The spec generator and the consistency checker |
+| `favicon.svg`, `logo/` | **Generated** from `@airship/tokens` by `pnpm generate`; never edit |
+| `og/background.jpg` | The backdrop every page's share thumbnail is drawn over; rendered by `pnpm --filter @airship/home media` |
 
 ## The API reference is generated
 

@@ -290,11 +290,11 @@ build: ## Build every package (API binaries in apps/api/bin, Next.js, Astro)
 images: ## Production images: make images NEXT_PUBLIC_API_URL=https://api.example.com
 	@[ -n "$(NEXT_PUBLIC_API_URL)" ] || { echo "usage: make images NEXT_PUBLIC_API_URL=https://api.example.com [VERSION=...] [PLATFORM=...]"; exit 1; }
 	docker build --platform $(PLATFORM) --build-arg VERSION=$(VERSION) -t airship-api:$(VERSION) $(API_DIR)
-	docker build --platform $(PLATFORM) -f apps/dash/Dockerfile --build-arg NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) -t airship-dash:$(VERSION) .
+	docker build --platform $(PLATFORM) -f apps/dash/Dockerfile --build-arg NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) $(if $(NEXT_PUBLIC_APP_URL),--build-arg NEXT_PUBLIC_APP_URL=$(NEXT_PUBLIC_APP_URL)) -t airship-dash:$(VERSION) .
 
-.PHONY: og
-og: ## Re-render the marketing site's social image and video (Playwright + ffmpeg)
-	pnpm --filter @airship/home og
+.PHONY: media
+media: ## Re-render the icons and social cards every site serves (Playwright + ffmpeg)
+	pnpm --filter @airship/home media
 
 .PHONY: clean
 clean: ## Remove build output and caches (keeps node_modules, env files and the database)

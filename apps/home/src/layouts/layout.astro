@@ -1,4 +1,6 @@
 ---
+import "@airship/tokens/brand.css";
+import { palette } from "@airship/tokens/tokens";
 import { og, site, siteUrl } from "../content/site";
 
 interface Props {
@@ -43,8 +45,12 @@ const video = new URL(og.video, base).href;
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={image} />
     <meta name="twitter:image:alt" content={og.imageAlt} />
-    <meta name="theme-color" content="#080a09" />
+    <meta name="theme-color" content={palette.ground} />
+    <!-- From @airship/tokens: favicon.svg by `pnpm generate`, the rest by
+         `pnpm --filter @airship/home media`. -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>{title}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -65,32 +71,6 @@ const video = new URL(og.video, base).href;
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-  }
-
-  :root {
-    --bg: rgb(8, 10, 9);
-    --card-bg: rgb(19, 21, 23);
-    --card-bg-2: rgb(26, 28, 31);
-    --line: rgba(255, 255, 255, 0.08);
-    --white: #ffffff;
-    --white-80: rgba(255, 255, 255, 0.8);
-    --white-70: rgba(255, 255, 255, 0.7);
-    --white-50: rgba(255, 255, 255, 0.5);
-    --white-30: rgba(255, 255, 255, 0.3);
-    --dark-text: rgb(8, 9, 10);
-    --btn-dark-bg: rgb(35, 35, 38);
-
-    /* Section accents, one per section, as in the template. */
-    --dot-white: rgb(255, 255, 255);
-    --dot-yellow: rgb(243, 255, 201);
-    --dot-gold: rgb(212, 177, 68);
-    --dot-cyan: rgb(158, 250, 255);
-    --dot-blue: rgb(48, 100, 255);
-    --dot-green: rgb(145, 207, 181);
-    --dot-red: rgb(255, 110, 90);
-
-    --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-    --font-mono: "Geist Mono", ui-monospace, monospace;
   }
 
   html {
@@ -141,7 +121,7 @@ const video = new URL(og.video, base).href;
     display: inline-block;
     width: 14px;
     height: 8px;
-    border-radius: 9999px;
+    border-radius: var(--radius-full);
     flex-shrink: 0;
   }
 
@@ -186,13 +166,13 @@ const video = new URL(og.video, base).href;
     align-items: center;
     justify-content: center;
     padding: 8px 12px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-family: var(--font-mono);
     font-size: 14px;
     font-weight: 500;
     letter-spacing: -0.28px;
     line-height: 16.8px;
-    transition: opacity 0.2s;
+    transition: opacity var(--speed-base) var(--ease);
     white-space: nowrap;
   }
 

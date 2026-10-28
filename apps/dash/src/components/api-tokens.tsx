@@ -96,7 +96,7 @@ function Usage() {
 
   return (
     <section aria-labelledby="api-usage" className="grid gap-3">
-      <h2 className="font-medium text-sm" id="api-usage">
+      <h2 className="font-medium text-[15px] tracking-tight" id="api-usage">
         Using a key
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
@@ -105,8 +105,18 @@ function Usage() {
         and use the key.
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
-        <CodeBlock label="Copy curl example" value={curl} />
-        <CodeBlock label="Copy cirun-py example" value={cirun} />
+        <CodeBlock
+          file="terminal"
+          label="Copy curl example"
+          language="shell"
+          value={curl}
+        />
+        <CodeBlock
+          file="terminal"
+          label="Copy cirun-py example"
+          language="shell"
+          value={cirun}
+        />
       </div>
     </section>
   );
@@ -318,7 +328,12 @@ function TokenSecretDialog({
         <p className="text-muted-foreground text-xs">
           Activate a repository with it:
         </p>
-        <CodeBlock label="Copy command" value={example} />
+        <CodeBlock
+          file="terminal"
+          label="Copy command"
+          language="shell"
+          value={example}
+        />
       </DialogContent>
     </Dialog>
   );

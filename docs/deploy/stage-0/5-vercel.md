@@ -31,11 +31,12 @@ is committed, so the build doesn't need Go.
 
 ## The environment
 
-Two variables, for **Production** and **Preview**:
+Two variables and one optional one, for **Production** and **Preview**:
 
 | Key | Value | Why |
 | --- | --- | --- |
 | `NEXT_PUBLIC_API_URL` | `https://api.example.com` | **Baked into the JavaScript at build time.** Varlock (`apps/dash/.env.schema`) fails the build without it, and refuses a localhost URL in a production build. Changing it later means a redeploy |
+| `NEXT_PUBLIC_APP_URL` | Optional: `https://app.example.com` | The address link previews fetch the social card from. Unset, Vercel's production URL is used, which is right unless you serve the dashboard on a custom domain |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1` | Makes Vercel use the pnpm version pinned in `packageManager` (`pnpm@11.22.0`). Vercel would otherwise pick a pnpm from the lockfile version, which can ignore settings in `pnpm-workspace.yaml` such as `allowBuilds` |
 
 That is the whole list. The dashboard holds no secrets: every privileged

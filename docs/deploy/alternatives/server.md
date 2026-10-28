@@ -2,7 +2,7 @@
 
 **What this is.** Airship's whole control plane (Postgres, the API, the
 dashboard and Caddy for TLS) on one Linux machine with Docker Compose,
-from [`deploy/compose`](../../deploy/compose). Any provider works: an EC2
+from [`deploy/compose`](../../../deploy/compose). Any provider works: an EC2
 instance, a Compute Engine VM, an Azure VM, a Hetzner box, a machine in
 your own rack.
 
@@ -11,8 +11,10 @@ on hardware they already run.
 
 **Time.** 20 minutes.
 
-Read [README.md](README.md) first: its "Before you start" section (domain,
-credentials key, GitHub App) applies here unchanged.
+Do [stage 0's steps 1 and 2](../stage-0/) first: the domain and two
+hostnames, `CREDENTIALS_KEY`, and the production GitHub App are the same
+however Airship is hosted. Where each environment variable's value comes
+from is in [stage-0/env.md](../stage-0/env.md).
 
 **What you give up** compared with the managed guides: one machine is one
 point of failure, and the database backups are yours to run. When the
@@ -82,7 +84,7 @@ curl -s https://api.example.com/healthz
 ```
 
 Then work through the **Verification** items in the
-[production checklist](README.md#production-checklist).
+[production checklist](../checklist.md).
 
 If Caddy cannot get a certificate, `docker compose logs caddy` says why.
 It is almost always DNS that does not point at this server yet, or port 80
@@ -149,4 +151,4 @@ compose up -d` without `--build`.
 | Growing out of it | Move Postgres to a managed database first: point `DATABASE_URL` at it by editing `compose.yaml`, and remove the `postgres` service. Then run a second server with the same `.env` behind a load balancer. Several API replicas are supported |
 
 Day-to-day operation, alerts worth having and the incident runbook are in
-[architecture/operations.md](../architecture/operations.md).
+[architecture/operations.md](../../architecture/operations.md).

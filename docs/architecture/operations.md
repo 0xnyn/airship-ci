@@ -7,8 +7,14 @@ yourself.
 **Audience.** Whoever gets paged. Also customers who want the control plane
 inside their own perimeter.
 
-Step-by-step deployment on AWS, Google Cloud, Azure or one server, and the
-production checklist, are in [../deploy/](../deploy/README.md).
+Step-by-step deployment is in [../deploy/](../deploy/README.md):
+[development/](../deploy/development/) for a local setup, then
+[stage 0](../deploy/stage-0/) for a pilot (Supabase, Render, Vercel) and
+[stage 1](../deploy/stage-1/aws.md) on AWS, with Google Cloud, Azure and
+one server in [alternatives/](../deploy/alternatives/). The
+[production checklist](../deploy/checklist.md) is shared, and
+[where every variable's value comes from](../deploy/stage-0/env.md)
+complements the Configuration section below.
 
 ---
 

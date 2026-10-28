@@ -1,5 +1,6 @@
-# Render Blueprint for Airship's API. The dashboard runs on Vercel and the
-# database is Supabase or PlanetScale: docs/deploy/render-vercel.md.
+# Render Blueprint for Airship's API: stage 0, the pilot. The dashboard
+# runs on Vercel and the database is Supabase.
+# docs/deploy/stage-0/4-render.md.
 #
 # New → Blueprint, Blueprint path: deploy/render/render.yaml. Render asks
 # for every `sync: false` value when it first creates the service.
@@ -20,7 +21,8 @@ services:
     healthCheckPath: /healthz
     # The API drains for 30 s after SIGTERM.
     maxShutdownDelaySeconds: 45
-    autoDeployTrigger: checksPass
+    # No repository checks to wait for: deploy on push.
+    autoDeployTrigger: commit
     buildFilter:
       paths:
         - apps/api/**

@@ -21,9 +21,9 @@ started inside the sandbox; the runner deregistered after its one job, the
 script stopped the sandbox, and Daytona had deleted it 2 m 8 s after launch.
 The organization listed no sandbox afterwards. The opt-in
 `TestAgainstLiveDaytona` separately verified the key, a repeated launch,
-listing, the ownership refusal and the self-destruct path, and in CI the
-provider runs through Daytona's generated Go clients against a fake of its
-API and of the toolbox API.
+listing, the ownership refusal and the self-destruct path, and on every
+`make test` the provider runs through Daytona's generated Go clients
+against a fake of its API and of the toolbox API.
 
 Later the same day the remaining fields were sent too. A sandbox launched
 from Daytona's `daytona-medium` **snapshot** in 3 s, ran as its `daytona`
@@ -55,7 +55,7 @@ and no sandbox has run in a dedicated region; everything else has.
 
 These are the rules the rest of the control plane relies on (the general
 ones are in [`../architecture.md`](../architecture.md#invariants)); each
-is tested against the fake in CI and the marked ones were observed against
+is tested against the fake, and the marked ones were observed against
 Daytona itself.
 
 1. **One sandbox per runner, found by name.** The sandbox name is the

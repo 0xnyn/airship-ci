@@ -74,14 +74,16 @@ The Go API is the source of truth for every type on the wire:
 SQL ──sqlc──► Go structs ──Huma──► openapi.json ──openapi-typescript──► @airship/client ──► Next.js
 ```
 
-`pnpm generate` rebuilds the chain; `pnpm dev` keeps it live. CI fails if a
-generated file is stale.
+`pnpm generate` rebuilds the chain; `pnpm dev` keeps it live.
+`pnpm check:generated` fails if a generated file is stale.
 
 ## Running locally
 
-The full guide, including a development GitHub App, tunnels, real cloud
-machines and every test suite, is [docs/development.md](docs/development.md).
-The short version:
+The full guide — from a blank machine and a test GitHub organization to a
+real job on a real cloud machine, plus every environment variable, the
+daily workflow and every test suite — is
+[docs/deploy/development/](docs/deploy/development/README.md). The short
+version:
 
 You need Go 1.27+, Node 24+, pnpm 11 and Docker.
 
@@ -149,7 +151,7 @@ egress-only security group Airship creates.
 
 `make setup` once after cloning, then `make dev`. `make help` lists every
 target; each wraps one of the pnpm scripts below. The full guide is
-[docs/development.md](docs/development.md).
+[docs/deploy/development/](docs/deploy/development/README.md).
 
 | Command | Does |
 | --- | --- |
@@ -157,13 +159,13 @@ target; each wraps one of the pnpm scripts below. The full guide is
 | `pnpm generate` | sqlc → openapi.json → TypeScript client |
 | `pnpm lint` / `pnpm format` | Ultracite (Biome) for TypeScript, golangci-lint for Go |
 | `pnpm typecheck` / `pnpm test` / `pnpm build` | Across all packages |
-| `pnpm check` | Everything CI runs |
+| `pnpm check` | Everything to run before pushing |
 | `pnpm db:up` / `db:down` | Start or stop local Postgres |
 | `pnpm db:migrate` / `db:rollback` | Apply or undo migrations |
 | `make docs` | Preview the documentation site on :4100 |
 
 Go tests that use the database need `TEST_DATABASE_URL` (each test creates its
-own database); without it they are skipped locally and fail in CI:
+own database); without it they are skipped (or fail, where `CI` is set):
 
 ```bash
 make test   # sets it to the local Postgres
@@ -172,13 +174,19 @@ TEST_DATABASE_URL='postgres://airship:airship@localhost:5432/airship?sslmode=dis
 
 ## Deploying
 
-Step-by-step guides for [AWS](docs/deploy/aws.md) (ECS Fargate and RDS),
-[Google Cloud](docs/deploy/gcp.md) (Cloud Run and Cloud SQL),
-[Azure](docs/deploy/azure.md) (Container Apps and PostgreSQL flexible
-server) and [a single server](docs/deploy/server.md) (Docker Compose and
-Caddy), with the production checklist they share, are in
-[docs/deploy/](docs/deploy/README.md). Postgres 17 or newer is required, 18
-recommended.
+The guides are in [docs/deploy/](docs/deploy/README.md), in two stages.
+**[Stage 0](docs/deploy/stage-0/)** is the pilot and the place to start: a
+six-step runbook that puts the database on
+[Supabase](docs/deploy/stage-0/3-supabase.md), the API on Render and the
+dashboard on Vercel, with
+[where every environment variable's value comes from](docs/deploy/stage-0/env.md).
+**[Stage 1](docs/deploy/stage-1/aws.md)** is AWS — ECS Fargate, RDS and
+Secrets Manager — for when the pilot outgrows managed hosting. Google
+Cloud, Azure and a single Docker Compose server are in
+[alternatives/](docs/deploy/alternatives/), and the
+[production checklist](docs/deploy/checklist.md) is shared by all of them.
+Postgres 17 or newer is required, 18 recommended.
+
 In short:
 
 The control plane is one container plus Postgres:

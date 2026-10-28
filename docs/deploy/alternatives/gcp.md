@@ -11,8 +11,10 @@ That can be a different project from the ones runners launch in.
 **Time.** About an hour, most of it waiting for Cloud SQL and the managed
 certificate.
 
-Read [README.md](README.md) first: its "Before you start" section (domain,
-credentials key, GitHub App) applies here unchanged.
+Do [stage 0's steps 1 and 2](../stage-0/) first, whichever platform you
+end on: the domain and two hostnames, `CREDENTIALS_KEY`, and the production
+GitHub App are the same everywhere. Where each environment variable's value
+comes from is in [stage-0/env.md](../stage-0/env.md).
 
 ---
 
@@ -134,7 +136,7 @@ postgres://airship:<password>@/airship?host=/cloudsql/<project>:<region>:airship
 ## Step 3 — Secrets
 
 Have the GitHub App's values from
-[README.md, step 3](README.md#3-the-production-github-app) to hand, and the
+[stage-0/2-github-app.md](../stage-0/2-github-app.md) to hand, and the
 private key at `./github-app.pem`.
 
 ```bash
@@ -294,7 +296,7 @@ curl -s https://$API_DOMAIN/healthz
 ```
 
 Then work through the **Verification** items in the
-[production checklist](README.md#production-checklist): webhook deliveries
+[production checklist](../checklist.md): webhook deliveries
 in the GitHub App, GitHub sign-in on `https://$DASH_DOMAIN`, and one real
 job.
 
@@ -340,7 +342,7 @@ gcloud run services update-traffic airship-api --region=$REGION --to-revisions=<
 | Upgrading Postgres | Minor versions apply in the maintenance window (`--maintenance-window-day`, `--maintenance-window-hour`); major versions upgrade in place with `gcloud sql instances patch --database-version` |
 
 Day-to-day operation, alerts worth having and the incident runbook are in
-[architecture/operations.md](../architecture/operations.md).
+[architecture/operations.md](../../architecture/operations.md).
 
 ---
 

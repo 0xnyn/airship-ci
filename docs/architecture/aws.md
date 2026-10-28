@@ -9,11 +9,12 @@ policy and explain the blast radius. For the hands-on path, read
 [aws-setup.md](aws-setup.md) next.
 
 **Status.** The EC2 provider runs against [moto](https://github.com/getmoto/moto)
-in CI (request shapes, tags, default VPC and security group, lifecycle
-rules, termination) and the rendered Linux boot script has run a real
-GitHub job end to end. A launch on real EC2 has not been part of CI; an
-opt-in test (`TestAgainstLiveAWS`) launches and terminates one instance
-against a real account when credentials are supplied. The first real
+(`make test-aws-emulator`: request shapes, tags, default VPC and security
+group, lifecycle rules, termination) and the rendered Linux boot script has
+run a real GitHub job end to end. A launch on real EC2 is not part of any
+automated run; an opt-in test (`TestAgainstLiveAWS`) launches and
+terminates one instance against a real account when credentials are
+supplied. The first real
 deployment exercises exactly the `RunInstances` call moto accepted.
 
 ---

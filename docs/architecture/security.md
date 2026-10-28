@@ -327,7 +327,7 @@ than point at a badge.
 ownership refusal on terminate, the credential binding, lease and revival
 logic, the tag/label scoping, boot script validation — have tests, and the
 cache path has run end to end with a real runner, a real GitHub job and an
-S3 emulator. What has **not** run is a launch on real EC2 in CI, a Windows
+S3 emulator. What has **not** run is an automated launch on real EC2, a Windows
 machine, and anything at all against Google or Azure (Azure's Linux boot
 script has run a real job in a container, but no request has been accepted
 by Azure); Daytona has run three real

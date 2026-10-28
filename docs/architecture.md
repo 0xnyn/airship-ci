@@ -582,8 +582,8 @@ Different, on purpose:
   The proxy had also been driven by the `@actions/cache` library directly
   with a 140 MB block upload.
 - **The EC2 provider, cache bucket and federation grant** run against moto
-  in CI (`TestAgainstEmulator`): request shapes, tags, the default VPC and
-  security group, lifecycle rules, termination. moto does not model IAM,
+  (`TestAgainstEmulator`, `make test-aws-emulator`): request shapes, tags,
+  the default VPC and security group, lifecycle rules, termination. moto does not model IAM,
   quotas, spot capacity or the boot script.
 - **Boot scripts.** The Linux script is checked with `bash -n` in tests and
   its `.env` line executed, and the rendered script is what the container
@@ -674,7 +674,8 @@ Different, on purpose:
   renewal a slow launch depends on.
 - **Daytona: run against Daytona, with a real job.** The provider is
   driven through Daytona's generated Go clients (`api-client-go` and
-  `toolbox-api-client-go`, v0.226.1) against `daytona/daytonatest` in CI:
+  `toolbox-api-client-go`, v0.226.1) against `daytona/daytonatest`, which
+  runs as part of `make test`:
   name conflicts and lost create answers, image build failures, sandboxes
   that never start, toolbox and label failures with cleanup, pagination,
   state mapping, ownership checks on delete. It has also run against a

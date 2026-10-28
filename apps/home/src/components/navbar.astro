@@ -1,0 +1,150 @@
+---
+import { nav } from "../content/site";
+import Logo from "./logo.astro";
+
+const { cta, links: navLinks } = nav;
+---
+
+<header class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="logo-link" aria-label="Airship home">
+      <Logo />
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      {navLinks.map((link) => (
+        <a href={link.href} class="nav-link">{link.label}</a>
+      ))}
+    </nav>
+    <div class="nav-cta">
+      <a href={cta.href} class="btn btn-primary">{cta.label}</a>
+    </div>
+    <details class="nav-menu">
+      <summary aria-label="Menu">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+      </summary>
+      <nav class="nav-menu-panel" aria-label="Mobile">
+        {navLinks.map((link) => (
+          <a href={link.href} class="nav-link">{link.label}</a>
+        ))}
+        <a href={cta.href} class="btn btn-primary">{cta.label}</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<style>
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    width: 100%;
+    padding: 16px 42px;
+    background: linear-gradient(
+      to bottom,
+      rgba(8, 10, 9, 0.92),
+      rgba(8, 10, 9, 0.6) 70%,
+      transparent
+    );
+    backdrop-filter: blur(6px);
+  }
+
+  .navbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 48px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .logo-link {
+    display: flex;
+    align-items: center;
+    flex: 1 0 0;
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    justify-content: center;
+  }
+
+  .nav-link {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+    transition: color 0.2s;
+    white-space: nowrap;
+  }
+
+  .nav-link:hover {
+    color: var(--white);
+  }
+
+  .nav-cta {
+    display: flex;
+    justify-content: flex-end;
+    flex: 1 0 0;
+  }
+
+  .nav-menu {
+    display: none;
+    position: relative;
+  }
+
+  .nav-menu summary {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    cursor: pointer;
+    padding: 8px 4px;
+  }
+
+  .nav-menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .hamburger-line {
+    display: block;
+    width: 18px;
+    height: 1.5px;
+    background: var(--white);
+    border-radius: 1px;
+  }
+
+  .nav-menu-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  @media (max-width: 809px) {
+    .navbar {
+      padding: 16px;
+    }
+
+    .nav-links,
+    .nav-cta {
+      display: none;
+    }
+
+    .nav-menu {
+      display: block;
+    }
+  }
+</style>

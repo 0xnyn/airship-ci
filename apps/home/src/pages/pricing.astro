@@ -1,0 +1,872 @@
+---
+import Cta from "../components/cta.astro";
+import Footer from "../components/footer.astro";
+import Navbar from "../components/navbar.astro";
+import SectionHeading from "../components/section-heading.astro";
+import { getStarted } from "../content/home";
+import {
+  airshipPerMin,
+  clouds,
+  competitors,
+  perMinute,
+  SIZES,
+} from "../content/prices";
+import { pricing } from "../content/pricing";
+import Layout from "../layouts/layout.astro";
+
+const { compare, hero, meta, plans, table } = pricing;
+const startCloud =
+  clouds.find((c) => c.id === compare.defaults.cloud) ?? clouds[0];
+const fillCloud = (template: string): string =>
+  template
+    .replace("{cloud}", startCloud.name)
+    .replace("{family}", startCloud.family)
+    .replace("{region}", startCloud.region);
+const short = (m: number): string =>
+  m >= 1_000_000 ? `${m / 1_000_000}M` : `${m / 1000}k`;
+---
+
+<Layout title={meta.title} description={meta.description}>
+  <Navbar />
+  <main>
+    <section class="pricing-hero">
+      <p class="section-label">
+        <span class="dot" style="background: var(--dot-red)"></span>
+        <span>{hero.label}</span>
+      </p>
+      <h1 class="pricing-title">{hero.title}</h1>
+      <p class="section-desc">{hero.description}</p>
+    </section>
+
+    <section class="plans" aria-label="Plans">
+      {
+        plans.map((plan) => (
+          <article class:list={["plan", { "plan-highlight": plan.highlight }]}>
+            <header class="plan-header">
+              <h2 class="plan-name">{plan.name}</h2>
+              <p class="plan-audience">{plan.audience}</p>
+              <p class="plan-price">
+                {plan.price}
+                {plan.unit && <span class="plan-unit">{plan.unit}</span>}
+              </p>
+              <p class="plan-note">{plan.note}</p>
+            </header>
+            <ul class="plan-features">
+              {plan.features.map((f) => (
+                <li>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href={plan.cta.href}
+              class:list={["btn", plan.highlight ? "btn-primary" : "btn-secondary"]}
+            >
+              {plan.cta.label}
+            </a>
+          </article>
+        ))
+      }
+    </section>
+
+    <section class="compare" id="compare" data-calculator>
+      <SectionHeading heading={compare.heading} spacing={40} />
+
+      <div class="compare-card">
+        <div class="controls">
+          <fieldset class="control">
+            <legend>{compare.labels.cloud}</legend>
+            <div class="segmented">
+              {
+                clouds.map((c) => (
+                  <label>
+                    <input
+                      type="radio"
+                      name="cloud"
+                      value={c.id}
+                      checked={c.id === compare.defaults.cloud}
+                    />
+                    <span>{c.name}</span>
+                  </label>
+                ))
+              }
+            </div>
+          </fieldset>
+          <fieldset class="control">
+            <legend>{compare.labels.size}</legend>
+            <div class="segmented">
+              {
+                SIZES.map((s) => (
+                  <label>
+                    <input
+                      type="radio"
+                      name="size"
+                      value={s}
+                      checked={s === compare.defaults.size}
+                    />
+                    <span>{s} vCPU</span>
+                  </label>
+                ))
+              }
+            </div>
+          </fieldset>
+          <fieldset class="control">
+            <legend>{compare.labels.minutes}</legend>
+            <div class="segmented">
+              {
+                compare.minutePresets.map((m) => (
+                  <label>
+                    <input
+                      type="radio"
+                      name="minutes"
+                      value={m}
+                      checked={m === compare.defaults.minutes}
+                    />
+                    <span>{short(m)}</span>
+                  </label>
+                ))
+              }
+            </div>
+          </fieldset>
+          <fieldset class="control">
+            <legend>{compare.labels.machines}</legend>
+            <div class="segmented">
+              <label>
+                <input
+                  type="radio"
+                  name="spot"
+                  value="1"
+                  checked={compare.defaults.spot}
+                />
+                <span>{compare.labels.spot}</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="spot"
+                  value="0"
+                  checked={!compare.defaults.spot}
+                />
+                <span>{compare.labels.onDemand}</span>
+              </label>
+            </div>
+          </fieldset>
+          <fieldset class="control">
+            <legend>{compare.labels.credits}</legend>
+            <div class="segmented">
+              <label>
+                <input
+                  type="radio"
+                  name="credits"
+                  value="1"
+                  checked={compare.defaults.credits}
+                />
+                <span>{compare.labels.creditsOn}</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="credits"
+                  value="0"
+                  checked={!compare.defaults.credits}
+                />
+                <span>{compare.labels.creditsOff}</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="headline">
+          <p class="headline-number" data-out="saving">—</p>
+          <p
+            class="headline-text"
+            data-out="saving-text"
+            data-template={compare.saving}
+          >
+          </p>
+        </div>
+
+        <div class="bars" role="img" aria-label={compare.labels.chart}>
+          <div class="bar-row bar-airship" data-row="airship">
+            <span class="bar-name">{compare.labels.airship}</span>
+            <span class="bar-track">
+              <span class="seg seg-cloud" data-seg="cloud"></span>
+              <span class="seg seg-fee" data-seg="fee"></span>
+            </span>
+            <span class="bar-value" data-value="airship">—</span>
+          </div>
+          {
+            competitors.map((c) => (
+              <div class="bar-row" data-row={c.id}>
+                <span class="bar-name">{c.name}</span>
+                <span class="bar-track">
+                  <span class="seg seg-other" data-seg={c.id} />
+                </span>
+                <span class="bar-value" data-value={c.id}>
+                  —
+                </span>
+              </div>
+            ))
+          }
+        </div>
+
+        <ul class="legend" aria-label="Legend">
+          <li data-legend="cloud" hidden={compare.defaults.credits}>
+            <span class="swatch swatch-cloud"></span>
+            <span data-out="cloud-legend" data-template={compare.legend.cloud}>
+              {fillCloud(compare.legend.cloud)}
+            </span>
+          </li>
+          <li data-legend="credits" hidden={!compare.defaults.credits}>
+            <span class="swatch swatch-credits"></span>{compare.legend.credits}
+          </li>
+          <li><span class="swatch swatch-fee"></span>{compare.legend.fee}</li>
+          <li><span class="swatch swatch-other"></span>{compare.legend.other}</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="table-section" aria-labelledby="per-minute">
+      <h2 class="section-title" id="per-minute">{table.title}</h2>
+      <p
+        class="section-desc table-desc"
+        data-out="table-desc"
+        data-template={table.description}
+      >
+        {fillCloud(table.description)}
+      </p>
+      <div class="table-wrap">
+        <table class="price-table">
+          <thead>
+            <tr>
+              <th scope="col">{table.provider}</th>
+              {SIZES.map((s) => <th scope="col">{s} vCPU</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row-airship">
+              <th scope="row">{table.airshipSpot}</th>
+              {SIZES.map((s) => (
+                <td data-airship="spot" data-size={s}>
+                  {perMinute(airshipPerMin(startCloud.id, s, true))}
+                </td>
+              ))}
+            </tr>
+            <tr class="row-airship">
+              <th scope="row">{table.airshipOnDemand}</th>
+              {SIZES.map((s) => (
+                <td data-airship="on-demand" data-size={s}>
+                  {perMinute(airshipPerMin(startCloud.id, s, false))}
+                </td>
+              ))}
+            </tr>
+            {
+              competitors.map((c) => (
+                <tr>
+                  <th scope="row">{c.name}</th>
+                  {SIZES.map((s) => (
+                    <td>{perMinute(c.perMin[s])}</td>
+                  ))}
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <Cta content={getStarted} />
+  </main>
+  <Footer />
+</Layout>
+
+<script>
+  import {
+    AIRSHIP_FEE_PER_MIN,
+    airshipPerMin,
+    type CloudId,
+    cloudPerMin,
+    clouds,
+    competitors,
+    money,
+    perMinute,
+    type Size,
+  } from "../content/prices";
+
+  const root = document.querySelector<HTMLElement>("[data-calculator]");
+
+  const read = (form: HTMLElement, name: string): string =>
+    form.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)
+      ?.value ?? "";
+
+  // The cloud named in the legend and the table, and Airship's table rows.
+  const showCloud = (id: CloudId): void => {
+    const cloud = clouds.find((c) => c.id === id) ?? clouds[0];
+    for (const node of document.querySelectorAll<HTMLElement>(
+      '[data-out="cloud-legend"], [data-out="table-desc"]'
+    )) {
+      node.textContent = (node.dataset.template ?? "")
+        .replace("{cloud}", cloud.name)
+        .replace("{family}", cloud.family)
+        .replace("{region}", cloud.region);
+    }
+    for (const cell of document.querySelectorAll<HTMLElement>(
+      "[data-airship]"
+    )) {
+      const size = Number(cell.dataset.size) as Size;
+      const spot = cell.dataset.airship === "spot";
+      cell.textContent = perMinute(airshipPerMin(cloud.id, size, spot));
+    }
+  };
+
+  const render = (el: HTMLElement): void => {
+    const cloudId = read(el, "cloud") as CloudId;
+    const size = Number(read(el, "size")) as Size;
+    const minutes = Number(read(el, "minutes"));
+    const spot = read(el, "spot") === "1";
+    const credits = read(el, "credits") === "1";
+
+    // With credits on, the machine still costs the same; credits pay it.
+    const cloud = cloudPerMin(cloudId, size, spot) * minutes;
+    const fee = AIRSHIP_FEE_PER_MIN * minutes;
+    const airship = credits ? fee : cloud + fee;
+    const others = competitors.map((c) => ({
+      id: c.id,
+      total: c.perMin[size] * minutes,
+    }));
+    showCloud(cloudId);
+    const max = Math.max(airship, ...others.map((o) => o.total));
+    const pct = (n: number): string => `${(n / max) * 100}%`;
+
+    const set = (sel: string, fn: (node: HTMLElement) => void): void => {
+      const node = el.querySelector<HTMLElement>(sel);
+      if (node) {
+        fn(node);
+      }
+    };
+
+    set('[data-seg="cloud"]', (n) => {
+      n.style.width = pct(cloud);
+      n.title = money(cloud);
+      n.classList.toggle("is-credit", credits);
+    });
+    set('[data-legend="cloud"]', (n) => {
+      n.hidden = credits;
+    });
+    set('[data-legend="credits"]', (n) => {
+      n.hidden = !credits;
+    });
+    set('[data-seg="fee"]', (n) => {
+      n.style.width = pct(fee);
+      n.title = money(fee);
+    });
+    set('[data-value="airship"]', (n) => {
+      n.textContent = money(airship);
+    });
+    for (const o of others) {
+      set(`[data-seg="${o.id}"]`, (n) => {
+        n.style.width = pct(o.total);
+        n.title = money(o.total);
+      });
+      set(`[data-value="${o.id}"]`, (n) => {
+        n.textContent = money(o.total);
+      });
+    }
+
+    const github = others.find((o) => o.id === "github")?.total ?? airship;
+    const cheapest = Math.min(...others.map((o) => o.total));
+    set('[data-out="saving"]', (n) => {
+      n.textContent = `${Math.round((1 - airship / github) * 100)}%`;
+    });
+    set('[data-out="saving-text"]', (n) => {
+      n.textContent = (n.dataset.template ?? "")
+        .replace("{saved}", money(github - airship))
+        .replace("{cheapest}", String(Math.round((1 - airship / cheapest) * 100)));
+    });
+  };
+
+  if (root) {
+    root.addEventListener("change", () => render(root));
+    render(root);
+  }
+</script>
+
+<style>
+  .pricing-hero,
+  .plans,
+  .compare,
+  .table-section {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .pricing-hero {
+    padding: 75px 0 48px;
+  }
+
+  .pricing-title {
+    font-family: var(--font-sans);
+    font-size: 52px;
+    font-weight: 500;
+    letter-spacing: -2.2px;
+    line-height: 56px;
+    margin-bottom: 24px;
+    max-width: 760px;
+    text-wrap: balance;
+  }
+
+  /* Plans */
+  .plans {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    padding-bottom: 72px;
+  }
+
+  .plan {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    padding: 28px;
+    background: var(--card-bg);
+    border-radius: 4px;
+  }
+
+  .plan-highlight {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  }
+
+  .plan-name {
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.6px;
+    margin-bottom: 6px;
+  }
+
+  .plan-audience,
+  .plan-note {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-50);
+    letter-spacing: -0.24px;
+  }
+
+  .plan-price {
+    margin-top: 28px;
+    font-size: 40px;
+    font-weight: 500;
+    letter-spacing: -1.6px;
+    line-height: 1;
+  }
+
+  .plan-unit {
+    margin-left: 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: -0.26px;
+    color: var(--white-70);
+  }
+
+  .plan-note {
+    margin-top: 10px;
+  }
+
+  .plan-features {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--white-80);
+    letter-spacing: -0.26px;
+  }
+
+  .plan-features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .plan-features svg {
+    margin-top: 2px;
+    flex-shrink: 0;
+    color: var(--dot-green);
+  }
+
+  .plan .btn {
+    align-self: flex-start;
+  }
+
+  /* Calculator */
+  .compare {
+    padding: 72px 0;
+  }
+
+  .compare-card {
+    position: relative;
+    padding: 32px;
+    background: var(--card-bg);
+    border-radius: 4px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  /* Two rows on desktop: what runs (cloud, size, minutes), then how it's paid. */
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    justify-items: start;
+    gap: 24px 32px;
+    margin-bottom: 36px;
+  }
+
+  @media (max-width: 1199px) {
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+    }
+  }
+
+  .control {
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .control legend {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-50);
+    margin-bottom: 10px;
+  }
+
+  .segmented {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 2px;
+    background: var(--bg);
+    border-radius: 6px;
+  }
+
+  .segmented label {
+    position: relative;
+    cursor: pointer;
+  }
+
+  .segmented input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    cursor: pointer;
+  }
+
+  .segmented span {
+    display: block;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-70);
+    transition:
+      background 0.2s,
+      color 0.2s;
+  }
+
+  .segmented input:checked + span {
+    background: var(--white);
+    color: var(--dark-text);
+  }
+
+  .segmented input:focus-visible + span {
+    outline: 2px solid var(--dot-cyan);
+    outline-offset: 1px;
+  }
+
+  .headline {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin-bottom: 28px;
+  }
+
+  .headline-number {
+    font-size: 64px;
+    font-weight: 500;
+    letter-spacing: -3px;
+    line-height: 1;
+    color: var(--white);
+  }
+
+  .headline-text {
+    max-width: 520px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--white-80);
+    letter-spacing: -0.28px;
+    line-height: 21px;
+  }
+
+  .bars {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .bar-row {
+    display: grid;
+    grid-template-columns: 170px 1fr 80px;
+    align-items: center;
+    gap: 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .bar-name {
+    color: var(--white-70);
+  }
+
+  .bar-airship .bar-name,
+  .bar-airship .bar-value {
+    color: var(--white);
+  }
+
+  .bar-track {
+    display: flex;
+    gap: 2px;
+    height: 22px;
+  }
+
+  .seg {
+    display: block;
+    height: 100%;
+    min-width: 2px;
+    transition: width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .bar-track .seg:first-child {
+    border-radius: 0;
+  }
+
+  .bar-track .seg:last-child {
+    border-radius: 0 4px 4px 0;
+  }
+
+  .seg-cloud {
+    background: var(--dot-cyan);
+  }
+
+  .seg-fee {
+    background: var(--white);
+  }
+
+  /* Machine time paid by cloud credits: drawn, but not counted. */
+  .seg-cloud.is-credit,
+  .swatch-credits {
+    background: repeating-linear-gradient(
+      135deg,
+      rgba(158, 250, 255, 0.55) 0 2px,
+      transparent 2px 5px
+    );
+    box-shadow: inset 0 0 0 1px rgba(158, 250, 255, 0.45);
+  }
+
+
+  .legend li[hidden] {
+    display: none;
+  }
+
+  .seg-other {
+    background: rgb(70, 74, 80);
+  }
+
+  .bar-value {
+    text-align: right;
+    color: var(--white-80);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .legend {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 22px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--white-50);
+  }
+
+  .legend li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .swatch-cloud {
+    background: var(--dot-cyan);
+  }
+
+  .swatch-fee {
+    background: var(--white);
+  }
+
+  .swatch-other {
+    background: rgb(70, 74, 80);
+  }
+
+  /* Table */
+  .table-section {
+    padding: 48px 0 24px;
+  }
+
+  .table-desc {
+    margin-bottom: 32px;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 4px;
+    background: var(--card-bg);
+  }
+
+  .price-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .price-table th,
+  .price-table td {
+    padding: 14px 20px;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .price-table th[scope="row"],
+  .price-table thead th:first-child {
+    text-align: left;
+    font-weight: 400;
+    color: var(--white-80);
+  }
+
+  .price-table thead th {
+    font-weight: 400;
+    color: var(--white-50);
+  }
+
+  .price-table td {
+    color: var(--white-70);
+  }
+
+  .price-table tbody tr:last-child th,
+  .price-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .row-airship th[scope="row"],
+  .row-airship td {
+    color: var(--white);
+  }
+
+  .row-airship th[scope="row"] {
+    box-shadow: inset 2px 0 0 var(--dot-cyan);
+  }
+
+
+
+
+
+  @media (max-width: 1199px) {
+    .pricing-hero,
+    .plans,
+    .compare,
+    .table-section {
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+
+    .plans {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 809px) {
+    .pricing-hero,
+    .plans,
+    .compare,
+    .table-section {
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+
+    .pricing-hero {
+      padding-top: 48px;
+    }
+
+    .pricing-title {
+      font-size: 34px;
+      line-height: 38px;
+      letter-spacing: -1.4px;
+    }
+
+    .compare-card {
+      padding: 20px;
+    }
+
+    .headline-number {
+      font-size: 48px;
+    }
+
+    .bar-row {
+      grid-template-columns: 1fr 72px;
+      grid-template-areas:
+        "name value"
+        "track track";
+      gap: 6px 12px;
+    }
+
+    .bar-name {
+      grid-area: name;
+    }
+
+    .bar-value {
+      grid-area: value;
+    }
+
+    .bar-track {
+      grid-area: track;
+      height: 16px;
+    }
+  }
+</style>

@@ -1,0 +1,174 @@
+---
+// A "dawn sky": a diagonal beam of light with a warm-to-cool fringe, drawn
+// as a smooth glow with fine static over it. The beam is a band that fades
+// down the frame, so there is no edge where the light stops. The static is a
+// dither: brightness decides how dense the white grain is, and a colour layer
+// multiplied on top tints it. Pure SVG, no raster.
+interface Props {
+  /** Angle of the beam in degrees. */
+  angle?: number;
+  /** Where the beam's bright core sits, as a fraction of the width. */
+  focus?: number;
+  /** Grain size: higher is finer. */
+  grain?: number;
+  id: string;
+  /** Overall brightness, 0 to 1. */
+  intensity?: number;
+}
+const {
+  id,
+  angle = -24,
+  focus = 0.62,
+  intensity = 1,
+  grain = 1.35,
+} = Astro.props;
+const cx = Math.round(focus * 1000);
+const at = (n: number): string => (n * intensity).toFixed(3);
+
+// Brightness across the beam, eased so it never steps. The floor keeps a
+// soft glow over the whole frame, not just the beam.
+const beamStops: [number, number][] = [
+  [0, 0.14],
+  [0.2, 0.18],
+  [0.32, 0.26],
+  [0.42, 0.42],
+  [0.5, 0.62],
+  [0.58, 0.88],
+  [0.66, 1],
+  [0.78, 0.8],
+  [0.9, 0.55],
+  [1, 0.4],
+];
+// How the light falls off from the top of the frame to the bottom.
+const fadeStops: [number, number][] = [
+  [0, 1],
+  [0.2, 0.92],
+  [0.45, 0.7],
+  [0.7, 0.48],
+  [1, 0.32],
+];
+---
+
+<svg
+  class="grain-field"
+  viewBox="0 0 1000 700"
+  preserveAspectRatio="xMidYMid slice"
+  aria-hidden="true"
+  focusable="false"
+>
+  <defs>
+    <filter
+      id={`${id}-dither`}
+      x="0"
+      y="0"
+      width="100%"
+      height="100%"
+      color-interpolation-filters="sRGB"
+    >
+      <feTurbulence
+        type="fractalNoise"
+        baseFrequency={grain}
+        numOctaves="2"
+        seed="7"
+        result="noise"></feTurbulence>
+      <feColorMatrix
+        in="noise"
+        type="matrix"
+        values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  2.6 0 0 0 -0.8"
+        result="noiseAlpha"></feColorMatrix>
+      <feComposite
+        in="SourceGraphic"
+        in2="noiseAlpha"
+        operator="arithmetic"
+        k1="0"
+        k2="1"
+        k3="1"
+        k4="-0.52"
+        result="sum"></feComposite>
+      <feComponentTransfer in="sum" result="mask">
+        <feFuncA type="discrete" tableValues="0 1"></feFuncA>
+      </feComponentTransfer>
+      <feFlood flood-color="#fff" result="white"></feFlood>
+      <feComposite in="white" in2="mask" operator="in"></feComposite>
+    </filter>
+
+    <linearGradient
+      id={`${id}-beam`}
+      gradientUnits="userSpaceOnUse"
+      x1={cx - 700}
+      y1="0"
+      x2={cx + 700}
+      y2="0"
+      gradientTransform={`rotate(${angle} ${cx} 0)`}
+    >
+      {
+        beamStops.map(([o, a]) => (
+          <stop offset={o} stop-color="#fff" stop-opacity={at(a)} />
+        ))
+      }
+    </linearGradient>
+
+    <linearGradient id={`${id}-fade`} x1="0" y1="0" x2="0" y2="1">
+      {
+        fadeStops.map(([o, a]) => (
+          <stop offset={o} stop-color="#fff" stop-opacity={a} />
+        ))
+      }
+    </linearGradient>
+    <mask id={`${id}-fade-mask`} maskContentUnits="userSpaceOnUse">
+      <rect width="1000" height="700" fill={`url(#${id}-fade)`}></rect>
+    </mask>
+
+    <linearGradient
+      id={`${id}-tint`}
+      gradientUnits="userSpaceOnUse"
+      x1={cx - 700}
+      y1="0"
+      x2={cx + 700}
+      y2="0"
+      gradientTransform={`rotate(${angle} ${cx} 0)`}
+    >
+      <stop offset="0" stop-color="#5d6168"></stop>
+      <stop offset="0.36" stop-color="#8a9097"></stop>
+      <stop offset="0.42" stop-color="#ff6a3d"></stop>
+      <stop offset="0.46" stop-color="#ff3d7f"></stop>
+      <stop offset="0.5" stop-color="#7a5cff"></stop>
+      <stop offset="0.55" stop-color="#5ad8ff"></stop>
+      <stop offset="0.64" stop-color="#ffffff"></stop>
+      <stop offset="1" stop-color="#d8dde3"></stop>
+    </linearGradient>
+  </defs>
+
+  <rect width="1000" height="700" fill="#000"></rect>
+  <!-- A smooth glow carries the light; the static over it is texture. -->
+  <rect
+    width="1000"
+    height="700"
+    fill={`url(#${id}-beam)`}
+    mask={`url(#${id}-fade-mask)`}
+    opacity="0.6"></rect>
+  <g filter={`url(#${id}-dither)`} opacity="0.45">
+    <rect
+      width="1000"
+      height="700"
+      fill={`url(#${id}-beam)`}
+      mask={`url(#${id}-fade-mask)`}></rect>
+  </g>
+  <rect
+    width="1000"
+    height="700"
+    fill={`url(#${id}-tint)`}
+    style="mix-blend-mode: multiply"></rect>
+</svg>
+
+<style>
+  .grain-field {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    background: #000;
+    isolation: isolate;
+  }
+</style>

@@ -1,0 +1,21 @@
+{
+  "name": "@airship/home",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "dev": "astro dev --port 4000",
+    "og": "node og/render.mjs",
+    "preview": "astro preview --port 4000",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "astro": "^7.4.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.6",
+    "playwright": "^1.64.1",
+    "typescript": "catalog:"
+  }
+}

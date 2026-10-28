@@ -1,0 +1,13 @@
+---
+// Renders content text, turning `backticked` spans into <code>.
+import { inline } from "../lib/inline";
+
+interface Props {
+  as?: "p" | "span" | "h1" | "h2" | "h3";
+  class?: string;
+  text: string;
+}
+const { as: Tag = "span", class: className, text } = Astro.props;
+---
+
+<Tag class={className} set:html={inline(text)} />

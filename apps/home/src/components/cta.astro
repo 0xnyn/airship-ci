@@ -1,0 +1,146 @@
+---
+import type { getStarted as GetStartedContent } from "../content/home";
+import CodeCard from "./graphics/code-card.astro";
+import GrainField from "./graphics/grain-field.astro";
+
+interface Props {
+  content: typeof GetStartedContent;
+}
+const { content } = Astro.props;
+---
+
+<section class="cta">
+  <div class="cta-grid">
+    <div class="cta-content">
+      <p class="section-label">
+        <span class="dot" style="background: var(--dot-white)"></span>
+        <span>{content.label}</span>
+      </p>
+      <h2 class="section-title">{content.title}</h2>
+      <ol class="cta-steps">
+        {
+          content.steps.map((s, i) => (
+            <li>
+              <span class="cta-n">{i + 1}</span>
+              {s}
+            </li>
+          ))
+        }
+      </ol>
+      <a href={content.button.href} class="btn btn-primary">
+        {content.button.label}
+      </a>
+    </div>
+    <div class="cta-visual">
+      <GrainField id="cta" {...content.backdrop} />
+      <div class="cta-code">
+        <CodeCard {...content.code} />
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .cta {
+    padding: 72px 0;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .cta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .cta-content {
+    background: var(--card-bg);
+    border-radius: 4px;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .cta-content .section-title {
+    margin-bottom: 28px;
+  }
+
+  .cta-steps {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 32px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--white-80);
+    letter-spacing: -0.28px;
+  }
+
+  .cta-steps li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .cta-n {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--btn-dark-bg);
+    color: var(--white);
+    font-size: 11px;
+  }
+
+  .cta-content .btn {
+    align-self: flex-start;
+  }
+
+  .cta-visual {
+    position: relative;
+    min-height: 440px;
+    border-radius: 4px;
+    overflow: hidden;
+    isolation: isolate;
+    display: flex;
+    align-items: flex-end;
+    padding: 40px;
+  }
+
+  .cta-code {
+    position: relative;
+    width: 100%;
+    max-width: 380px;
+  }
+
+  @media (max-width: 1199px) {
+    .cta {
+      padding: 72px 24px;
+    }
+
+    .cta-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .cta-visual {
+      min-height: 380px;
+    }
+  }
+
+  @media (max-width: 809px) {
+    .cta {
+      padding: 72px 16px;
+    }
+
+    .cta-content {
+      padding: 24px;
+    }
+
+    .cta-visual {
+      padding: 20px;
+    }
+  }
+</style>

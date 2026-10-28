@@ -1,0 +1,123 @@
+---
+import type { security as SecurityContent } from "../content/home";
+import Icon from "./icon.astro";
+import SectionHeading from "./section-heading.astro";
+
+interface Props {
+  content: typeof SecurityContent;
+}
+const { content } = Astro.props;
+---
+
+<section id="security" class="security">
+  <SectionHeading heading={content.heading} spacing={64} />
+
+  <ul class="security-badges">
+    {
+      content.badges.map((b) => (
+        <li class="badge">
+          <span class="badge-icon">
+            <Icon name={b.icon} size={48} />
+          </span>
+          <span class="badge-text">
+            <span class="badge-label">{b.label}</span>
+            <span class="badge-note">{b.note}</span>
+          </span>
+        </li>
+      ))
+    }
+  </ul>
+
+  <p class="security-footnote">{content.footnote}</p>
+</section>
+
+<style>
+  .security {
+    padding: 72px 0 48px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+
+  .security-badges {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    margin-bottom: 30px;
+  }
+
+  .badge {
+    background: var(--card-bg);
+    border-radius: 4px;
+    padding: 40px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 32px;
+    min-height: 188px;
+  }
+
+  .badge-icon {
+    display: flex;
+    margin: 0 auto;
+    color: var(--dot-green);
+  }
+
+  .badge-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .badge-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+  }
+
+  .badge-note {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--white-50);
+    line-height: 16px;
+  }
+
+  .security-footnote {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+    max-width: 760px;
+  }
+
+  @media (max-width: 1199px) {
+    .security {
+      padding: 72px 24px 48px;
+    }
+
+    .security-badges {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  @media (max-width: 809px) {
+    .security {
+      padding: 72px 16px 48px;
+    }
+
+
+    .security-badges {
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .badge {
+      min-height: 160px;
+      padding-top: 28px;
+    }
+  }
+</style>

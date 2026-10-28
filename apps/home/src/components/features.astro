@@ -1,0 +1,532 @@
+---
+import type { features as FeaturesContent } from "../content/home";
+import CodeCard from "./graphics/code-card.astro";
+import GrainField from "./graphics/grain-field.astro";
+import Rich from "./rich.astro";
+import SectionHeading from "./section-heading.astro";
+
+interface Props {
+  content: typeof FeaturesContent;
+}
+const { content } = Astro.props;
+const axis = ["00", "06", "12", "18", "24"];
+---
+
+<section id="features" class="features">
+  <SectionHeading heading={content.heading} spacing={64} />
+
+  <div class="features-grid" data-features>
+    <div class="features-accordion">
+      {
+        content.items.map((item, i) => (
+          <button
+            type="button"
+            class="accordion-item"
+            data-feature={item.id}
+            aria-expanded={i === 0 ? "true" : "false"}
+            aria-controls={`preview-${item.id}`}
+          >
+            <span class="accordion-header">
+              <span class="accordion-indicator" />
+              <span class="accordion-title">{item.title}</span>
+            </span>
+            <span class="accordion-body">
+              <span class="accordion-desc">{item.description}</span>
+            </span>
+          </button>
+        ))
+      }
+    </div>
+
+    <div class="features-preview">
+      <GrainField id="features" {...content.backdrop} />
+
+      {
+        content.items.map(({ id, preview }, i) => (
+          <div
+            class="preview"
+            id={`preview-${id}`}
+            data-preview={id}
+            hidden={i !== 0}
+          >
+            {preview.kind === "code" && <CodeCard {...preview.code} />}
+
+            {preview.kind === "attempts" && (
+              <div class="card attempts">
+                <Rich as="p" class="card-head" text={preview.heading} />
+                <ol>
+                  {preview.attempts.map((a, n) => (
+                    <li class:list={["attempt", { ok: a.ok }]}>
+                      <span class="attempt-n">{n + 1}</span>
+                      <span class="attempt-main">
+                        <span class="attempt-type">
+                          {a.type}
+                          <span
+                            class:list={[
+                              "pill",
+                              a.spot ? "pill-spot" : "pill-od",
+                            ]}
+                          >
+                            {a.spot ? "spot" : "on-demand"}
+                          </span>
+                        </span>
+                        <span class="attempt-why">{a.why}</span>
+                      </span>
+                      <span
+                        class="attempt-mark"
+                        aria-label={a.ok ? "launched" : "refused"}
+                      >
+                        {a.ok ? "✓" : "×"}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {preview.kind === "schedule" && (
+              <div class="card schedule">
+                <Rich as="p" class="card-head" text={preview.heading} />
+                <div class="bars" aria-hidden="true">
+                  {preview.hourly.map((count) => (
+                    <span class="bar-col">
+                      {Array.from({ length: count }, () => (
+                        <span class="bar-cell" />
+                      ))}
+                    </span>
+                  ))}
+                </div>
+                <div class="bars-axis" aria-hidden="true">
+                  {axis.map((t) => (
+                    <span>{t}</span>
+                  ))}
+                </div>
+                <p class="card-foot">{preview.footnote}</p>
+              </div>
+            )}
+
+            {preview.kind === "code-and-output" && (
+              <div class="stack">
+                <CodeCard {...preview.code} />
+                <div class="card smi">
+                  {preview.output.map((line, n) => (
+                    <p class:list={{ dim: n > 0 && n < preview.output.length - 1 }}>
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {preview.kind === "list" && (
+              <div class="card images">
+                <Rich as="p" class="card-head" text={preview.heading} />
+                <ul>
+                  {preview.items.map((item) => (
+                    <li>
+                      <code>{item.name}</code>
+                      <span class="dim">{item.note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {preview.kind === "code-and-flow" && (
+              <div class="stack">
+                <CodeCard {...preview.code} />
+                <div class="card flow" aria-hidden="true">
+                  {preview.flow.map((node, n) => (
+                    <>
+                      {n > 0 && <span class="flow-line" />}
+                      <span
+                        class:list={[
+                          "flow-node",
+                          { "flow-yours": n === preview.flow.length - 1 },
+                        ]}
+                      >
+                        {node}
+                      </span>
+                    </>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-features]")) {
+    const items = root.querySelectorAll<HTMLButtonElement>("[data-feature]");
+    const previews = root.querySelectorAll<HTMLElement>("[data-preview]");
+    for (const item of items) {
+      item.addEventListener("click", () => {
+        const id = item.dataset.feature;
+        for (const other of items) {
+          other.setAttribute("aria-expanded", String(other === item));
+        }
+        for (const preview of previews) {
+          preview.hidden = preview.dataset.preview !== id;
+        }
+      });
+    }
+  }
+</script>
+
+<style>
+  .features {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 72px 0;
+  }
+
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .features-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .accordion-item {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border-radius: 4px;
+    padding: 20px 32px 20px 20px;
+    cursor: pointer;
+  }
+
+  .accordion-item:focus-visible {
+    outline: 2px solid var(--dot-gold);
+    outline-offset: 2px;
+  }
+
+  .accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .accordion-indicator {
+    width: 2px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--btn-dark-bg);
+    flex-shrink: 0;
+    transition: background 0.3s ease;
+  }
+
+  .accordion-item[aria-expanded="true"] .accordion-indicator {
+    background: var(--dot-gold);
+  }
+
+  .accordion-title {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--white);
+    letter-spacing: -0.64px;
+    line-height: 17.6px;
+  }
+
+  .accordion-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.3s ease;
+  }
+
+  .accordion-item[aria-expanded="true"] .accordion-body {
+    grid-template-rows: 1fr;
+  }
+
+  .accordion-desc {
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+    padding-left: 16px;
+  }
+
+  .accordion-item[aria-expanded="true"] .accordion-desc {
+    padding-top: 12px;
+  }
+
+  .features-preview {
+    position: relative;
+    min-height: 540px;
+    border-radius: 4px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .preview {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    animation: rise 0.35s ease;
+  }
+
+  .preview[hidden] {
+    display: none;
+  }
+
+  .preview > :global(*) {
+    width: 100%;
+    max-width: 420px;
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .card {
+    background: rgb(12, 13, 15);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--white-80);
+    padding: 16px;
+  }
+
+  .card :global(code) {
+    color: var(--dot-yellow);
+  }
+
+  .card :global(.card-head) {
+    color: var(--white-50);
+    margin-bottom: 14px;
+  }
+
+  .card-foot {
+    color: var(--white-50);
+    margin-top: 14px;
+  }
+
+  .dim {
+    color: var(--white-50);
+  }
+
+  .attempts ol {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .attempt {
+    display: grid;
+    grid-template-columns: 20px 1fr 20px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    background: var(--card-bg);
+    opacity: 0.6;
+  }
+
+  .attempt.ok {
+    opacity: 1;
+    box-shadow: inset 0 0 0 1px rgba(145, 207, 181, 0.35);
+  }
+
+  .attempt-n {
+    color: var(--white-30);
+  }
+
+  .attempt-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .attempt-type {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--white);
+  }
+
+  .attempt-why {
+    color: var(--white-50);
+    font-size: 11px;
+  }
+
+  .attempt-mark {
+    text-align: right;
+    color: var(--dot-red);
+  }
+
+  .ok .attempt-mark {
+    color: var(--dot-green);
+  }
+
+  .pill {
+    font-size: 10px;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: var(--btn-dark-bg);
+  }
+
+  .pill-spot {
+    color: var(--dot-green);
+  }
+
+  .pill-od {
+    color: var(--dot-cyan);
+  }
+
+  .bars {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 3px;
+    height: 120px;
+    align-items: end;
+  }
+
+  .bar-col {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 3px;
+  }
+
+  .bar-cell {
+    height: 24px;
+    border-radius: 2px;
+    background: var(--dot-gold);
+    opacity: 0.85;
+  }
+
+  .bars-axis {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    color: var(--white-30);
+    font-size: 10px;
+  }
+
+  .smi p + p {
+    margin-top: 2px;
+  }
+
+  .images ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .images li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .images li code {
+    color: var(--white);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .images li .dim {
+    white-space: nowrap;
+  }
+
+  .flow {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .flow-node {
+    padding: 9px 12px;
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--white);
+    text-align: center;
+  }
+
+  .flow-yours {
+    box-shadow: inset 0 0 0 1px rgba(158, 250, 255, 0.35);
+    color: var(--dot-cyan);
+  }
+
+  .flow-line {
+    align-self: center;
+    width: 1px;
+    height: 16px;
+    background: repeating-linear-gradient(
+      to bottom,
+      var(--white-50) 0 3px,
+      transparent 3px 6px
+    );
+    background-size: 1px 6px;
+    animation: flow 0.8s linear infinite;
+  }
+
+  @keyframes flow {
+    to {
+      background-position: 0 6px;
+    }
+  }
+
+  @media (max-width: 1199px) {
+    .features {
+      padding: 72px 24px;
+    }
+
+    .features-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .features-preview {
+      min-height: 480px;
+    }
+  }
+
+  @media (max-width: 809px) {
+    .features {
+      padding: 72px 16px;
+    }
+
+
+    .features-preview {
+      min-height: 440px;
+    }
+
+    .preview {
+      padding: 16px;
+    }
+  }
+</style>

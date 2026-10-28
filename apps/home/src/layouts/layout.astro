@@ -1,0 +1,239 @@
+---
+import { og, site, siteUrl } from "../content/site";
+
+interface Props {
+  description: string;
+  title: string;
+}
+const { title, description } = Astro.props;
+const base = Astro.site ?? siteUrl;
+const canonical = new URL(Astro.url.pathname, base).href;
+const image = new URL(og.image, base).href;
+const video = new URL(og.video, base).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={image} />
+    <meta property="og:image:secure_url" content={image} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content={String(og.width)} />
+    <meta property="og:image:height" content={String(og.height)} />
+    <meta property="og:image:alt" content={og.imageAlt} />
+    <meta property="og:video" content={video} />
+    <meta property="og:video:secure_url" content={video} />
+    <meta property="og:video:type" content="video/mp4" />
+    <meta property="og:video:width" content={String(og.width)} />
+    <meta property="og:video:height" content={String(og.height)} />
+
+    <meta name="twitter:card" content={og.twitter} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={image} />
+    <meta name="twitter:image:alt" content={og.imageAlt} />
+    <meta name="theme-color" content="#080a09" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  *,
+  *::before,
+  *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  :root {
+    --bg: rgb(8, 10, 9);
+    --card-bg: rgb(19, 21, 23);
+    --card-bg-2: rgb(26, 28, 31);
+    --line: rgba(255, 255, 255, 0.08);
+    --white: #ffffff;
+    --white-80: rgba(255, 255, 255, 0.8);
+    --white-70: rgba(255, 255, 255, 0.7);
+    --white-50: rgba(255, 255, 255, 0.5);
+    --white-30: rgba(255, 255, 255, 0.3);
+    --dark-text: rgb(8, 9, 10);
+    --btn-dark-bg: rgb(35, 35, 38);
+
+    /* Section accents, one per section, as in the template. */
+    --dot-white: rgb(255, 255, 255);
+    --dot-yellow: rgb(243, 255, 201);
+    --dot-gold: rgb(212, 177, 68);
+    --dot-cyan: rgb(158, 250, 255);
+    --dot-blue: rgb(48, 100, 255);
+    --dot-green: rgb(145, 207, 181);
+    --dot-red: rgb(255, 110, 90);
+
+    --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, monospace;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    background-color: var(--bg);
+  }
+
+  /* No scrollbars and no rubber-band bounce at the page edges (macOS). */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
+  * {
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--white);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  img,
+  svg {
+    display: block;
+    max-width: 100%;
+  }
+
+  code {
+    font-family: var(--font-mono);
+  }
+
+  /* Shared section furniture. */
+  .dot {
+    display: inline-block;
+    width: 14px;
+    height: 8px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+  }
+
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title {
+    font-family: var(--font-sans);
+    font-size: 38px;
+    font-weight: 500;
+    color: var(--white);
+    letter-spacing: -1.52px;
+    line-height: 41.8px;
+    margin-bottom: 20px;
+    max-width: 520px;
+    text-wrap: balance;
+  }
+
+  .section-desc {
+    margin-bottom: var(--desc-space, 0);
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--white-80);
+    letter-spacing: -0.32px;
+    line-height: 24px;
+    max-width: 520px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.28px;
+    line-height: 16.8px;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+
+  .btn:hover {
+    opacity: 0.9;
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--dot-cyan);
+    outline-offset: 2px;
+  }
+
+  .btn-primary {
+    background: var(--white);
+    color: var(--dark-text);
+  }
+
+  .btn-secondary {
+    background: var(--btn-dark-bg);
+    color: var(--white-80);
+  }
+
+  @media (max-width: 809px) {
+    .section-desc {
+      margin-bottom: min(var(--desc-space, 0px), 32px);
+    }
+
+    .section-title {
+      font-size: 28px;
+      line-height: 32px;
+      letter-spacing: -1.12px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>

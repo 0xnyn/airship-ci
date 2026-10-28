@@ -48,6 +48,19 @@
           "style": { "noExportedImports": "off" }
         }
       }
+    },
+    {
+      // Biome reads only an .astro file's frontmatter, so it can't see the
+      // template using what the frontmatter declares (Biome's own advice).
+      "includes": ["**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off"
+          }
+        }
+      }
     }
   ]
 }

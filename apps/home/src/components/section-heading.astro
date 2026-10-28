@@ -1,0 +1,25 @@
+---
+// The label pill, title and description every section opens with.
+import type { Heading } from "../content/types";
+import Rich from "./rich.astro";
+
+interface Props {
+  heading: Heading;
+  /** Space under the description, in px. */
+  spacing?: number;
+}
+const { heading, spacing = 32 } = Astro.props;
+---
+
+<p class="section-label">
+  <span class="dot" style={`background: var(--dot-${heading.accent})`}></span>
+  <span>{heading.label}</span>
+</p>
+<Rich as="h2" class="section-title" text={heading.title} />
+{
+  heading.description && (
+    <p class="section-desc" style={`--desc-space: ${spacing}px`}>
+      <Rich text={heading.description} />
+    </p>
+  )
+}

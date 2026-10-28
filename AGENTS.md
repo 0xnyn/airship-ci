@@ -22,7 +22,7 @@ generated from it and must never be edited by hand.
 | --- | --- |
 | `apps/api` | Go control plane (`cmd/api`), migrations (`cmd/migrate`) and the runner-side cache proxy (`cmd/cacheproxy`): Huma v2 on `net/http`, pgx, sqlc, goose, AWS SDK v2, Google Cloud compute client, Azure SDK for Go (armcompute, armnetwork) |
 | `apps/web` | Next.js 16 app (App Router, React Compiler, Tailwind 4) |
-| `apps/home` | Marketing site: Astro 7, static, Tailwind 4, on :4000. `pnpm --filter @airship/home og` re-renders the OG video and image from `og/card.html` (needs ffmpeg) |
+| `apps/home` | Marketing site: Astro 7, static, plain scoped CSS (tokens in `src/layouts/layout.astro`), on :4000. All copy, links and numbers live in `src/content/` (`site.ts`, `home.ts`, `pricing.ts`, `prices.ts`) and flow into the components as props; graphics are drawn in code (`src/components/graphics`). The social image and video (`public/og`) are rendered from `og/card.html` by `pnpm --filter @airship/home og` (Playwright + ffmpeg); rerun it after changing the card |
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
 | `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
 | `packages/typescript-config` | Shared `tsconfig` presets |

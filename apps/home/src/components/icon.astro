@@ -1,0 +1,101 @@
+---
+// Line icons named in content. Small ones sit on a 24 grid, badge ones on 48.
+import type { IconName } from "../content/types";
+
+interface Props {
+  class?: string;
+  name: IconName;
+  size?: number;
+}
+const { class: className, name, size = 16 } = Astro.props;
+const large = ["lock", "network", "one-job", "key", "server"].includes(name);
+const grid = large ? 48 : 24;
+---
+
+<svg
+  class={className}
+  viewBox={`0 0 ${grid} ${grid}`}
+  width={size}
+  height={size}
+  fill="none"
+  stroke="currentColor"
+  stroke-width={large ? 1.5 : 1.8}
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  {
+    name === "cloud" && (
+      <path d="M17.5 19H8a5 5 0 1 1 1.1-9.88A6 6 0 0 1 20.5 12 3.5 3.5 0 0 1 17.5 19z" />
+    )
+  }
+  {
+    name === "file" && (
+      <>
+        <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" />
+        <path d="M14 3v5h5M9 13h6M9 17h4" />
+      </>
+    )
+  }
+  {
+    name === "spark" && (
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" />
+    )
+  }
+  {
+    name === "layers" && (
+      <>
+        <path d="M12 3 3 8l9 5 9-5z" />
+        <path d="m3 13 9 5 9-5" />
+      </>
+    )
+  }
+  {
+    name === "lock" && (
+      <>
+        <rect x="11" y="21" width="26" height="19" rx="3" />
+        <path d="M16 21v-5a8 8 0 0 1 16 0v5" />
+        <circle cx="24" cy="30" r="2.5" />
+        <path d="M24 32.5V35" />
+      </>
+    )
+  }
+  {
+    name === "network" && (
+      <>
+        <rect x="6" y="8" width="36" height="32" rx="3" stroke-dasharray="3 3" />
+        <rect x="13" y="16" width="9" height="7" rx="1.5" />
+        <rect x="26" y="16" width="9" height="7" rx="1.5" />
+        <rect x="13" y="27" width="9" height="7" rx="1.5" />
+        <rect x="26" y="27" width="9" height="7" rx="1.5" />
+      </>
+    )
+  }
+  {
+    name === "one-job" && (
+      <>
+        <rect x="10" y="12" width="28" height="24" rx="3" />
+        <path d="M10 18h28" />
+        <path d="M22 24l3-2v10" />
+      </>
+    )
+  }
+  {
+    name === "key" && (
+      <>
+        <circle cx="17" cy="24" r="7" />
+        <path d="M24 24h17M35 24v5M40 24v4" />
+        <path d="M8 40c4-2 8-2 12 0" stroke-dasharray="2 3" />
+      </>
+    )
+  }
+  {
+    name === "server" && (
+      <>
+        <rect x="9" y="9" width="30" height="12" rx="2" />
+        <rect x="9" y="27" width="30" height="12" rx="2" />
+        <path d="M14 15h.01M14 33h.01M20 15h8M20 33h8" />
+      </>
+    )
+  }
+</svg>

@@ -1,0 +1,282 @@
+---
+import type { hero as HeroContent } from "../content/home";
+import CodeCard from "./graphics/code-card.astro";
+import FleetPanel from "./graphics/fleet-panel.astro";
+import GrainField from "./graphics/grain-field.astro";
+import Icon from "./icon.astro";
+import Rich from "./rich.astro";
+
+interface Props {
+  content: typeof HeroContent;
+}
+const { content } = Astro.props;
+---
+
+<section class="hero">
+  <div class="hero-dots" aria-hidden="true"></div>
+  <div class="hero-header">
+    <div class="hero-heading">
+      <p class="section-label">
+        <span class="dot" style="background: var(--dot-white)"></span>
+        <span>{content.label}</span>
+      </p>
+      <h1 class="hero-title">{content.title}</h1>
+      <p class="hero-body"><Rich text={content.body} /></p>
+      <p class="hero-sub">
+        <span class="dot" style="background: var(--dot-yellow)"></span>
+        <span>{content.sub}</span>
+      </p>
+      <div class="hero-buttons">
+        <a href={content.buttons.primary.href} class="btn btn-primary">
+          {content.buttons.primary.label}
+        </a>
+        <a href={content.buttons.secondary.href} class="btn btn-secondary">
+          {content.buttons.secondary.label}
+        </a>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <GrainField id="hero" {...content.backdrop} />
+      <div class="hero-window">
+        <FleetPanel fleet={content.fleet} />
+      </div>
+      <div class="hero-code">
+        <CodeCard {...content.workflow} />
+      </div>
+    </div>
+
+    <div class="action-cards">
+      {
+        content.cards.map((item) => (
+          <div class="action-card">
+            <div class="action-card-header">
+              <span class="action-icon">
+                <Icon name={item.icon} />
+              </span>
+              <h3 class="action-title">{item.title}</h3>
+            </div>
+            <p class="action-desc">{item.description}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 75px 0 48px;
+  }
+
+  .hero-dots {
+    position: absolute;
+    top: -80px;
+    left: 50%;
+    width: 100vw;
+    height: 760px;
+    transform: translateX(-50%);
+    background-image: radial-gradient(
+      rgba(255, 255, 255, 0.09) 1px,
+      transparent 1.2px
+    );
+    background-size: 6px 6px;
+    mask-image: radial-gradient(
+      ellipse 50% 55% at 50% 45%,
+      black 20%,
+      transparent 75%
+    );
+    pointer-events: none;
+  }
+
+  .hero-header {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 64px;
+  }
+
+  .hero-heading {
+    max-width: 920px;
+    width: 100%;
+    padding: 0 0 0 0;
+  }
+
+  .hero-title {
+    font-family: var(--font-sans);
+    font-size: 56px;
+    font-weight: 500;
+    color: var(--white);
+    letter-spacing: -2.4px;
+    line-height: 58px;
+    margin-bottom: 24px;
+    max-width: 700px;
+    text-wrap: balance;
+  }
+
+  .hero-body {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--white-80);
+    letter-spacing: -0.32px;
+    line-height: 24px;
+    margin-bottom: 20px;
+    max-width: 580px;
+  }
+
+  .hero-body :global(code) {
+    color: var(--white);
+  }
+
+  .hero-sub {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+    margin-bottom: 25px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hero-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .hero-visual {
+    position: relative;
+    width: 100%;
+    height: 620px;
+    border-radius: 4px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .hero-window {
+    position: absolute;
+    left: 14%;
+    right: 14%;
+    top: 22%;
+    bottom: -40px;
+    border-radius: 4px 4px 0 0;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 40px 120px rgba(0, 0, 0, 0.8);
+  }
+
+  .hero-code {
+    position: absolute;
+    right: 3%;
+    bottom: 7%;
+    width: 390px;
+    transform: rotate(-2deg);
+  }
+
+  .action-cards {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 40px;
+  }
+
+  .action-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .action-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .action-icon {
+    display: flex;
+    color: var(--white-80);
+    flex-shrink: 0;
+  }
+
+  .action-title {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--white);
+    letter-spacing: -0.64px;
+    line-height: 17.6px;
+  }
+
+  .action-desc {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+    padding-left: 24px;
+  }
+
+  @media (max-width: 1199px) {
+    .hero {
+      padding: 75px 24px 48px;
+    }
+
+    .hero-title {
+      font-size: 42px;
+      line-height: 46px;
+      letter-spacing: -1.7px;
+    }
+
+    .hero-window {
+      left: 6%;
+      right: 6%;
+    }
+
+    .action-cards {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 809px) {
+    .hero {
+      padding: 48px 16px;
+    }
+
+    .hero-header {
+      gap: 40px;
+    }
+
+    .hero-title {
+      font-size: 32px;
+      line-height: 36px;
+      letter-spacing: -1.28px;
+    }
+
+    .hero-visual {
+      height: 480px;
+    }
+
+    .hero-window {
+      left: 16px;
+      right: 16px;
+      top: 18%;
+    }
+
+    .hero-code {
+      display: none;
+    }
+
+    .action-cards {
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+  }
+</style>

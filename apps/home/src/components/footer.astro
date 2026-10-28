@@ -1,0 +1,145 @@
+---
+import { footer, site } from "../content/site";
+import Logo from "./logo.astro";
+
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-left">
+      <div>
+        <Logo />
+        <p class="footer-tagline">{site.tagline}.</p>
+      </div>
+      <p class="footer-copy">&copy;{year} {footer.legal}</p>
+    </div>
+
+    <nav class="footer-columns" aria-label="Footer">
+      {
+        footer.columns.map((col) => (
+          <div class="footer-column">
+            {col.title && (
+              <span class="footer-column-title">{col.title}</span>
+            )}
+            <div class="footer-links">
+              {col.links.map((link) => (
+                <a href={link.href} class="footer-link">
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </nav>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    background: var(--card-bg);
+    padding: 48px 0;
+    margin-top: 48px;
+  }
+
+  .footer-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    gap: 80px;
+  }
+
+  .footer-left {
+    flex: 0 0 300px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 40px;
+  }
+
+  .footer-tagline {
+    margin-top: 20px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+  }
+
+  .footer-copy {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-50);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+  }
+
+  .footer-columns {
+    display: flex;
+    gap: 72px;
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  .footer-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 120px;
+  }
+
+  .footer-column-title {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--white-50);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+  }
+
+  .footer-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .footer-link {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--white-80);
+    letter-spacing: -0.24px;
+    line-height: 18px;
+    transition: color 0.2s;
+  }
+
+  .footer-link:hover {
+    color: var(--white);
+  }
+
+  @media (max-width: 1199px) {
+    .footer-inner {
+      padding: 0 24px;
+      flex-direction: column;
+      gap: 40px;
+    }
+
+    .footer-left {
+      flex: none;
+    }
+
+    .footer-columns {
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 809px) {
+    .footer-inner {
+      padding: 0 16px;
+    }
+
+    .footer-columns {
+      flex-wrap: wrap;
+      gap: 40px;
+    }
+  }
+</style>

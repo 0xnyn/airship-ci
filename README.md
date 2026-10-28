@@ -160,8 +160,10 @@ target; each wraps one of the pnpm scripts below. The full guide is
 | `pnpm lint` / `pnpm format` | Ultracite (Biome) for TypeScript, golangci-lint for Go |
 | `pnpm typecheck` / `pnpm test` / `pnpm build` | Across all packages |
 | `pnpm check` | Everything to run before pushing |
-| `pnpm db:up` / `db:down` | Start or stop local Postgres |
+| `pnpm db:up` / `db:down` | Start or stop the Compose Postgres (not local Supabase — that is `make supabase-up` / `make supabase-down`) |
 | `pnpm db:migrate` / `db:rollback` | Apply or undo migrations |
+| `make down` | Stop every local container, whichever database is up |
+| `make db-destroy` / `supabase-destroy` | Delete a local database and its volume (asks first) |
 | `make docs` | Preview the documentation site on :4100 |
 
 Go tests that use the database need `TEST_DATABASE_URL` (each test creates its

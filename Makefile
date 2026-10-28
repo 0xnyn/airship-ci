@@ -28,6 +28,9 @@ PG17_PORT ?= 55417
 # the one pnpm fetches on demand.
 SUPABASE ?= $(shell command -v supabase 2>/dev/null || echo "pnpm dlx supabase")
 SUPABASE_DATABASE_URL ?= postgres://airship:airship@127.0.0.1:54322/postgres?sslmode=disable
+# The database container, and the volume behind it, are both named for
+# project_id in supabase/config.toml.
+SUPABASE_DB := supabase_db_airship
 
 # moto, the AWS emulator, for `make test-aws-emulator`.
 MOTO_PORT ?= 5055
@@ -108,6 +111,17 @@ tunnel: ## Expose the API on a public https URL for GitHub webhooks (cloudflared
 cacheproxy: ## Build the runner cache proxy into the API (needed for cache: true while testing)
 	pnpm --filter @airship/api build:cacheproxy
 
+.PHONY: down
+# Ctrl-C ends `make dev`; this is for what it leaves behind in Docker. Both
+# databases, because `docker compose down` cannot see the Supabase CLI's
+# containers, and the pg17 container in case a test run was interrupted.
+down: ## Stop every local container, keeping the data: both databases and test leftovers
+	-pnpm db:down
+	-$(SUPABASE) stop
+	@docker rm -f $(PG17_CONTAINER) >/dev/null 2>&1 || true
+	@echo
+	@docker ps --format '  still up: {{.Names}}' | grep . || echo "  Nothing left running. The data is kept: make db-destroy, make supabase-destroy."
+
 ##@ Database
 
 .PHONY: db-up
@@ -115,7 +129,7 @@ db-up: ## Start Postgres in Docker on :5432
 	pnpm db:up
 
 .PHONY: db-down
-db-down: ## Stop Postgres, keeping its data
+db-down: ## Stop the Compose Postgres, keeping its data (local Supabase is supabase-down)
 	pnpm db:down
 
 .PHONY: db-migrate
@@ -145,6 +159,12 @@ db-reset: ## Delete the local database and start over empty (asks first)
 	docker compose down --volumes
 	$(MAKE) db-up db-migrate
 
+.PHONY: db-destroy
+db-destroy: ## Delete the Compose Postgres, its volume and every row in it (asks first)
+	@read -r -p "Delete the local Postgres container and volume, and every row in it? [y/N] " answer; [ "$$answer" = y ] || { echo "Cancelled."; exit 1; }
+	docker compose down --volumes
+	@echo "Gone. 'make db-up db-migrate' builds it again from the migrations."
+
 .PHONY: supabase-up
 supabase-up: ## Start a local Supabase Postgres 17 on :54322 and migrate it
 	$(SUPABASE) start
@@ -154,7 +174,7 @@ supabase-up: ## Start a local Supabase Postgres 17 on :54322 and migrate it
 	@echo "  DATABASE_URL=$(SUPABASE_DATABASE_URL)"
 
 .PHONY: supabase-down
-supabase-down: ## Stop local Supabase, keeping its data
+supabase-down: ## Stop local Supabase, keeping its data (db-down cannot: these are not Compose's containers)
 	$(SUPABASE) stop
 
 .PHONY: supabase-reset
@@ -162,10 +182,22 @@ supabase-reset: ## Recreate the local Supabase database, empty, and migrate it
 	$(SUPABASE) db reset
 	cd $(API_DIR) && DATABASE_URL='$(SUPABASE_DATABASE_URL)' go run ./cmd/migrate up
 
+.PHONY: supabase-destroy
+# --no-backup is the difference from supabase-down, which keeps the volume
+# so the old rows come back on the next start. The volume removal is the
+# fallback for a database that is already stopped, when the CLI has nothing
+# left to delete; both steps are allowed to fail so the target is repeatable.
+supabase-destroy: ## Delete the local Supabase database, its volume and the CLI's state (asks first)
+	@read -r -p "Delete the local Supabase containers and volume, and every row in it? [y/N] " answer; [ "$$answer" = y ] || { echo "Cancelled."; exit 1; }
+	-$(SUPABASE) stop --no-backup
+	@docker volume rm $(SUPABASE_DB) >/dev/null 2>&1 || true
+	rm -rf supabase/.branches supabase/.temp
+	@echo "Gone. 'make supabase-up' builds it again from the migrations."
+
 .PHONY: supabase-psql
 supabase-psql: ## Open psql on the local Supabase database
 	@if command -v psql >/dev/null 2>&1; then psql '$(SUPABASE_DATABASE_URL)'; \
-	else docker exec -it supabase_db_airship psql -U airship -d postgres; fi
+	else docker exec -it $(SUPABASE_DB) psql -U airship -d postgres; fi
 
 ##@ Code generation
 

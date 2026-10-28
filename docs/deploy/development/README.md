@@ -52,7 +52,7 @@ launch into.
 | | |
 | --- | --- |
 | [1-prerequisites.md](1-prerequisites.md) | The four tools, per operating system, and what is deliberately **not** installed globally |
-| [2-first-run.md](2-first-run.md) | Clone, `make setup`, `make dev`, what runs where, and a tour of the dashboard |
+| [2-first-run.md](2-first-run.md) | Clone, `make setup`, `make dev`, what runs where, a tour of the dashboard, and **how to stop and wipe it all again** (`make down`) — the two local databases also stop separately, with different commands |
 | [3-env.md](3-env.md) | **Every environment variable in every file**: what to put, where it comes from, and which ones to leave alone |
 | [4-github.md](4-github.md) | A throwaway test organization, your own GitHub App, and a tunnel so webhooks reach your laptop |
 | [5-real-machines.md](5-real-machines.md) | Connecting a cloud and running a real job, without a surprising bill |
@@ -71,6 +71,7 @@ Deploying Airship for real is a different folder:
 git clone <this repository> airship && cd airship
 make setup     # checks tools, installs, creates env files, starts and migrates Postgres
 make dev       # API on :8080, dashboard on :3000, marketing site on :4000
+make down      # when you are done: stops every container it started
 ```
 
 Open http://localhost:3000 and choose **Development sign-in**. You are an

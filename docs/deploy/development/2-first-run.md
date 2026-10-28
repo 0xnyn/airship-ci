@@ -116,17 +116,62 @@ sessions, cloud credentials.
 
 ## Stopping and starting
 
+`Ctrl-C` stops `make dev`. It does **not** stop Docker: the database keeps
+running, which is usually what you want, because the next `make dev` finds
+it already up.
+
+```bash
+make down      # stops every local container, keeping the data
 ```
-Ctrl-C            stops make dev; Postgres keeps running in Docker
-make db-down      stops Postgres, keeping its data
-make db-up        starts it again
-make db-reset     deletes the database and migrates a fresh one (asks first)
-```
+
+That is the one to remember, because the obvious alternative is a trap.
+`make db-down` is `docker compose down`, so it only knows about the
+Postgres in `docker-compose.yml`. Local Supabase is run by the Supabase
+CLI instead, so Compose cannot see its containers and `make db-down`
+leaves them running — successfully, with no hint that it missed anything.
+`make down` stops both, and the pg17 container an interrupted
+`make test-pg17` can leave behind.
+
+| Started with | Stopped by | Keeps the data |
+| --- | --- | --- |
+| `make db-up` — Postgres 18 on `:5432` | `make db-down`, `make down` | yes |
+| `make supabase-up` — Postgres 17 on `:54322` ([stage-0/local.md](../stage-0/local.md)) | `make supabase-down`, `make down` | yes |
+
+`docker ps` is the second opinion: `make down` prints what is still up
+when it finishes, and a `supabase_db_airship` or `airship-postgres-1` in
+that list means one did not stop.
+
+---
+
+## Starting over
+
+Two levels, and the difference matters because the gentler one is easy to
+mistake for the other: **reset** empties the database and leaves it
+running, **destroy** removes the volume so nothing is left on the machine.
+
+| | Does | Asks first |
+| --- | --- | --- |
+| `make db-reset` | Recreates the Compose Postgres, empty, and migrates | yes |
+| `make supabase-reset` | Recreates the Supabase database, empty, re-seeds and migrates | **no** — the CLI resets a local database immediately |
+| `make db-destroy` | Stops the Compose Postgres and deletes its volume | yes |
+| `make supabase-destroy` | Stops Supabase, deletes its volume and the CLI's local state | yes |
 
 `make db-reset` is the fix for `relation ... does not exist` or a missing
 column after pulling: while Airship is pre-production, existing migrations
 are sometimes edited in place, and goose only applies migrations it has not
 already recorded.
+
+The destroy pair exists because stopping is not deleting. `make down` and
+`make supabase-down` deliberately keep the data — Supabase even says so,
+printing `"backup":true` — so the volume outlives the containers and the
+next `make supabase-up` brings the old rows back. If that is not what you
+wanted, `make supabase-destroy` is the command, and it is safe to run when
+the database is already stopped.
+
+Nothing in either database is precious. `make db-up db-migrate` rebuilds
+the Compose one from the migrations, `make supabase-up` rebuilds the
+Supabase one, and development sign-in recreates the `acme` demo
+organization on your next visit.
 
 ---
 

@@ -37,6 +37,9 @@ Deployment problems are in [stage-0/operate.md](../stage-0/operate.md).
 | Migrations fail with `permission denied for schema public` | Only on a Supabase-style database: the `airship` role needs `grant usage, create on schema public` ([stage-0/local.md](../stage-0/local.md)) |
 | You want to look at the data and have no `psql` | `make db-psql` goes through the container |
 | Two databases, and you are not sure which you are on | `make db-up` is `:5432`; `make supabase-up` is `:54322`. `DATABASE_URL` in `apps/api/.env` decides |
+| `make db-down` runs cleanly but `docker ps` still shows containers | They are Supabase's, and the Supabase CLI owns them, not Compose — so `docker compose down` has nothing to stop. `make down` stops both ([2-first-run.md](2-first-run.md#stopping-and-starting)) |
+| Stopped, restarted, and the old rows are back | Expected: every `down` target keeps the data (`"backup":true`). `make supabase-destroy` deletes the volume with it |
+| You want the local data gone from the machine, not just reset | `make db-destroy` and `make supabase-destroy`. Both are safe to run on an already-stopped database ([2-first-run.md](2-first-run.md#starting-over)) |
 
 ## Code generation
 

@@ -68,9 +68,11 @@ docs and `DEV_LOGIN` all work the same.
 | `make` | Does |
 | --- | --- |
 | `make supabase-up` | Start it and migrate |
-| `make supabase-down` | Stop it, keeping the data |
+| `make supabase-down` | Stop it, keeping the data. Note that `make db-down` will **not** do this: these containers belong to the Supabase CLI, not to Compose |
 | `make supabase-reset` | Throw the data away, recreate the database, re-seed and migrate — the equivalent of `make db-reset` |
 | `make supabase-psql` | A SQL prompt on it, through local `psql` or the container |
+| `make supabase-destroy` | Stop it and delete its volume — the data gone rather than reset, and nothing left on the machine (asks first) |
+| `make down` | Stop it **and** the Compose Postgres, whichever of them is up |
 
 `make supabase-reset` is what to run after pulling a change that rewrote an
 existing migration, which happens while Airship is pre-production: goose
@@ -132,13 +134,15 @@ it for you.
 | `permission denied for schema public` when migrating | The seed did not run. `make supabase-reset` |
 | The API starts but every query fails | `apps/api/.env` still points at :5432 while only Supabase is up, or the reverse |
 | `supabase start` pulls images every time | Expected on the first run per CLI version; after that they are cached |
+| `make db-down`, `pnpm db:down` or `docker compose down` leaves it running | Compose does not own these containers. `make supabase-down`, or `make down` for both |
+| Stopped it, started it, and the old data came back | `make supabase-down` keeps the data (`"backup":true`). `make supabase-destroy` deletes the volume too, stopped or not |
 
 ---
 
 ## Switching back
 
 ```bash
-make supabase-down
+make supabase-down          # or: make supabase-destroy, to delete its data too
 ```
 
 and restore `apps/api/.env`:

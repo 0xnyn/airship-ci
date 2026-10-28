@@ -115,7 +115,8 @@ gcloud sql users create airship --instance=airship --password="$DB_PASSWORD"
 export CONNECTION=$(gcloud sql instances describe airship --format='value(connectionName)')
 ```
 
-Postgres **18** is required: the schema uses `uuidv7()`. One vCPU is plenty
+Use Postgres **18**. Airship also runs on 17, but there is no
+reason to start a new database on it. One vCPU is plenty
 for most installations. For a trial, use `--availability-type=ZONAL` to
 halve the cost.
 

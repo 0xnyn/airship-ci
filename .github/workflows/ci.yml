@@ -71,11 +71,15 @@ jobs:
       - run: pnpm check:generated
 
   migrations:
-    name: Migrations apply and roll back
+    name: Migrations apply and roll back (Postgres ${{ matrix.postgres }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 17 for hosted Supabase, where 00001 defines its own uuidv7().
+        postgres: ["17", "18"]
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:${{ matrix.postgres }}-alpine
         env:
           POSTGRES_USER: airship
           POSTGRES_PASSWORD: airship
@@ -97,6 +101,34 @@ jobs:
       - run: go run ./cmd/migrate up
       - run: go run ./cmd/migrate reset
       - run: go run ./cmd/migrate up
+
+  postgres17:
+    name: API tests on Postgres 17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: airship
+          POSTGRES_PASSWORD: airship
+          POSTGRES_DB: airship
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U airship" --health-interval 2s --health-timeout 5s --health-retries 15
+    env:
+      TEST_DATABASE_URL: postgres://airship:airship@localhost:5432/airship?sslmode=disable
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      # Catches a query that needs a Postgres 18 feature, which would break
+      # deployments on Supabase.
+      - run: go test ./...
 
   aws:
     name: AWS provider (emulated)

@@ -129,7 +129,8 @@ DB_HOST=$(aws rds describe-db-instances --db-instance-identifier airship \
   --query 'DBInstances[0].Endpoint.Address' --output text)
 ```
 
-Postgres **18** is required: the schema uses `uuidv7()`. `db.t4g.small` is
+Use Postgres **18**. Airship also runs on 17, but there is no
+reason to start a new database on it. `db.t4g.small` is
 plenty for most installations; the database holds rows per job and per
 runner, and events are pruned after 30 days. Drop `--multi-az` for a trial
 to halve the cost.

@@ -110,7 +110,8 @@ az postgres flexible-server create -g $RG -n $DB -l $LOCATION \
 export DB_HOST=$(az postgres flexible-server show -g $RG -n $DB --query fullyQualifiedDomainName -o tsv)
 ```
 
-Postgres **18** is required: the schema uses `uuidv7()`. With `--vnet` and
+Use Postgres **18**. Airship also runs on 17, but there is no
+reason to start a new database on it. With `--vnet` and
 `--subnet`, the CLI also creates a private DNS zone linked to the VNet, so
 `$DB_HOST` resolves to a private address from inside it.
 

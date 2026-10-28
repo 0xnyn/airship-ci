@@ -330,7 +330,7 @@ The control plane is not the bottleneck; your cloud quotas are. For scale:
 | Dimension | Notes |
 | --- | --- |
 | Replicas | Two for availability. The launcher batches 50 runners per pass with concurrency 8, so one replica handles a lot of churn |
-| Postgres | A small managed instance, **version 18 or newer** (the schema uses `uuidv7()`). Connection pooling via pgx; indexes exist for every lifecycle query path |
+| Postgres | A small managed instance, **version 17 or newer, 18 recommended** (on 17 the first migration defines the `uuidv7()` that 18 has built in). Connection pooling via pgx; indexes exist for every lifecycle query path |
 | Runners per installation | `max_runners`, 1–10,000. Keep it below your cloud quotas so the ceiling is a dashboard message, not a wall of cloud errors |
 | Jobs per hour | Bounded in practice by GitHub's 5,000 calls/hour per installation. Each runner costs a handful of calls |
 | Regions and clouds | Free. Each definition names its own; the inventory scan lists per (credential, region) |

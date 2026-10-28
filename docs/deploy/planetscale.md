@@ -42,7 +42,7 @@ In the PlanetScale dashboard, **New database → Postgres**:
 
 | Setting | Choose |
 | --- | --- |
-| Version | **18** (the default). Airship requires 18 or newer: the schema uses `uuidv7()` |
+| Version | **18** (the default). Airship runs on 17 or newer |
 | Cloud and region | **The same cloud and region as the API.** Every launch and reconcile pass makes several round trips, so cross-region latency slows everything down, and cross-cloud traffic is billed as egress |
 | Cluster size | The smallest production size is enough. The database holds rows per job and per runner, and events are pruned after 30 days |
 
@@ -141,7 +141,6 @@ time. Check PlanetScale's current pricing before you rely on it.
 
 | Symptom | Cause |
 | --- | --- |
-| Migrations fail with `function uuidv7() does not exist` | The database is on Postgres 17. Create a new one on 18 |
 | Jobs launch, but finished machines stay up until `RUNNER_MAX_LIFETIME`, and idle runners are never reaped | `DATABASE_URL` uses port 6432. Switch to 5432 and roll out the API. The stuck lock lives on a pooled server connection until PgBouncer closes it, so the reconciler may still not run until then. Restarting the database clears it at once |
 | `/healthz` says `degraded` | The API cannot reach PlanetScale within 2 seconds. Check outbound access (NAT gateway on AWS) and the password |
 | `x509: certificate signed by unknown authority` | The image has no CA bundle, which happens if you replaced the base image. Use the stock `apps/api/Dockerfile` |

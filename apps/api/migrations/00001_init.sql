@@ -1,5 +1,29 @@
 -- +goose Up
 
+-- Every id below defaults to uuidv7(), built in from Postgres 18. On 17
+-- (hosted Supabase, for one) define an equivalent: a 48-bit millisecond
+-- timestamp, then random bits, with the version and variant set as RFC 9562
+-- asks. On 18 the built-in is found and nothing is created.
+-- +goose StatementBegin
+do $do$
+begin
+    if to_regprocedure('uuidv7()') is null then
+        create function public.uuidv7() returns uuid
+        language sql volatile parallel safe
+        as $fn$
+            select encode(
+                set_bit(set_bit(
+                    overlay(uuid_send(gen_random_uuid())
+                        placing substring(int8send((extract(epoch from clock_timestamp()) * 1000)::bigint) from 3)
+                        from 1 for 6),
+                    52, 1), 53, 1),
+                'hex')::uuid;
+        $fn$;
+    end if;
+end
+$do$;
+-- +goose StatementEnd
+
 -- People who sign in to the dashboard with GitHub.
 create table users (
     id uuid primary key default uuidv7(),
@@ -69,7 +93,7 @@ create index memberships_refreshed_at_idx on memberships (refreshed_at);
 create table cloud_credentials (
     id uuid primary key default uuidv7(),
     installation_id bigint not null references installations (id) on delete cascade,
-    cloud text not null check (cloud in ('aws')),
+    cloud text not null check (cloud in ('aws', 'gcp', 'daytona', 'azure')),
     secret bytea not null,
     -- Public half of the credential, such as an AWS access key ID.
     identity text not null check (char_length(identity) <= 128),
@@ -176,7 +200,7 @@ create table runners (
     -- organization (idle pool runners from airship.global.yaml, which any
     -- repository in their runner group may take; repository_id is then 0).
     scope text not null default 'repository' check (scope in ('repository', 'organization')),
-    cloud text not null check (cloud in ('aws')),
+    cloud text not null check (cloud in ('aws', 'gcp', 'daytona', 'azure')),
     -- Null once the credential is deleted; the row stays for history.
     credential_id uuid references cloud_credentials (id) on delete set null,
     region text not null,
@@ -194,8 +218,12 @@ create table runners (
     name text not null unique,
     state text not null default 'pending'
         check (state in ('pending', 'launching', 'running', 'busy', 'finished')),
+    -- launch_unconfirmed: the cloud may or may not have created the machine
+    -- (the answer to the launch was lost). Like lease_expired, the runner is
+    -- revived if the inventory scan lists its instance and marked gone after
+    -- the grace period otherwise.
     finish_reason text check (finish_reason in (
-        'completed', 'cancelled', 'idle', 'launch_failed', 'lease_expired',
+        'completed', 'cancelled', 'idle', 'launch_failed', 'launch_unconfirmed', 'lease_expired',
         'lost', 'max_lifetime', 'deleted'
     )),
     github_runner_id bigint,
@@ -229,6 +257,11 @@ create table runners (
     -- bucket it was given.
     cache_token_hash bytea,
     cache_bucket text,
+    -- When an idle pool runner was pointed at a queued job. The idle reaper
+    -- measures a reserved runner's wait from here, not from its launch, so a
+    -- runner that has been warm for hours is not written off as idle the
+    -- moment a job reserves it.
+    reserved_at timestamptz,
     check ((state = 'finished') = (finish_reason is not null))
 );
 
@@ -344,3 +377,5 @@ drop table memberships;
 drop table installations;
 drop table sessions;
 drop table users;
+-- Only exists on Postgres 17; the built-in lives in pg_catalog.
+drop function if exists public.uuidv7();

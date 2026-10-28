@@ -27,7 +27,8 @@ generated from it and must never be edited by hand.
 | `packages/client` | `@airship/client`: types generated from the API's OpenAPI document, plus openapi-fetch and TanStack Query helpers |
 | `packages/ui` | `@airship/ui`: shared shadcn/ui components and styles |
 | `packages/typescript-config` | Shared `tsconfig` presets |
-| `deploy/` | Production env templates (`production/`) and a single-server Docker Compose stack (`compose/`). Guides: `docs/development.md`, `docs/deploy/` |
+| `deploy/` | Production env templates (`production/`), the Render blueprint (`render/`) and a single-server Docker Compose stack (`compose/`). Guides: `docs/deploy/` — `development/` (a blank machine to a real job: prerequisites, first run, every local env var, test GitHub org and tunnel, the daily workflow, tests, troubleshooting), `stage-0/` (the pilot: Supabase, Render, Vercel, and `env.md` for where each production value comes from), `stage-1/` (AWS), `alternatives/` (GCP, Azure, one server, PlanetScale) |
+| `supabase/` | Local Supabase for development (`config.toml`, `seed.sql`): Postgres 17, matching the pilot's hosted project. `make supabase-up`; `docs/deploy/stage-0/local.md` |
 
 ## How types flow
 
@@ -48,7 +49,7 @@ packages/client/src/generated/api.ts ─► apps/dash ($api.useQuery, api.GET)
 `pnpm generate` runs the whole chain in order (Turborepo `^generate`).
 `pnpm dev` keeps it live: air rebuilds the API and rewrites `openapi.json`,
 the client's watcher regenerates `api.ts`, and Next.js picks up the types.
-CI fails if any generated file is stale (`pnpm check:generated`).
+`pnpm check:generated` fails if any generated file is stale.
 
 ## Commands
 
@@ -58,6 +59,7 @@ Run from the repo root. A `Makefile` wraps the same commands (`make help`;
 | Command | Does |
 | --- | --- |
 | `pnpm db:up` | Start Postgres in Docker |
+| `make supabase-up` | Start a local Supabase Postgres 17 on :54322 instead, matching the pilot's database (`docs/deploy/stage-0/local.md`) |
 | `pnpm db:migrate` | Apply migrations (`db:rollback` undoes one) |
 | `pnpm db:new <name> sql` | Create a new numbered migration |
 | `pnpm dev` | API on :8080 (docs at /docs), dashboard on :3000, live type regeneration |
@@ -65,7 +67,7 @@ Run from the repo root. A `Makefile` wraps the same commands (`make help`;
 | `pnpm lint` | Ultracite (Biome) for TS/JSON/CSS, golangci-lint for Go |
 | `pnpm format` | Auto-fix both |
 | `pnpm typecheck` / `pnpm test` / `pnpm build` | Across every package |
-| `pnpm check` | Everything CI runs |
+| `pnpm check` | Everything to run before pushing |
 
 Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
 

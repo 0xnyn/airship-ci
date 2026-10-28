@@ -1,5 +1,5 @@
 # Airship on one server: Postgres, the API, the dashboard and Caddy for
-# TLS. See docs/deploy/server.md. Run from this directory:
+# TLS. See docs/deploy/alternatives/server.md. Run from this directory:
 #   cp .env.example .env   # then fill it in
 #   docker compose up -d --build
 name: airship

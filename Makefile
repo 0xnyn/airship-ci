@@ -6,7 +6,7 @@
 #   make dev     every day
 #   make help    everything else
 #
-# The guide is docs/development.md.
+# The guide is docs/deploy/development/.
 
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
@@ -22,6 +22,12 @@ export TEST_DATABASE_URL
 # A throwaway Postgres 17 for `make test-pg17` (hosted Supabase runs 17).
 PG17_CONTAINER := airship-pg17-test
 PG17_PORT ?= 55417
+
+# Local Supabase (`make supabase-up`), the closest match to the pilot's
+# database: docs/deploy/stage-0/local.md. A `supabase` on PATH wins over
+# the one pnpm fetches on demand.
+SUPABASE ?= $(shell command -v supabase 2>/dev/null || echo "pnpm dlx supabase")
+SUPABASE_DATABASE_URL ?= postgres://airship:airship@127.0.0.1:54322/postgres?sslmode=disable
 
 # moto, the AWS emulator, for `make test-aws-emulator`.
 MOTO_PORT ?= 5055
@@ -50,7 +56,7 @@ doctor: ## Check that Go, Node, pnpm and Docker are installed and recent enough
 	check docker "docker --version" "Docker Desktop, OrbStack or Colima"; \
 	if command -v docker >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then echo "  docker   installed, but the daemon is not running"; ok=0; fi; \
 	if command -v node >/dev/null 2>&1; then major=$$(node -p 'process.versions.node.split(".")[0]'); [ "$$major" -ge 24 ] || { echo "  node     $$major is too old: need 24+"; ok=0; }; fi; \
-	echo "  optional: uvx (moto, AWS emulator), cloudflared or ngrok (webhook tunnel)"; \
+	echo "  optional: uvx (moto, AWS emulator), cloudflared or ngrok (webhook tunnel), supabase (local Postgres 17)"; \
 	[ $$ok = 1 ] && echo "All required tools found." || { echo "Install the missing tools above, then rerun make doctor."; exit 1; }
 
 .PHONY: setup
@@ -139,6 +145,28 @@ db-reset: ## Delete the local database and start over empty (asks first)
 	docker compose down --volumes
 	$(MAKE) db-up db-migrate
 
+.PHONY: supabase-up
+supabase-up: ## Start a local Supabase Postgres 17 on :54322 and migrate it
+	$(SUPABASE) start
+	cd $(API_DIR) && DATABASE_URL='$(SUPABASE_DATABASE_URL)' go run ./cmd/migrate up
+	@echo
+	@echo "Postgres 17 on :54322, the version hosted Supabase runs. In apps/api/.env:"
+	@echo "  DATABASE_URL=$(SUPABASE_DATABASE_URL)"
+
+.PHONY: supabase-down
+supabase-down: ## Stop local Supabase, keeping its data
+	$(SUPABASE) stop
+
+.PHONY: supabase-reset
+supabase-reset: ## Recreate the local Supabase database, empty, and migrate it
+	$(SUPABASE) db reset
+	cd $(API_DIR) && DATABASE_URL='$(SUPABASE_DATABASE_URL)' go run ./cmd/migrate up
+
+.PHONY: supabase-psql
+supabase-psql: ## Open psql on the local Supabase database
+	@if command -v psql >/dev/null 2>&1; then psql '$(SUPABASE_DATABASE_URL)'; \
+	else docker exec -it supabase_db_airship psql -U airship -d postgres; fi
+
 ##@ Code generation
 
 .PHONY: generate
@@ -146,7 +174,7 @@ generate: ## sqlc, then openapi.json, then the TypeScript client and the docs' A
 	pnpm generate
 
 .PHONY: check-generated
-check-generated: ## Fail if a generated file is stale (as CI does)
+check-generated: ## Fail if a generated file is stale
 	pnpm check:generated
 
 ##@ Quality
@@ -164,7 +192,7 @@ typecheck: ## tsc and go vet across every package
 	pnpm typecheck
 
 .PHONY: check
-check: ## Everything CI runs: lint, typecheck, test, generated files
+check: ## Run before pushing: lint, typecheck, test, generated files
 	pnpm check
 
 ##@ Tests
@@ -198,7 +226,7 @@ test-aws-emulator: ## The EC2 provider against moto (needs uvx)
 
 .PHONY: test-live
 test-live: ## A live cloud suite, which costs money: make test-live CLOUD=aws|gcp|azure|daytona (reads apps/api/.env.live)
-	@case "$(CLOUD)" in aws) t=AWS;; gcp) t=GCP;; azure) t=Azure;; daytona) t=Daytona;; *) echo "usage: make test-live CLOUD=aws|gcp|azure|daytona (variables: docs/development.md, Tests)"; exit 1;; esac; \
+	@case "$(CLOUD)" in aws) t=AWS;; gcp) t=GCP;; azure) t=Azure;; daytona) t=Daytona;; *) echo "usage: make test-live CLOUD=aws|gcp|azure|daytona (variables: docs/deploy/development/7-tests.md)"; exit 1;; esac; \
 	cd $(API_DIR) && { if [ -f .env.live ]; then set -a; . ./.env.live; set +a; else echo "no apps/api/.env.live: using the shell's AIRSHIP_LIVE_* variables (template: apps/api/.env.live.example)"; fi; \
 		go test -v -count=1 -run "TestAgainstLive$$t" ./internal/cloud/$(CLOUD); }
 

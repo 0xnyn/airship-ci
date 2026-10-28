@@ -2,7 +2,7 @@
 
 **What this is.** How to use [PlanetScale Postgres](https://planetscale.com/docs/postgres)
 in place of RDS, Cloud SQL or Azure's flexible server. Use it with any of
-the compute guides ([AWS](aws.md), [Google Cloud](gcp.md), [Azure](azure.md),
+the compute guides ([AWS](../stage-1/aws.md), [Google Cloud](gcp.md), [Azure](azure.md),
 [one server](server.md)): set up the database here, then follow the guide
 for the API and dashboard, skipping its database step.
 
@@ -98,7 +98,7 @@ Follow your compute guide with these changes:
 
 | Guide | Skip | Change |
 | --- | --- | --- |
-| [aws.md](aws.md) | Step 2 (RDS) and the `airship-db` security group | Store the PlanetScale URL as `airship/database-url` in step 3. The NAT gateway already gives the tasks the outbound access they need. For private traffic, see AWS PrivateLink below |
+| [aws.md](../stage-1/aws.md) | Step 2 (RDS) and the `airship-db` security group | Store the PlanetScale URL as `airship/database-url` in step 3. The NAT gateway already gives the tasks the outbound access they need. For private traffic, see AWS PrivateLink below |
 | [gcp.md](gcp.md) | Step 2 (Cloud SQL), the `roles/cloudsql.client` binding | Store the PlanetScale URL as `airship-database-url`. Drop `--add-cloudsql-instances` and `--set-cloudsql-instances` from the service and the job. Drop `sqladmin.googleapis.com` from the APIs |
 | [azure.md](azure.md) | Step 2 (flexible server), the `db` subnet | Store the PlanetScale URL as `database-url` in Key Vault. Container Apps reaches it over the internet |
 | [server.md](server.md) | The `postgres` service | In `compose.yaml`, set `DATABASE_URL` for `api` and `migrate` to the PlanetScale URL (better: `DATABASE_URL: ${DATABASE_URL}` and put it in `.env`), and remove `postgres` and the `depends_on` entries that name it |
@@ -117,7 +117,7 @@ inside your cloud's network:
 
 | Cloud | Option |
 | --- | --- |
-| AWS | [AWS PrivateLink](https://planetscale.com/changelog/privatelink-postgres): an interface endpoint in the VPC from [aws.md](aws.md), in the private subnets. Then use the private hostname PlanetScale gives you in `DATABASE_URL` |
+| AWS | [AWS PrivateLink](https://planetscale.com/changelog/privatelink-postgres): an interface endpoint in the VPC from [aws.md](../stage-1/aws.md), in the private subnets. Then use the private hostname PlanetScale gives you in `DATABASE_URL` |
 | Google Cloud | [Private Service Connect](https://planetscale.com/docs/postgres/connecting/private-connections/gcp-private-service-connect): an endpoint in a VPC. Cloud Run then needs Direct VPC egress (`--network`, `--subnet`) to reach it |
 | Azure | None. Traffic crosses the internet, with TLS |
 
@@ -131,7 +131,7 @@ time. Check PlanetScale's current pricing before you rely on it.
 | Item | How |
 | --- | --- |
 | Connections | Each API replica opens at most `max(4, CPU count)` connections, so two replicas use about 10. That fits any cluster size's limit. To cap it lower, add `&pool_max_conns=4` to `DATABASE_URL` |
-| Backups | PlanetScale takes them automatically. Check the schedule and retention for your cluster size in the dashboard, and restore one into a new branch or database once, as the [production checklist](README.md#production-checklist) asks. A restore is useless without the same `CREDENTIALS_KEY` |
+| Backups | PlanetScale takes them automatically. Check the schedule and retention for your cluster size in the dashboard, and restore one into a new branch or database once, as the [production checklist](../checklist.md) asks. A restore is useless without the same `CREDENTIALS_KEY` |
 | Replicas | PlanetScale's read replicas are not used. Airship sends every query to the primary |
 | Rotating the password | Create a second role, update the `DATABASE_URL` secret, roll out the API, then delete the old role |
 

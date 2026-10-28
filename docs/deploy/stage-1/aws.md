@@ -11,8 +11,15 @@ different account from your other production workloads.
 
 **Time.** About an hour, most of it waiting for RDS and certificates.
 
-Read [README.md](README.md) first: its "Before you start" section (domain,
-credentials key, GitHub App) applies here unchanged.
+Do [stage 0's steps 1 and 2](../stage-0/) first, or carry over what they
+produced: the domain and two hostnames, `CREDENTIALS_KEY`, and the
+production GitHub App. They are stage-independent, and
+[stage-1/README.md](README.md) covers what else carries over from a
+running pilot — including the database, which moves by dump and restore.
+
+Where every environment variable's value comes from is in
+[stage-0/env.md](../stage-0/env.md); here they live in Secrets Manager and
+the task definition instead of a platform's environment screen.
 
 ---
 
@@ -104,7 +111,7 @@ Webhooks are authenticated by their signature instead.
 ## Step 2 — The database
 
 > **Using PlanetScale instead?** Skip this step and follow
-> [planetscale.md](planetscale.md), which lists what else changes in this
+> [planetscale.md](../alternatives/planetscale.md), which lists what else changes in this
 > guide.
 
 ```bash
@@ -143,7 +150,7 @@ connection string uses `sslmode=require`.
 ## Step 3 — Secrets
 
 Create the five secrets the API reads. Have the GitHub App's values from
-[README.md, step 3](README.md#3-the-production-github-app) to hand, and the
+[stage-0/2-github-app.md](../stage-0/2-github-app.md) to hand, and the
 private key at `./github-app.pem`.
 
 ```bash
@@ -432,7 +439,7 @@ curl -s https://$API_DOMAIN/healthz
 ```
 
 Then work through the **Verification** items in the
-[production checklist](README.md#production-checklist): webhook deliveries
+[production checklist](../checklist.md): webhook deliveries
 in the GitHub App, GitHub sign-in on `https://$DASH_DOMAIN`, and one real
 job.
 
@@ -480,7 +487,7 @@ airship-api:<n>`.
 | Cost | Roughly: the NAT gateway and the ALB are fixed monthly costs, four small Fargate tasks, and a small Multi-AZ RDS instance. The runners themselves are billed to whichever accounts customers connect |
 
 Day-to-day operation, alerts worth having and the incident runbook are in
-[architecture/operations.md](../architecture/operations.md).
+[architecture/operations.md](../../architecture/operations.md).
 
 ---
 

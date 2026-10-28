@@ -1,0 +1,54 @@
+# Local Supabase for Airship: a Postgres 17 that matches the hosted project
+# the pilot runs on (docs/deploy/stage-0/local.md).
+#
+#   make supabase-up        start it and apply the migrations
+#   make supabase-reset     throw the data away and start over
+#
+# Every Supabase service except the database is switched off. Airship uses
+# only Postgres: no Auth, Storage, Realtime or Data API, which is also how
+# the hosted project is configured (docs/deploy/stage-0/3-supabase.md).
+project_id = "airship"
+
+[db]
+# Direct connection. One server connection per client, so session-level
+# advisory locks behave as they do through the hosted session pooler.
+port = 54322
+shadow_port = 54320
+# Hosted Supabase projects run 17. The local docker-compose.yml Postgres is
+# 18; this is the version that catches what only 18 has.
+major_version = 17
+
+[db.seed]
+# Creates the `airship` role, so migrations run and own their tables as
+# the same user they do in production.
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[db.pooler]
+# Supavisor is not needed: the direct connection above is already session
+# mode. Never point Airship at a transaction-mode pooler.
+enabled = false
+
+[api]
+enabled = false
+
+[studio]
+enabled = false
+
+[auth]
+enabled = false
+
+[storage]
+enabled = false
+
+[realtime]
+enabled = false
+
+[local_smtp]
+enabled = false
+
+[analytics]
+enabled = false
+
+[edge_runtime]
+enabled = false

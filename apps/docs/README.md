@@ -34,8 +34,8 @@ pnpm --filter @airship/docs links   # Mintlify's own checker (also hits the web)
 drops the schemas nothing reachable references, and rewrites the handlers'
 own wording for an API audience. Mintlify renders the endpoint pages from it.
 
-It runs as part of `pnpm generate`, and CI fails if the committed file is
-stale. **Never edit `api-reference/openapi.json` by hand.** If the Go API
+It runs as part of `pnpm generate`, and `pnpm check:generated` fails if the
+committed file is stale. **Never edit `api-reference/openapi.json` by hand.** If the Go API
 grows a summary the script has no wording for, the script fails and names it —
 add the wording rather than letting prose written for the codebase reach the
 site.

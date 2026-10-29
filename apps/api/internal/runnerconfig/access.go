@@ -39,7 +39,7 @@ func (p Policy) Open() bool {
 }
 
 // AccessDocument is access.yaml as written: the shape the developer API
-// reads and edits. It is Cirun's format exactly.
+// reads and edits.
 type AccessDocument struct {
 	Version       int              `json:"version"        yaml:"version"`
 	Policies      []PolicyDocument `json:"policies"       yaml:"policies"`
@@ -203,7 +203,7 @@ func (a Access) Restricted(runner, repo string) (policies []Policy, restricted b
 	return policies, true
 }
 
-// AccessChange is one repository_resource_access entry of Cirun's
+// AccessChange is one repository_resource_access entry of the
 // access-control API: grant or revoke a repository's access to resources.
 type AccessChange struct {
 	Repository  string
@@ -215,7 +215,7 @@ type AccessChange struct {
 	PullRequest *bool
 }
 
-// Apply edits the document as Cirun's API does. Granting finds or creates
+// Apply edits the document. Granting finds or creates
 // the repository's policy, adds the people listed, and attaches the policy
 // to each resource; revoking detaches it, dropping rules left empty.
 func (d *AccessDocument) Apply(change AccessChange) error {

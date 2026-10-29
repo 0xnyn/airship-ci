@@ -5,9 +5,9 @@ cloud account: EC2 instances on AWS, Compute Engine instances on Google
 Cloud, sandboxes in a Daytona organization. It holds the customer's
 credentials (sealed), reads `airship.yaml`
 from activated repositories, and launches, watches and terminates
-instances itself. This is Cirun's model; the first version of this project
-ran an agent in the customer's account instead, and the differences below
-are the result of moving to Cirun's.
+instances itself. The first version of this project ran an agent in the
+customer's account instead; the design below is the result of moving that
+work into the control plane.
 
 ```
            webhooks (workflow_job, push, installation, installation_repositories, repository)
@@ -29,7 +29,7 @@ are the result of moving to Cirun's.
 All Go code lives in `apps/api`.
 
 - `cmd/api` serves the GitHub webhook (`internal/webhook`), the dashboard
-  API (`internal/auth`, `internal/console`), the Cirun-compatible developer
+  API (`internal/auth`, `internal/console`), the developer
   API (`internal/console/apitokens.go`) and the runner API
   (`internal/runnerapi`). It also runs the launcher, the reconciler and the
   webhook redeliverer.
@@ -248,7 +248,7 @@ once:
   leaves a marker and a rebooted machine powers off instead of running a
   second job. `enable_public_ip: false` creates one Cloud Router and NAT
   per region and network with its own deterministic request ID:
-  `airship-nat` on the default network, as Cirun names it, and
+  `airship-nat` on the default network, and
   `airship-nat-<network>` on any other, including the network of a
   `subnetwork` named without its network (read from the subnetwork). A
   router by that name that already exists is read back, also when it is
@@ -313,7 +313,7 @@ once:
   scope. Every call is bounded; the SDK's own retries are kept short so
   a deadline is spent on the call. The secret is a Microsoft Entra
   application (tenant, client ID, client secret) with the Contributor
-  role on the subscription, as Cirun asks for; `Verify` reads the
+  role on the subscription; `Verify` reads the
   subscription (an application that cannot see it gets a 404, reported
   as bad credentials), refuses a disabled one, and checks the default
   region is one the subscription offers.
@@ -451,7 +451,7 @@ once:
   activated repository can pick machines for that branch's jobs, as with
   any workflow; `max_runners` bounds what that can cost.
 - **Images.** Any AMI or Compute Engine image the account can launch is
-  allowed, as on Cirun, on Azure any marketplace image (whose terms the
+  allowed; on Azure any marketplace image (whose terms the
   subscription has accepted) or a managed or gallery image of the
   connected subscription (another subscription's is refused by its ID),
   and on Daytona any container image Daytona can pull, with a tag or
@@ -488,41 +488,35 @@ once:
   sandbox. Egress is restricted only when a definition sets the allow
   lists; Daytona's own network rules apply otherwise.
 
-## Differences from Cirun
+## Design decisions
 
-Kept: the file format (under Airship's names), fallback and suffix rules, idle runners
-per repository and per organization, organization runners with
-`access.yaml`, one-line labels (for forks too), files read at the job's
-commit, `provision_via`, the developer API, Windows fields, S3-backed
-caching with one namespace per account bucket.
-
-Different, on purpose:
+The config format, fallback and suffix rules, idle runners per repository
+and per organization, organization runners with `access.yaml`, one-line
+labels (for forks too), files read at the job's commit, `provision_via`,
+the developer API, the Windows fields and S3-backed caching with one
+namespace per account bucket are all as documented in
+[airship-yaml.md](airship-yaml.md). The choices worth explaining:
 
 - **Clouds.** AWS, GCP, Azure and Daytona. `do`, `openstack`, `oracle`,
   `vast_ai` and `on_prem` are refused with "not supported yet" rather than
   ignored. Each is a provider implementation; none can be trusted unrun.
-- **Azure defaults.** Cirun launches Azure machines without a public
-  address unless `enable_public_ip: true`; Airship gives each machine a
-  static public address unless `enable_public_ip: false`, which creates
-  a NAT gateway per region instead. Cirun's docs route such a machine
-  through Azure's default outbound access, which Microsoft is retiring
-  (subnets of new networks are private by default from API versions
-  released after March 31, 2026), so on a fresh network Cirun's default
-  would boot machines that cannot reach GitHub.
-  Cirun also leaves the VM's security to the subscription's defaults;
-  Airship creates a security group per region (no rules of its own) so
-  the subnet is explicit about allowing no inbound traffic. The OS disk
-  defaults to 75 GB on Linux and the image's size on Windows, on the
-  image's default disk kind, where Cirun documents only
-  `storageProfile.osDisk.diskSizeGB`. Windows and specialized images boot
-  through a Run Command, which Cirun's docs do not describe (an
-  implementation detail: Azure runs no custom data on Windows). The
-  resource group, networks and NAT are shared by every installation that
-  connects the subscription.
-- **Daytona** is an addition; Cirun has no Daytona cloud, so its fields
-  were given meanings rather than copied: `instance_type` is a sandbox
-  shape (`2vcpu-4gb`) or a snapshot name, `machine_image` a container
-  image, `region` a Daytona region ID, `gpu` one of Daytona's GPU types,
+- **Azure gets a public address by default.** `enable_public_ip: false`
+  creates a NAT gateway per region instead. A machine with neither relied
+  on Azure's default outbound access, which Microsoft is retiring —
+  subnets of networks created with API versions released after
+  March 31, 2026 are private by default, and Airship's subnet is private by
+  its own setting either way — so the other default would boot machines
+  that cannot reach GitHub. Airship also creates a security group per
+  region, with no rules of its own, so the subnet is explicit about
+  allowing no inbound traffic. The OS disk defaults to 75 GB on Linux and
+  the image's size on Windows, on the image's default disk kind. Windows
+  and specialized images boot through a Run Command, because Azure runs no
+  custom data on Windows. The resource group, networks and NAT are shared
+  by every installation that connects the subscription.
+- **Daytona** is not a machine cloud like the others, so its fields were
+  given meanings of their own: `instance_type` is a sandbox shape
+  (`2vcpu-4gb`) or a snapshot name, `machine_image` a container image,
+  `region` a Daytona region ID, `gpu` one of Daytona's GPU types,
   `preemptible` spot GPU capacity. `extra_config` gains `disk`, `docker`,
   `volumes`, `network_allow_list` and `domain_allow_list`; `provision_via`
   and the Windows keys are refused there, since a sandbox runs nothing at
@@ -533,29 +527,25 @@ Different, on purpose:
   attachment itself (`RESOURCE_IN_USE_BY_ANOTHER_RESOURCE`), which Airship
   treats as retryable: the job waits for the runner holding the disk.
 - **GCP `enable_public_ip: false`** creates the Cloud NAT on the network
-  the first interface names (or its subnetwork belongs to), as Cirun
-  documents; a second network in the same region gets a NAT of its own
-  rather than an error, and a router with Airship's name that is on
-  another network is reported, never reused.
+  the first interface names (or its subnetwork belongs to); a second
+  network in the same region gets a NAT of its own rather than an error,
+  and a router with Airship's name that is on another network is reported,
+  never reused.
 - **GCP and Daytona caching.** `cache: true` on a GCP or Daytona runner
-  launches without the cache proxy (and records a warning). This matches Cirun, whose caching
-  docs say auto mode is "Currently Linux runners on AWS only"; a Cloud
-  Storage backing would be an addition, not parity.
+  launches without the cache proxy (and records a warning). Cache
+  acceleration is Linux runners on AWS only today; a Cloud Storage backing
+  would be an addition behind the `cloud.Cacher` seam.
 - **Names.** The file is `airship.yaml`, labels start with `airship-`,
   the organization repository is `.airship` with `airship.global.yaml`;
   runners are named `airship-...`, instances are tagged `airship:*`, the
-  cache bucket is `airship-cache-*`. Cirun's names (`.cirun.yml`, `cirun-`,
-  `.cirun`) are not read, so moving from Cirun is a rename. The fields,
-  semantics and the access file's format are the same, and the `/api/v1` developer
-  API answers cirun-py.
+  cache bucket is `airship-cache-*`.
 - **Organization idle runners** register in a runner group per definition
   that is visible only to the activated repositories the definition's
-  `access.yaml` policies allow (Cirun's docs do not say how they are
-  scoped). Per-person policy rules cannot apply to a runner booted before
-  any job exists.
+  `access.yaml` policies allow. Per-person policy rules cannot apply to a
+  runner booted before any job exists.
 - **`SubnetId`, `SecurityGroupIds`, `IamInstanceProfile`** in
-  `extra_config` are additions (Cirun passes unknown AWS keys through to
-  the API; these are the ones that matter).
+  `extra_config` are the AWS keys that matter, passed through explicitly
+  rather than by forwarding arbitrary unknown keys to the API.
 
 ## What has run, and what has not
 
@@ -778,4 +768,4 @@ Different, on purpose:
   `ec2:DescribeInstanceAttribute` can read it until the instance registers.
   `provision_via: pull_from_api` avoids it, at the cost of an API token in
   the image.
-- **One credential per cloud per installation**, as Cirun.
+- **One credential per cloud per installation.**

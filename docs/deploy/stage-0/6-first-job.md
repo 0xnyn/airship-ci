@@ -47,7 +47,7 @@ Under **Cloud**, in the **AWS** card: **Connect AWS**. It asks for an
 access key, a secret key and a default region.
 
 Create the IAM user first:
-[architecture/aws-setup.md, step 1](../../architecture/aws-setup.md#step-1--create-the-iam-user-aws-admin).
+[architecture/aws-setup-console.md, step 1](../../architecture/aws-setup-console.md#step-1--create-the-iam-user-aws-admin).
 For a pilot smoke test, `AmazonEC2FullAccess` in a scratch account is
 fine; the scoped policy in that guide is what a shared account should use.
 

@@ -13,7 +13,7 @@ import (
 )
 
 // Public image projects, by the prefix of their family names, so a plain
-// family such as debian-12 is found where Google publishes it. Cirun's
+// family such as debian-12 is found where Google publishes it. The
 // default for a bare name is ubuntu-os-cloud.
 var publicImageProjects = []struct{ prefix, project string }{
 	{"ubuntu-", "ubuntu-os-cloud"},
@@ -29,7 +29,7 @@ var publicImageProjects = []struct{ prefix, project string }{
 
 const (
 	defaultImageProject = "ubuntu-os-cloud"
-	// DefaultImage is Cirun's default Ubuntu release, as a family name.
+	// DefaultImage is the default Ubuntu release, as a family name.
 	DefaultImage = "ubuntu-2204-lts"
 )
 
@@ -107,7 +107,7 @@ func (p *Provider) resolveImage(ctx context.Context, c *Clients, project string,
 	return image, nil
 }
 
-// findImage tries the forms Cirun documents, in order:
+// findImage tries the accepted forms, in order:
 //
 //	projects/P/global/images/N, projects/P/global/machineImages/N, or a
 //	self link to either: exactly that resource;

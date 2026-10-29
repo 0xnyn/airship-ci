@@ -5,7 +5,7 @@ the Compute Engine calls, the resources it creates, and the places where
 Compute Engine's model forced different decisions from EC2's.
 
 **Audience.** Cloud and platform engineers approving the service account's
-roles. For the hands-on path, read [gcp-setup.md](gcp-setup.md) next.
+roles. For the hands-on path, read [gcp-setup-console.md](gcp-setup-console.md) next.
 
 **Status — read this first.** The Compute Engine provider is driven through
 Google's real `cloud.google.com/go/compute` client against a hand-written
@@ -114,8 +114,8 @@ without Airship knowing about it.
 
 ## Zones, regions and fallback
 
-Cirun's config field is called `region` but accepts a zone. Airship takes
-either:
+The config field is called `region` but accepts a zone as well as a
+region:
 
 ```yaml
 region: us-central1-b     # pinned: this zone or nothing
@@ -202,8 +202,8 @@ Two deliberate behaviours:
   Airship treats as *retryable*: the job waits its turn behind the runner
   currently holding the disk instead of failing.
 
-A `diskType` written as a zonal path (`projects/P/zones/Z/diskTypes/pd-ssd`,
-as Cirun's examples spell it) is read for its type name only — the zone in
+A `diskType` written as a zonal path (`projects/P/zones/Z/diskTypes/pd-ssd`)
+is read for its type name only — the zone in
 that path is not necessarily where this runner lands, and disk types exist
 in every zone.
 
@@ -236,7 +236,7 @@ subnetwork, because configs commonly name only the subnetwork:
 
 | Network | Router and NAT name |
 | --- | --- |
-| `default` | `airship-nat` — the name Cirun uses |
+| `default` | `airship-nat` |
 | any other | `airship-nat-<network>` (hashed if the name would exceed 63 characters) |
 
 The NAT is created once per region per network with `AUTO_ONLY` addresses
@@ -307,9 +307,8 @@ project is its own inventory scope.
 records a `cache.unavailable` warning on the Events page. The job runs
 normally, just without acceleration.
 
-This matches Cirun, whose caching documentation says auto mode is
-"Currently Linux runners on AWS only". A Cloud Storage backing would be an
-addition rather than parity: the provider interface already has the seam for
+Cache acceleration is Linux runners on AWS only today. A Cloud Storage
+backing would be an addition: the provider interface already has the seam for
 it (`cloud.Cacher`), and the proxy is storage-agnostic apart from its S3
 client. Until then, GCP runners can use `actions/cache` against GitHub's
 own cache, or a bring-your-own-bucket action.

@@ -82,7 +82,7 @@ const (
 	TagManaged = "airship-managed"
 
 	// DefaultLinuxDiskGB is the OS disk of a Linux machine when a
-	// definition names no size: Cirun's root volume default. Windows images
+	// definition names no size: the root volume default. Windows images
 	// keep the image's own size (127 GB) unless a size is named, since a
 	// disk smaller than the image is refused.
 	DefaultLinuxDiskGB = 75

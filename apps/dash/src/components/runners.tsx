@@ -60,7 +60,7 @@ export function Runners() {
   return (
     <>
       <PageHeader
-        description="Each runner is a fresh machine in your cloud account, registered for one job and destroyed after it. Airship starts one per queued job, up to the organization's limit, plus any idle pools your config files keep ready."
+        description="Machines Airship launched in your cloud"
         title="Runners"
       />
       <FilterTabs
@@ -76,8 +76,8 @@ export function Runners() {
       {runners.isSuccess && items.length === 0 ? (
         <EmptyRow>
           {filter === "active"
-            ? "No runners are active. One starts when a job asks for a airship- label in an activated repository."
-            : "No runners yet."}
+            ? "No active runners. One starts the next time a job asks for an airship- label."
+            : "No runners yet"}
         </EmptyRow>
       ) : null}
       {items.length > 0 ? (

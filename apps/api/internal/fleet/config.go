@@ -79,7 +79,7 @@ func (s *Service) planFromConfig(ctx context.Context, installation db.Installati
 	if err != nil {
 		return nil, verdict{}, fmt.Errorf("get run: %w", err)
 	}
-	// The file at the job's own commit, as Cirun reads it, so a branch (or a
+	// The file at the job's own commit, so a branch (or a
 	// pull request, from a fork too) can try a new machine before merging.
 	// Public repositories must be activated with public access allowed for
 	// any of this to run; that is the gate on outside code.

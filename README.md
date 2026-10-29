@@ -38,25 +38,28 @@ What is here:
   or organization-wide.
 - Organization runners in a `.airship` repository (`airship.global.yaml`) with
   `access.yaml` policies.
-- Developer API compatible with [cirun-py](https://github.com/AktechLabs/cirun-py):
-  `repo`, `cloud-connect`, `access-control`, `runner-provision`.
+- Developer API for scripts and CI: `repo`, `cloud-connect`,
+  `access-control`, `runner-provision`, with bearer-token API keys.
 - Caching: `extra_config.cache: true` runs a proxy on the machine that serves
   `actions/cache`, `setup-*` and `docker/build-push-action` (`url_v2`) from an
   S3 bucket in your account.
 - Dashboard: Repositories, Cloud, Runners, Jobs, API keys, Teams, Analytics,
   Events, Settings.
 
-Only AWS is implemented. The cloud provider is an interface
-(`apps/api/internal/cloud`) so another can be added. See
+AWS, Google Cloud, Azure and Daytona are implemented. The cloud provider is
+an interface (`apps/api/internal/cloud`) so another can be added. See
 [docs/airship-yaml.md](docs/airship-yaml.md) for the file reference,
 [docs/caching.md](docs/caching.md) for the cache, and
 [docs/architecture.md](docs/architecture.md) for how it works.
 
-Coming from [Cirun](https://docs.cirun.io)? The format is the same under
-Airship's names: rename `.cirun.yml` to `airship.yaml`, `cirun-` labels to
-`airship-`, and the `.cirun` organization repository to `.airship`
-(`.cirun.global.yml` becomes `airship.global.yaml` and `.access.yml`
-`access.yaml`). cirun-py works against the developer API unchanged.
+Standing it up on a cloud: each one has a click-through guide that assumes no
+experience with it ([AWS](docs/architecture/aws-setup-console.md),
+[Google Cloud](docs/architecture/gcp-setup-console.md),
+[Azure](docs/architecture/azure-setup-console.md),
+[Daytona](docs/architecture/daytona-setup.md)) and, for AWS, GCP and Azure, the
+same path as commands ([AWS](docs/architecture/aws-setup-cli.md),
+[GCP](docs/architecture/gcp-setup-cli.md),
+[Azure](docs/architecture/azure-setup-cli.md)).
 
 ## Layout
 

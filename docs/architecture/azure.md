@@ -5,7 +5,7 @@ the Resource Manager calls, the resources it creates, and the places where
 Azure's model forced different decisions from EC2's and Compute Engine's.
 
 **Audience.** Cloud and platform engineers approving the application's role
-assignment. For the hands-on path, read [azure-setup.md](azure-setup.md)
+assignment. For the hands-on path, read [azure-setup-console.md](azure-setup-console.md)
 next.
 
 **Status — read this first.** The Azure provider is driven through
@@ -98,7 +98,7 @@ next to the AWS path.
 | **Creating a VM is a long-running operation**, and a failure after acceptance (`AllocationFailed`, quota, marketplace terms) leaves a VM in the `Failed` state | The provider waits for the operation (up to 10 minutes) before calling a launch successful. A `Failed` VM is deleted, which takes its interface, address and disk with it, before the launch fails as retryable or permanent by the error code |
 | **A VM that shuts itself down is not deleted**, and stays allocated and billed until deallocated or deleted | The inventory scan treats a VM whose power state is stopped or deallocated as gone and deletes it. Airship does not give the machine an identity that could delete itself |
 | **Windows images do not run `customData`**, and specialized images take no OS profile at all | Linux takes the boot script as `customData` (cloud-init runs it once). Windows and specialized images get it through a managed Run Command, `airship-boot`, started once the VM is `Succeeded` |
-| **Azure is retiring default outbound access.** Subnets of virtual networks created with API versions released after March 31, 2026 are private by default, and Airship makes its own subnet private explicitly (`defaultOutboundAccess: false`) | A machine with neither an address nor a NAT never reaches GitHub. Airship gives each machine a public address by default and creates a NAT gateway for `enable_public_ip: false`. This is a deliberate change from Cirun's default (see "Networking") |
+| **Azure is retiring default outbound access.** Subnets of virtual networks created with API versions released after March 31, 2026 are private by default, and Airship makes its own subnet private explicitly (`defaultOutboundAccess: false`) | A machine with neither an address nor a NAT never reaches GitHub. Airship gives each machine a public address by default and creates a NAT gateway for `enable_public_ip: false`. See "Networking" |
 
 Spot machines behave like EC2's: `priority: Spot` with `evictionPolicy:
 Delete`, so an evicted machine is deleted rather than left deallocated, and
@@ -159,7 +159,7 @@ connect time; it is checked against the subscription's region list when you
 connect.
 
 Airship does not choose availability zones. A single VM with no zone is
-placed by Azure (Cirun documents no zone field for Azure either). A region out of capacity for
+placed by Azure. A region out of capacity for
 a size fails the attempt with `AllocationFailed`, which is retryable; the
 job then moves through its fallback chain as on any cloud.
 
@@ -172,7 +172,7 @@ job then moves through its fallback chain as on any cloud.
 | *(omitted)* or `ubuntu2204` | `Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest` (`22_04-lts-arm64` on Arm sizes) |
 | `ubuntu2404` | `Canonical:ubuntu-24_04-lts:server:latest` (`server-arm64` on Arm sizes) |
 | `publisher:offer:sku:version` | a marketplace image; `version` is `latest` or `X.Y.Z` |
-| `{publisher, offer, sku, version}` | the same as a mapping, as Cirun's YAML spells it; `version` defaults to `latest` |
+| `{publisher, offer, sku, version}` | the same as a mapping; `version` defaults to `latest` |
 | `/subscriptions/S/resourceGroups/G/providers/Microsoft.Compute/images/N` | a managed image of the connected subscription |
 | `.../galleries/G/images/N` | a compute gallery image; Azure launches its newest version |
 | `.../galleries/G/images/N/versions/X.Y.Z` | exactly that version |
@@ -216,7 +216,7 @@ extra_config:
 
 | | Default | Notes |
 | --- | --- | --- |
-| `diskSizeGB` | 75 GB on Linux (Cirun's root volume default); the image's own size on Windows (Microsoft documents marketplace Windows images as usually 127 GiB) | 30–4095. Azure does not shrink a disk below its image, which is why the image's size is the Windows default |
+| `diskSizeGB` | 75 GB on Linux; the image's own size on Windows (Microsoft documents marketplace Windows images as usually 127 GiB) | 30–4095. Azure does not shrink a disk below its image, which is why the image's size is the Windows default |
 | `storageAccountType` | the image's default kind | `Standard_LRS`, `StandardSSD_LRS`, `Premium_LRS`, `StandardSSD_ZRS`, `Premium_ZRS`. Premium SSD v2 and Ultra Disk are refused as config errors: Microsoft documents both as unusable for an OS disk. Premium SSD works only on sizes Microsoft lists as premium-storage compatible (each size's page says); on another size Azure refuses the launch, as a permanent error |
 
 The OS disk is the only disk. It uses read-write host caching and is deleted
@@ -244,18 +244,17 @@ address: Microsoft's NAT gateway reference says a gateway on a subnet
 "becomes the subnet's default next hop type for all outbound traffic
 directed to the internet".
 
-**Why the default differs from Cirun's.** Cirun launches Azure machines
-without a public address unless `enable_public_ip: true`, and its docs say
-outbound traffic then "goes through Azure's default outbound". Microsoft is
-retiring that path: subnets of virtual networks created with API versions
-released after March 31, 2026 are private by default and have no default
-outbound access, and Airship's subnet is private by its own setting either
-way. Without an address or a NAT, such a machine cannot reach GitHub. Airship keeps
-`enable_public_ip` with the same meaning and flips the default to the one
-that works; `false` gets you Cirun's private shape plus the NAT it needs.
+**Why a public address is the default.** A machine without one used to rely
+on Azure's default outbound access, and Microsoft is retiring that path:
+subnets of virtual networks created with API versions released after
+March 31, 2026 are private by default and have no default outbound access,
+and Airship's subnet is private by its own setting either way. Without an
+address or a NAT, such a machine cannot reach GitHub. So `enable_public_ip`
+defaults to the shape that works; `false` gets you the private shape plus
+the NAT it needs.
 
-**Your own network.** Not offered on Azure today: Cirun documents no field
-for it, and runners go on Airship's own per-region network. The networks
+**Your own network.** Not offered on Azure today: runners go on Airship's
+own per-region network. The networks
 use `10.0.0.0/16` and are not peered with anything, so overlap with your
 other address spaces does not matter. If you need runners inside an existing
 virtual network, say so — it is a contained addition, not a redesign.
@@ -293,8 +292,8 @@ host name that fits Windows' 15 characters (`air<hex>`).
 
 **No managed identity.** No identity is assigned to a runner, so nothing in
 a job can obtain an Azure token from the instance metadata service. The
-application secret Airship holds is never on a machine. Cirun documents no
-identity field for Azure, and Airship offers none.
+application secret Airship holds is never on a machine, and there is no
+identity field to set.
 
 ---
 
@@ -304,8 +303,8 @@ identity field for Azure, and Airship offers none.
 records a `cache.unavailable` warning on the Events page. The job runs
 normally, just without acceleration.
 
-This matches Cirun, whose caching documentation says auto mode is
-"Currently Linux runners on AWS only". The proxy speaks S3; Azure Blob
+Cache acceleration is Linux runners on AWS only today. The proxy speaks
+S3; Azure Blob
 Storage would be a backend of its own behind the provider interface's
 `cloud.Cacher` seam, an addition rather than parity. Until then, Azure
 runners can use `actions/cache` against GitHub's own cache.
@@ -395,7 +394,7 @@ that will never register to idle out.
 | GPU families (`Standard NCSv3 Family vCPUs`, …) | Usually 0 until you ask |
 | **Public IP addresses — Standard** per region | One per runner by default. `enable_public_ip: false` removes this ceiling (the NAT uses one address) |
 | Network interfaces per region | One per runner; the default limit is high |
-| **Microsoft.Compute and Microsoft.Network registered** | Not a quota, but a fresh subscription may not have them. The SDK registers them on first use if the role allows it; see [azure-setup.md](azure-setup.md) |
+| **Microsoft.Compute and Microsoft.Network registered** | Not a quota, but a fresh subscription may not have them. The SDK registers them on first use if the role allows it; see [azure-setup-console.md](azure-setup-console.md) |
 | **Marketplace terms** | Not a quota, but a third-party image fails every launch until they are accepted once per subscription |
 
 ```bash

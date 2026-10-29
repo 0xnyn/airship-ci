@@ -91,7 +91,7 @@ What you will see, and why most of it is empty:
 | **Runners** | Empty | A job matches an `airship-` label and a machine is launched |
 | **Events** | Empty | Anything happens. **This is the page to read when something does not work**: every launch, failure and cache warning lands here with the cloud's own error message |
 | **Settings** | `Most runners at once` | — it is the hard ceiling on live runners, enforced under a row lock |
-| **API keys** | Empty | You create one, for the developer API that `cirun-py` drives |
+| **API keys** | Empty | You create one, for the developer API |
 | **Teams**, **Analytics** | Empty | Memberships and jobs exist |
 
 Nothing here can launch a machine yet: there is no cloud credential and no

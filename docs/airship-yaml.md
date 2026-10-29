@@ -118,9 +118,9 @@ labels. The runner adds its own OS label.
 | `project_id` | GCP. Launch in this project instead of the service account's. The account needs Compute Admin there too. |
 | `networkInterfaces` | GCP. Up to 8 of `network`, `subnetwork`, `nicType` (`GVNIC`, `VIRTIO_NET`, `IDPF`), `stackType` and one `accessConfigs` entry, as Compute Engine spells them. Without it the default network with an external address. |
 | `serviceAccounts` | GCP. One `email` with `scopes`. Every job on the runner can use it. |
-| `enable_public_ip` | GCP and Azure. `false` launches without an external address; the first such launch in a region creates a NAT (on GCP a Cloud Router and NAT on the runner's network: `airship-nat` on the default network, `airship-nat-<network>` on another, found through the `subnetwork` when only that is named; on Azure a NAT gateway `airship-nat-<region>` with a static address of its own, attached to the `airship-runners-<region>` network's subnet), which every later runner there shares. Azure's default is a public address per machine, since Airship's subnet is private, as Azure makes new networks' subnets by default for API versions released after March 31, 2026; Cirun's default there was no public address. |
+| `enable_public_ip` | GCP and Azure. `false` launches without an external address; the first such launch in a region creates a NAT (on GCP a Cloud Router and NAT on the runner's network: `airship-nat` on the default network, `airship-nat-<network>` on another, found through the `subnetwork` when only that is named; on Azure a NAT gateway `airship-nat-<region>` with a static address of its own, attached to the `airship-runners-<region>` network's subnet), which every later runner there shares. Azure's default is a public address per machine, since Airship's subnet is private, as Azure makes new networks' subnets by default for API versions released after March 31, 2026. |
 | `scheduling` | GCP. `onHostMaintenance: MIGRATE` keeps a runner alive through host maintenance (the default for machines that can); `TERMINATE` is the default for GPUs and spot. `MIGRATE` with `preemptible` or a GPU is a config error, as Compute Engine would refuse it. |
-| `storageProfile` | Azure. `osDisk.diskSizeGB` (30-4095; default 75 for Linux, the image's own size for Windows) and `osDisk.managedDisk.storageAccountType` (`Standard_LRS`, `StandardSSD_LRS`, `Premium_LRS`, ...; default the image's) of the OS disk, as Cirun spells them. |
+| `storageProfile` | Azure. `osDisk.diskSizeGB` (30-4095; default 75 for Linux, the image's own size for Windows) and `osDisk.managedDisk.storageAccountType` (`Standard_LRS`, `StandardSSD_LRS`, `Premium_LRS`, ...; default the image's) of the OS disk, as Azure spells them. |
 | `disk` | Daytona. Disk of a sandbox built from an image, in GB (default 10, the smallest tier's per-sandbox maximum; larger tiers allow more). A snapshot fixes its own disk, so `disk` with only snapshot variants is a config error. |
 | `docker` | Daytona. `true` installs Docker (static 28.3.3, when the image has none) and starts a daemon in the sandbox before the runner, for jobs that use containers; the `runner` user is in the `docker` group. If the daemon does not come up the job runs without Docker and the boot log says so. |
 | `volumes` | Daytona. Up to 10 of `volume` (a Daytona volume's name or ID), `mount_path` (absolute) and optional `subpath`, mounted into the sandbox as an S3-backed FUSE filesystem (`mountpoint-s3`), writable and shared between sandboxes. |
@@ -261,8 +261,7 @@ The person is whoever started the run, or re-ran it. If `access.yaml` does
 not parse, every organization runner is closed until it is fixed.
 
 The developer API edits this file for you, through a pull request:
-`PUT /api/v1/access-control` (`cirun access-control add-repo-to-resources`
-in cirun-py).
+`PUT /api/v1/access-control`.
 
 ## When a job is not run
 
@@ -291,20 +290,6 @@ curl -X POST $AIRSHIP_API/repo -H "Authorization: Bearer $AIRSHIP_API_KEY" \
   -H "Content-Type: application/json" -d '{"repository": "acme/api", "active": true}'
 curl -X POST $AIRSHIP_API/cloud-connect -H "Authorization: Bearer $AIRSHIP_API_KEY" \
   -H "Content-Type: application/json" -d '{"cloud": "daytona", "credentials": {"api_key": "dtn_...", "region": "us"}}'
-```
-
-The routes are the ones Cirun's client speaks, so
-[cirun-py](https://github.com/AktechLabs/cirun-py) works unchanged
-(it has no Daytona subcommand; use the request above):
-
-```sh
-export CIRUN_API_ENDPOINT=https://api.example.com/api/v1
-export CIRUN_API_KEY=asa_...
-cirun repo add acme/api
-cirun cloud connect aws --access-key AKIA... --secret-key ...
-cirun cloud connect gcp --key-file service-account.json
-cirun cloud connect azure --subscription-id ... --tenant-id ... --client-id ... --client-secret ...
-cirun access-control add-repo-to-resources --org acme --repo api --resources gpu-runner --teams ml
 ```
 
 | Route | Does |

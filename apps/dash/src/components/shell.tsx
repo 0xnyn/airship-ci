@@ -213,9 +213,8 @@ export function Shell({
               {value.org.suspended ? (
                 <p className="flex items-center gap-2 border-b bg-warning-surface px-6 py-2.5 text-warning-foreground text-xs">
                   <TriangleAlert aria-hidden="true" className="size-3.5" />
-                  The GitHub App installation for {value.org.login} is
-                  suspended. Airship will not start runners until it is
-                  unsuspended.
+                  Airship is not starting runners: the GitHub App installation
+                  for {value.org.login} is suspended.
                 </p>
               ) : null}
               <div className="mx-auto grid w-full max-w-(--content-width) gap-8 px-4 pt-8 pb-16 md:px-8 md:pt-10">

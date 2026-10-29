@@ -67,7 +67,7 @@ func TestConfigInvalid(t *testing.T) {
 }
 
 // A pull request, from a fork too, reads the file at its own commit, as
-// Cirun does. Public repositories only run once activated with public
+// by design. Public repositories only run once activated with public
 // access allowed, which is where outside code is gated.
 func TestConfigForkReadsItsOwnCommit(t *testing.T) {
 	t.Parallel()

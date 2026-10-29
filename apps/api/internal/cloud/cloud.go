@@ -111,7 +111,7 @@ type Disk struct {
 }
 
 // GCPOptions are the Compute Engine settings a definition may set in
-// extra_config, as Cirun names them.
+// extra_config.
 type GCPOptions struct {
 	// Project overrides the credential's project.
 	Project string `json:"project,omitempty"`

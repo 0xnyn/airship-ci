@@ -108,14 +108,14 @@ func mustJSON(v any) []byte {
 	return raw
 }
 
-// Cirun's own client (cirun-py) sends these requests; pointing its
-// CIRUN_API_ENDPOINT at Airship must work unchanged.
-func TestCirunCompatibleAPI(t *testing.T) {
+// The /api/v1 developer API: these are the requests an automation client
+// sends, and they must keep working unchanged.
+func TestCompatibleDeveloperAPI(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	e.gh.AddRepository(1, github.Repository{ID: 5, FullName: "acme/api", Private: true, DefaultBranch: "main"})
 	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
-	token := e.call(http.MethodPost, "/v1/orgs/acme/api-tokens", map[string]any{"name": "cirun-py"}, http.StatusCreated)["token"].(string)
+	token := e.call(http.MethodPost, "/v1/orgs/acme/api-tokens", map[string]any{"name": "release-script"}, http.StatusCreated)["token"].(string)
 
 	if items := e.script(token, http.MethodGet, "/api/v1/repo", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
 		t.Fatalf("list = %v", items)
@@ -135,7 +135,7 @@ func TestCirunCompatibleAPI(t *testing.T) {
 	e.script(token, http.MethodPost, "/api/v1/repo", map[string]any{"repository": "acme/missing", "active": false}, http.StatusNotFound)
 	e.script("", http.MethodGet, "/api/v1/repo", nil, http.StatusUnauthorized)
 
-	// `cirun cloud connect aws --access-key ... --secret-key ...`
+	// Connecting AWS: an access key and a secret key.
 	if items := e.script(token, http.MethodGet, "/api/v1/cloud-connect", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
 		t.Fatalf("clouds before connecting = %v", items)
 	}
@@ -146,7 +146,7 @@ func TestCirunCompatibleAPI(t *testing.T) {
 		t.Fatalf("cloud-connect = %v", connected)
 	}
 	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "gcp", "credentials": map[string]string{}}, http.StatusUnprocessableEntity)
-	// `cirun cloud connect gcp` sends the key file's fields, plus a region.
+	// Connecting GCP: the key file's fields, plus a region.
 	gcp := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "gcp", "credentials": map[string]string{
 		"type": "service_account", "project_id": "acme-ci-123456", "private_key_id": "k1", "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n",
 		"client_email": "airship@acme-ci-123456.iam.gserviceaccount.com", "client_id": "1", "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -163,7 +163,7 @@ func TestCirunCompatibleAPI(t *testing.T) {
 	if daytona["cloud"] != "daytona" || daytona["defaultRegion"] != "us" || daytona["identity"] != "dtn***def" {
 		t.Fatalf("daytona cloud-connect = %v", daytona)
 	}
-	// `cirun cloud connect azure` sends the subscription, tenant, client
+	// Connecting Azure: the subscription, tenant, client
 	// ID and secret.
 	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "azure", "credentials": map[string]string{"subscription_id": "x"}}, http.StatusUnprocessableEntity)
 	azure := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "azure", "credentials": map[string]string{
@@ -183,7 +183,7 @@ func TestCirunCompatibleAPI(t *testing.T) {
 	}
 }
 
-// `cirun access-control add-repo-to-resources` edits access.yaml through a
+// The access-control route edits access.yaml through a
 // pull request against the organization's .airship repository.
 func TestAccessControlAPI(t *testing.T) {
 	t.Parallel()
@@ -191,7 +191,7 @@ func TestAccessControlAPI(t *testing.T) {
 	e.gh.AddRepository(1, github.Repository{ID: 7, FullName: "acme/.airship", Private: true, DefaultBranch: "main"})
 	e.gh.SetFile("acme/.airship", "main", "airship.global.yaml", []byte("runners:\n  - {name: gpu, cloud: aws, instance_type: g5.xlarge, labels: [airship-gpu]}\n"))
 	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
-	token := e.call(http.MethodPost, "/v1/orgs/acme/api-tokens", map[string]any{"name": "cirun-py"}, http.StatusCreated)["token"].(string)
+	token := e.call(http.MethodPost, "/v1/orgs/acme/api-tokens", map[string]any{"name": "release-script"}, http.StatusCreated)["token"].(string)
 
 	got := e.script(token, http.MethodGet, "/api/v1/access-control", nil, http.StatusOK)
 	if got["found"] != false {

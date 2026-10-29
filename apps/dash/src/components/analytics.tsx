@@ -43,7 +43,7 @@ export function AnalyticsPage() {
   return (
     <>
       <PageHeader
-        description="How much ran on Airship, day by day, and which repositories used it."
+        description="Usage by day and by repository"
         title="Analytics"
       />
       <FilterTabs
@@ -115,9 +115,7 @@ function Report({
     { airshipJobs: 0, failed: 0, jobs: 0, runnerMinutes: 0 }
   );
   if (totals.jobs === 0) {
-    return (
-      <EmptyRow>No jobs in the last {days} days. Push to see usage.</EmptyRow>
-    );
+    return <EmptyRow>No jobs in the last {days} days</EmptyRow>;
   }
 
   return (
@@ -125,13 +123,13 @@ function Report({
       <StatGrid label="Totals">
         <Stat
           dot="bg-active"
-          hint={`${Math.round((totals.airshipJobs / totals.jobs) * PERCENT)}% of every job seen`}
+          hint={`${Math.round((totals.airshipJobs / totals.jobs) * PERCENT)}% of all jobs`}
           label="Jobs on Airship"
           value={formatInteger(totals.airshipJobs)}
         />
         <Stat
           hint={`Across ${formatInteger(report.repositories?.length ?? 0)} repositories`}
-          label="Jobs seen"
+          label="All jobs"
           value={formatInteger(totals.jobs)}
         />
         <Stat
@@ -150,7 +148,7 @@ function Report({
         format={formatInteger}
         legend={[
           { key: "airshipJobs", label: "On Airship" },
-          { key: "otherJobs", label: "Elsewhere" },
+          { key: "otherJobs", label: "Other runners" },
         ]}
         series={series}
         title="Jobs per day"
@@ -166,7 +164,7 @@ function Report({
         format={formatDuration}
         legend={[{ key: "queueP50Seconds", label: "Median queue time" }]}
         series={series}
-        title="Median wait from queued to started"
+        title="Median queue time"
       />
       <section aria-labelledby="by-repository" className="mt-2 grid gap-3">
         <SectionHeading id="by-repository">By repository</SectionHeading>
@@ -469,7 +467,7 @@ function slotAt(event: PointerEvent<HTMLDivElement>, slots: number): number {
 
 function RepositoryTable({ rows }: { rows: Schemas["RepositoryUsage"][] }) {
   if (rows.length === 0) {
-    return <EmptyRow>No repositories ran jobs in this window.</EmptyRow>;
+    return <EmptyRow>No repositories ran jobs in this window</EmptyRow>;
   }
   return (
     <Table>
@@ -477,7 +475,7 @@ function RepositoryTable({ rows }: { rows: Schemas["RepositoryUsage"][] }) {
         <TableRow>
           <TableHead>Repository</TableHead>
           <TableHead className="text-right">Jobs on Airship</TableHead>
-          <TableHead className="text-right">Jobs seen</TableHead>
+          <TableHead className="text-right">All jobs</TableHead>
           <TableHead className="text-right">Runner minutes</TableHead>
         </TableRow>
       </TableHeader>

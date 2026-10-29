@@ -35,7 +35,7 @@ Two more things, which are not accounts:
 
 The AWS account is **not** where Airship runs — it is standing in for the
 pilot customer's account, the way every customer's will.
-[architecture/aws-setup.md](../../architecture/aws-setup.md) covers the
+[architecture/aws-setup-console.md](../../architecture/aws-setup-console.md) covers the
 credential it needs.
 
 ---

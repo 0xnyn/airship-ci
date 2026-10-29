@@ -98,15 +98,15 @@ func registerAPITokens(api huma.API, h *handlers, op func(id, method, path, summ
 	huma.Register(api, tokenOp("apiActivateRepository", http.MethodPut, "/v1/api/repositories/{name}/activation", "Activate a repository", 0), h.apiActivateRepository)
 	huma.Register(api, tokenOp("apiDeactivateRepository", http.MethodDelete, "/v1/api/repositories/{name}/activation", "Deactivate a repository", http.StatusNoContent), h.apiDeactivateRepository)
 
-	// Cirun's developer API paths, so its client (cirun-py) works with
-	// CIRUN_API_ENDPOINT=<airship>/api/v1 and an Airship token.
-	huma.Register(api, tokenOp("compatListRepositories", http.MethodGet, "/api/v1/repo", "List repositories (Cirun-compatible)", 0), h.apiListRepositories)
-	huma.Register(api, tokenOp("compatSetRepository", http.MethodPost, "/api/v1/repo", "Activate or deactivate a repository (Cirun-compatible)", 0), h.compatSetRepository)
-	huma.Register(api, tokenOp("compatListClouds", http.MethodGet, "/api/v1/cloud-connect", "List connected clouds (Cirun-compatible)", 0), h.apiListClouds)
-	huma.Register(api, tokenOp("compatCloudConnect", http.MethodPost, "/api/v1/cloud-connect", "Connect a cloud (Cirun-compatible)", 0), h.compatCloudConnect)
+	// The /api/v1 developer API: a stable, token-authenticated surface for
+	// automation, kept separate from the session-authenticated console API.
+	huma.Register(api, tokenOp("compatListRepositories", http.MethodGet, "/api/v1/repo", "List repositories", 0), h.apiListRepositories)
+	huma.Register(api, tokenOp("compatSetRepository", http.MethodPost, "/api/v1/repo", "Activate or deactivate a repository", 0), h.compatSetRepository)
+	huma.Register(api, tokenOp("compatListClouds", http.MethodGet, "/api/v1/cloud-connect", "List connected clouds", 0), h.apiListClouds)
+	huma.Register(api, tokenOp("compatCloudConnect", http.MethodPost, "/api/v1/cloud-connect", "Connect a cloud", 0), h.compatCloudConnect)
 	huma.Register(api, tokenOp("compatRunnerProvision", http.MethodGet, "/api/runner-provision", "Fetch a runner's boot script (provision_via: pull_from_api)", 0), h.runnerProvision)
-	huma.Register(api, tokenOp("compatGetAccessControl", http.MethodGet, "/api/v1/access-control", "Read the organization's access.yaml (Cirun-compatible)", 0), h.getAccessControl)
-	huma.Register(api, tokenOp("compatUpdateAccessControl", http.MethodPut, "/api/v1/access-control", "Open a pull request changing access.yaml (Cirun-compatible)", 0), h.updateAccessControl)
+	huma.Register(api, tokenOp("compatGetAccessControl", http.MethodGet, "/api/v1/access-control", "Read the organization's access.yaml", 0), h.getAccessControl)
+	huma.Register(api, tokenOp("compatUpdateAccessControl", http.MethodPut, "/api/v1/access-control", "Open a pull request changing access.yaml", 0), h.updateAccessControl)
 }
 
 // AccessControlFile is access.yaml as the developer API returns it.
@@ -129,7 +129,7 @@ func (h *handlers) getAccessControl(ctx context.Context, _ *struct{}) (*accessCo
 	return &accessControlOutput{Body: AccessControlFile{Found: current.Found, AccessYML: current.Document}}, nil
 }
 
-// RepositoryResourceAccess is one change in Cirun's access-control
+// RepositoryResourceAccess is one change in the access-control
 // request: grant ("add") or revoke ("remove") a repository's access to
 // resources, for the listed teams, roles and users.
 type RepositoryResourceAccess struct {
@@ -144,7 +144,7 @@ type RepositoryResourceAccess struct {
 	Extra      map[string]string `hidden:"true" json:"-"`
 }
 
-// UpdateAccessControl is Cirun's PUT access-control body.
+// UpdateAccessControl is the PUT access-control body.
 type UpdateAccessControl struct {
 	Org     string                     `doc:"Organization; must match the token's" json:"org,omitempty" maxLength:"100"`
 	Changes []RepositoryResourceAccess `doc:"Changes to apply"                     json:"repository_resource_access" maxItems:"50" minItems:"1"`
@@ -229,10 +229,10 @@ func (h *handlers) apiListClouds(ctx context.Context, _ *struct{}) (*cloudListOu
 	return &cloudListOutput{Body: CloudList{Items: items}}, nil
 }
 
-// CloudConnect is Cirun's cloud-connect request: a cloud name and that
-// cloud's credentials, as `cirun cloud connect` sends them: for aws the
+// CloudConnect is the cloud-connect request: a cloud name and that
+// cloud's credentials. For aws the
 // access key, for gcp the service account key file's fields, for azure the
-// subscription, tenant, client ID and client secret. Daytona, which Cirun
+// subscription, tenant, client ID and client secret. Daytona, which the
 // does not have, takes api_key (and api_url, region).
 type CloudConnect struct {
 	Cloud       string            `doc:"Cloud name" enum:"aws,gcp,azure,daytona" json:"cloud"`
@@ -305,7 +305,7 @@ func (h *handlers) compatCloudConnect(ctx context.Context, in *cloudConnectInput
 }
 
 // gcpKeyFromFields rebuilds a service account key file from the fields
-// cirun-py sends, leaving out the region it adds for its own use.
+// a client sends, leaving out the region it adds for its own use.
 func gcpKeyFromFields(fields map[string]string) ([]byte, error) {
 	key := make(map[string]string, len(fields))
 	for name, value := range fields {
@@ -563,8 +563,8 @@ func (h *handlers) deactivateByName(ctx context.Context, name string) (Repositor
 	return repo, nil
 }
 
-// SetRepository is Cirun's repository activation request, so Cirun's
-// client (cirun-py, `cirun repo add`) works against Airship unchanged.
+// SetRepository is the repository activation request of the /api/v1
+// developer API.
 type SetRepository struct {
 	Repository string `doc:"owner/name, or just the name" json:"repository" maxLength:"200" minLength:"1"`
 	Active     bool   `doc:"true activates, false deactivates" json:"active"`
@@ -576,7 +576,7 @@ type setRepositoryInput struct {
 
 // compatSetRepository activates or deactivates by owner/name. Unlike the
 // Airship routes it is idempotent: deactivating an inactive repository
-// succeeds, as Cirun's does.
+// succeeds.
 func (h *handlers) compatSetRepository(ctx context.Context, in *setRepositoryInput) (*repositoryOutput, error) {
 	p := principal(ctx)
 	name := in.Body.Repository

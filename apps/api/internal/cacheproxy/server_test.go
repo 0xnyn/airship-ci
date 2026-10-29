@@ -324,7 +324,7 @@ func TestParseRange(t *testing.T) {
 	}
 }
 
-// With no prefix (one namespace per bucket, as Cirun), objects sit under
+// With no prefix (one namespace per bucket), objects sit under
 // the version directly and every token is served.
 func TestEmptyPrefix(t *testing.T) {
 	t.Parallel()

@@ -26,9 +26,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the organization's access.yaml (Cirun-compatible) */
+        /** Read the organization's access.yaml */
         get: operations["compatGetAccessControl"];
-        /** Open a pull request changing access.yaml (Cirun-compatible) */
+        /** Open a pull request changing access.yaml */
         put: operations["compatUpdateAccessControl"];
         post?: never;
         delete?: never;
@@ -44,10 +44,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List connected clouds (Cirun-compatible) */
+        /** List connected clouds */
         get: operations["compatListClouds"];
         put?: never;
-        /** Connect a cloud (Cirun-compatible) */
+        /** Connect a cloud */
         post: operations["compatCloudConnect"];
         delete?: never;
         options?: never;
@@ -62,10 +62,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List repositories (Cirun-compatible) */
+        /** List repositories */
         get: operations["compatListRepositories"];
         put?: never;
-        /** Activate or deactivate a repository (Cirun-compatible) */
+        /** Activate or deactivate a repository */
         post: operations["compatSetRepository"];
         delete?: never;
         options?: never;

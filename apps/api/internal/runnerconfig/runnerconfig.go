@@ -2,7 +2,7 @@
 // repository, and the organization-wide airship.global.yaml and access.yaml
 // files in the organization's .airship repository.
 //
-// The format follows Cirun's model under Airship's names: a list of runners, each with a cloud, machine
+// The format is a list of runners, each with a cloud, machine
 // shape and labels. List values for instance_type, machine_image, region
 // and preemptible describe fallbacks, tried in order when a launch fails.
 //
@@ -41,15 +41,15 @@ const (
 	// defines and a suffix, such as the run ID, that makes the runner unique
 	// to one workflow run: airship-gpu--${{ github.run_id }}.
 	SuffixSeparator = "--"
-	// ProductLabel is registered on every runner, as Cirun registers
-	// cirun.io, so a job can ask for any Airship runner alongside its
+	// ProductLabel is registered on every runner, so a job can ask for
+	// any Airship runner alongside its
 	// config label.
 	ProductLabel = "airship"
 	// MaxFileBytes bounds every config file.
 	MaxFileBytes = 64 << 10
 )
 
-// Clouds a runner can name. Cirun's other clouds (do, openstack, oracle,
+// Clouds a runner can name. The other clouds (do, openstack, oracle,
 // vast_ai, on_prem) are recognized so the error says they are not
 // supported here rather than "unknown cloud".
 const (
@@ -84,7 +84,7 @@ const (
 	maxIdleReplicas = 100
 	maxIdleMinutes  = 24 * 60
 	maxLabelLength  = 100
-	// DefaultDiskGB and DefaultDiskType are Cirun's root volume defaults.
+	// DefaultDiskGB and DefaultDiskType are the root volume defaults.
 	DefaultDiskGB   = 75
 	DefaultDiskType = "gp2"
 )
@@ -130,7 +130,7 @@ type Runner struct {
 	Variants []Variant
 	// Env is set in the runner's environment for every job.
 	Env map[string]string
-	// GPU asks for NVIDIA drivers on the machine (Cirun's gpu: field).
+	// GPU asks for NVIDIA drivers on the machine (the gpu: field).
 	GPU bool
 	// GPUType is the accelerator the gpu: field named, for clouds that
 	// attach accelerators by name (GCP: nvidia-tesla-t4). Empty on AWS,
@@ -311,8 +311,8 @@ type rawRunner struct {
 	GPU          yaml.Node `yaml:"gpu"`
 }
 
-// rawExtra is Cirun's extra_config for AWS, GCP and Azure, plus Airship's
-// keys for Daytona. A key of another cloud is refused by name; keys from Cirun's
+// rawExtra is extra_config for AWS, GCP and Azure, plus the
+// keys for Daytona. A key of another cloud is refused by name; keys from another
 // other clouds are rejected as unknown fields, which names the key in the
 // error.
 type rawExtra struct {
@@ -374,11 +374,11 @@ type rawUsageIdle struct {
 	Duration int    `yaml:"duration"`
 }
 
-// listOf accepts a scalar or a list of scalars, as Cirun does for fallbacks.
+// listOf accepts a scalar or a list of scalars, for fallbacks.
 type listOf []string
 
 // A value may also be a mapping of an Azure image's parts ({publisher,
-// offer, sku, version}), which Cirun takes for machine_image; it is read
+// offer, sku, version}), accepted for machine_image; it is read
 // as the URN it spells.
 func (l *listOf) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.SequenceNode {
@@ -455,7 +455,7 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 		return Runner{}, failf(".cloud", "cloud %q is unknown; use %s", r.Cloud, cloudList)
 	}
 	if r.GPU.Kind != 0 {
-		// Cirun treats the value as a flag: any GPU name turns it on, and
+		// The value is a flag: any GPU name turns it on, and
 		// what Python (YAML 1.1) reads as false or null turns it off.
 		if r.GPU.Kind != yaml.ScalarNode {
 			return Runner{}, failf(".gpu", "gpu must be a GPU name, such as nvidia-tesla-t4")

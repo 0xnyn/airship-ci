@@ -55,8 +55,12 @@ a single server with Docker Compose, and PlanetScale as the database.
 These guides are about where **Airship** runs. Where **runner machines**
 run is each customer's choice, made by connecting a credential in the
 dashboard; see the setup guides for
-[AWS](../architecture/aws-setup.md), [Google Cloud](../architecture/gcp-setup.md),
-[Azure](../architecture/azure-setup.md) and [Daytona](../architecture/daytona-setup.md).
+[AWS](../architecture/aws-setup-console.md), [Google Cloud](../architecture/gcp-setup-console.md),
+[Azure](../architecture/azure-setup-console.md) and [Daytona](../architecture/daytona-setup.md).
+Each cloud has two guides: a `-console` one that clicks through the web
+console and assumes no experience with that cloud, and a `-cli` one that is
+the same path as commands ([aws](../architecture/aws-setup-cli.md),
+[gcp](../architecture/gcp-setup-cli.md), [azure](../architecture/azure-setup-cli.md)).
 
 The two are independent. A control plane on Render can launch EC2
 instances, and the reverse. The control plane needs **no cloud permissions

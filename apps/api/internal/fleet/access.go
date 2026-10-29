@@ -89,7 +89,7 @@ type AccessControlUpdate struct {
 }
 
 // UpdateAccessControl applies changes to access.yaml and opens a pull
-// request against the .airship repository with the result, as Cirun's API
+// request against the .airship repository with the result, as the API
 // does. Nothing takes effect until the pull request is merged.
 func (s *Service) UpdateAccessControl(ctx context.Context, installation db.Installation, changes []runnerconfig.AccessChange) (AccessControlUpdate, error) {
 	writer, ok := s.github.(GitHubWriter)

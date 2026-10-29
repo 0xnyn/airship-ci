@@ -28,7 +28,7 @@ var (
 	azureGPUPattern = regexp.MustCompile(`^Standard_N[CDVG]`)
 	azureImageSeg   = `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`
 	// An image: a marketplace URN (publisher:offer:sku:version), a
-	// managed image ID or a gallery image (version) ID, as Cirun takes
+	// managed image ID or a gallery image (version) ID, as taken
 	// them, or an alias.
 	azureURNPattern     = regexp.MustCompile(`^` + azureImageSeg + `:` + azureImageSeg + `:` + azureImageSeg + `:(latest|[0-9]+\.[0-9]+\.[0-9]+)$`)
 	azureManagedPattern = regexp.MustCompile(`(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\.Compute/images/` + azureImageSeg + `$`)
@@ -48,7 +48,7 @@ const (
 // enable_public_ip is shared with GCP.
 var azureOnlyKeys = []string{"storageProfile"}
 
-// rawAzureStorageProfile mirrors Cirun's extra_config.storageProfile: the
+// rawAzureStorageProfile mirrors extra_config.storageProfile: the
 // OS disk's size and kind, as the API spells them.
 type rawAzureStorageProfile struct {
 	OSDisk *rawAzureOSDisk `yaml:"osDisk"`
@@ -133,7 +133,7 @@ func azureArch(size string) string {
 	return "x64"
 }
 
-// azureImageURN spells the mapping form of machine_image Cirun takes
+// azureImageURN spells the mapping form of machine_image
 // ({publisher, offer, sku, version}) as a URN; version defaults to latest.
 func azureImageURN(fields map[string]string) (string, bool) {
 	publisher, offer, sku, version := fields["publisher"], fields["offer"], fields["sku"], fields["version"]

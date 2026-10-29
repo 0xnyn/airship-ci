@@ -15,7 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v8"
 )
 
-// DefaultImage is Cirun's default Ubuntu release, as an alias.
+// DefaultImage is the default Ubuntu release, as an alias.
 const DefaultImage = "ubuntu2204"
 
 // aliases map the one-line image tokens shared with the other clouds to
@@ -29,7 +29,7 @@ var aliases = map[string]map[string]string{
 
 const imageSegment = `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`
 
-// The image forms Cirun documents: a marketplace URN, a managed image's
+// The image forms accepted: a marketplace URN, a managed image's
 // resource ID and a compute gallery image's, with or without a version.
 // Resource IDs compare without regard to case, as ARM does.
 var (

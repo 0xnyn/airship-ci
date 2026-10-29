@@ -21,7 +21,7 @@ var guidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 
 // Secret is the credential a customer connects: a Microsoft Entra
 // application (service principal) with its client secret, and the
-// subscription it has the Contributor role on, as Cirun asks for them.
+// subscription it has the Contributor role on.
 type Secret struct {
 	SubscriptionID string `json:"subscription_id"`
 	TenantID       string `json:"tenant_id"`

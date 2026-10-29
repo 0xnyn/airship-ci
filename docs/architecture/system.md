@@ -19,10 +19,13 @@ the set reads on its own; this one is the map.
 | [gcp.md](gcp.md) | The same for Google Cloud, and where Compute Engine forced different decisions |
 | [azure.md](azure.md) | The same for Microsoft Azure, where a machine is several resources and egress has to be made explicit |
 | [daytona.md](daytona.md) | The same for Daytona, where a job gets a sandbox rather than a VM, and what that changes |
-| [aws-setup.md](aws-setup.md) | Standing it up on AWS: IAM, VPC, quotas, first green job |
-| [gcp-setup.md](gcp-setup.md) | Standing it up on Google Cloud: APIs, service account, roles, quotas |
-| [azure-setup.md](azure-setup.md) | Standing it up on Azure: an Entra application, its role, quotas, first green job |
-| [daytona-setup.md](daytona-setup.md) | Standing it up on Daytona: an API key, a region, a tier, first green job |
+| [aws-setup-console.md](aws-setup-console.md) | Standing it up on AWS in the web console: IAM, VPC, quotas, first green job. No AWS experience assumed |
+| [aws-setup-cli.md](aws-setup-cli.md) | The same on AWS, as `aws` commands, for someone who already knows the service |
+| [gcp-setup-console.md](gcp-setup-console.md) | Standing it up on Google Cloud in the console: APIs, service account, roles, quotas |
+| [gcp-setup-cli.md](gcp-setup-cli.md) | The same on Google Cloud, as `gcloud` commands |
+| [azure-setup-console.md](azure-setup-console.md) | Standing it up on Azure in the portal: an Entra application, its role, quotas, first green job |
+| [azure-setup-cli.md](azure-setup-cli.md) | The same on Azure, as `az` commands |
+| [daytona-setup.md](daytona-setup.md) | Standing it up on Daytona: an API key, a region, a tier, first green job. One guide — there is nothing to click through |
 | [security.md](security.md) | Trust boundaries, credential handling, job isolation, and the exposures we state plainly |
 | [operations.md](operations.md) | Running the control plane: deployment, HA, scaling, key rotation, incident runbook |
 
@@ -95,7 +98,7 @@ runner machines to download.
 
 | Component | What it does | Where it runs |
 | --- | --- | --- |
-| **api** | The GitHub webhook receiver, the dashboard API, the Cirun-compatible developer API, the runner API (cache proxy binary and cache credentials) | Control plane, every replica |
+| **api** | The GitHub webhook receiver, the dashboard API, the developer API, the runner API (cache proxy binary and cache credentials) | Control plane, every replica |
 | **launcher** | Claims pending runners under the installation's capacity cap, mints the GitHub registration, calls your cloud | Control plane, every replica |
 | **reconciler** | Twelve sequential steps that make the database agree with GitHub and with your cloud | Control plane, one leader at a time |
 | **redeliverer** | GitHub never retries a failed webhook; this scans the app's delivery log every two minutes and asks for redelivery with backoff | Control plane, one replica |
@@ -366,7 +369,7 @@ Full reference: [`../airship-yaml.md`](../airship-yaml.md).
 | Surface | Auth | For |
 | --- | --- | --- |
 | Dashboard API `/v1/...` | GitHub OAuth session cookie, HttpOnly, `SameSite=Lax`, Origin-checked on writes | The dashboard |
-| Developer API `/api/v1/...` | `asa_` bearer token, stored hashed, scoped to one installation. Accepts no session cookie | Automation; wire-compatible with [cirun-py](https://github.com/AktechLabs/cirun-py) |
+| Developer API `/api/v1/...` | `asa_` bearer token, stored hashed, scoped to one installation. Accepts no session cookie | Automation |
 | Runner API `/v1/runner/...`, `/v1/assets/...` | `asr_` token, one per cache-enabled runner, dead when the runner finishes | Runner machines fetching the cache proxy and its credentials |
 | Webhook `/v1/github/webhook` | HMAC signature | GitHub |
 
@@ -412,8 +415,8 @@ We are precise about this, because "it compiles" is not "it works".
 Yes — that is the model. You give it a credential scoped to launching and
 destroying machines, it holds that credential sealed, and it opens it only
 for the duration of one API call. [security.md](security.md) says exactly
-what the credential needs and what it is used for; [aws-setup.md](aws-setup.md),
-[gcp-setup.md](gcp-setup.md), [azure-setup.md](azure-setup.md) and
+what the credential needs and what it is used for; [aws-setup-console.md](aws-setup-console.md),
+[gcp-setup-console.md](gcp-setup-console.md), [azure-setup-console.md](azure-setup-console.md) and
 [daytona-setup.md](daytona-setup.md) give the least-privilege policies.
 
 **Can a developer run up a bill?**

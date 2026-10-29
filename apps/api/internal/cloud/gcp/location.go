@@ -7,7 +7,7 @@ import (
 )
 
 // Compute Engine places machines in zones (us-central1-b) grouped into
-// regions (us-central1). Cirun's config field is called region but takes
+// regions (us-central1). The config field is called region but takes
 // a zone; Airship accepts either. The control plane tracks runners per
 // region and the provider picks the zone, unless the config pinned one.
 var (

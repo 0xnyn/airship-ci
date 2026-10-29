@@ -105,13 +105,13 @@ const finishLabel: Record<string, string> = {
 export function RunnerState({ runner }: { runner: Schemas["Runner"] }) {
   switch (runner.state) {
     case "pending":
-      return <StatusDot label="Waiting for capacity" pulse tone="neutral" />;
+      return <StatusDot label="Waiting" pulse tone="neutral" />;
     case "launching":
       return <StatusDot label="Launching" pulse tone="warning" />;
     case "running":
       return <StatusDot label="Idle" tone="success" />;
     case "busy":
-      return <StatusDot label="Running job" pulse tone="active" />;
+      return <StatusDot label="Busy" pulse tone="active" />;
     default: {
       const reason = runner.finishReason ?? "completed";
       const tone = finishTone[reason] ?? "neutral";

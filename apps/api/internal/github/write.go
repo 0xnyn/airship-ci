@@ -9,7 +9,7 @@ import (
 )
 
 // The developer API edits the organization's access.yaml through a pull
-// request, as Cirun's does, so changes are reviewed like any other code.
+// request, so changes are reviewed like any other code.
 // These are the handful of write calls that takes.
 
 // GetBranchSHA returns the commit a branch points at.

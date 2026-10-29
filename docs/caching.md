@@ -63,8 +63,8 @@ runners:
    straight from disk. Downloads are served straight from S3: one GET for
    `actions/cache`, HEAD plus ranged GETs for clients such as buildx.
 
-Entries are stored at `<version>/<key>`, one namespace per bucket as on
-Cirun. `restore-keys` match by prefix within the same version, newest
+Entries are stored at `<version>/<key>`, one namespace per bucket.
+`restore-keys` match by prefix within the same version, newest
 first, as on GitHub. The proxy also serves the legacy `_apis/artifactcache`
 API on port 6420 for older actions.
 
@@ -122,7 +122,7 @@ are the ceiling of what a runner can do.
 - **Throughput.** Set gp3 `Throughput: 1000` and `Iops` to match on the
   root volume; the default 125 MiB/s caps restores well below what the
   network does. Instance class is the next lever.
-- **Scope.** As on Cirun, every repository in the organization shares the
+- **Scope.** Every repository in the organization shares the
   bucket, and there is no per-branch isolation: a pull request's job can
   write an entry a main-branch job restores, and one repository can
   restore another's keys. Keep public repositories with fork pull requests
@@ -141,6 +141,6 @@ are the ceiling of what a runner can do.
   against moto in tests. What has not run is an EC2 instance itself. On a
   machine, the Events page and `/var/log/airship-cacheproxy.log` show what
   happened.
-- **BYO bucket.** For runners outside this setup, Cirun's
-  `cirunlabs/cache/s3` action works against any S3-compatible bucket with
-  static keys from repository secrets.
+- **BYO bucket.** For runners outside this setup, an S3-compatible cache
+  action works against a bucket of your own with static keys from
+  repository secrets.

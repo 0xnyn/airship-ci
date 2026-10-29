@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// GCP is what Cirun's GCP extra_config keys ask for: Compute Engine
+// GCP is what the GCP extra_config keys ask for: Compute Engine
 // settings the provider applies to every variant of the runner.
 type GCP struct {
 	// Project overrides the credential's project (extra_config.project_id).
@@ -82,7 +82,7 @@ var (
 	gcpResourceName       = `[a-z]([-a-z0-9]{0,61}[a-z0-9])?`
 	gcpNamePattern        = regexp.MustCompile(`^` + gcpResourceName + `$`)
 	gcpSelfLinkPrefix     = `(https://(www|compute)\.googleapis\.com/compute/(v1|beta|alpha)/)?`
-	// The image forms Cirun documents: a name or family, project:name, a
+	// The image forms accepted: a name or family, project:name, a
 	// projects/ path to an image or machine image, or a self link to one.
 	gcpImagePattern = regexp.MustCompile(`^(` + gcpResourceName + `|[a-z][a-z0-9-]{4,28}[a-z0-9]:` + gcpResourceName +
 		`|` + gcpSelfLinkPrefix + `projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/global/(images|machineImages)/` + gcpResourceName + `)$`)

@@ -752,7 +752,7 @@ func parseDiskSource(source string, scope Scope) (diskSource, error) {
 }
 
 // diskTypePath turns a disk type into the launch zone's resource path. A
-// path from the config (Cirun documents
+// path from the config (the docs describe
 // projects/P/zones/Z/diskTypes/T) names a zone of its own, which is not
 // necessarily where this runner launches: disk types exist in every zone,
 // so only the type's name is kept.

@@ -129,6 +129,10 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
 - Config is environment variables only (`internal/config`); local values live
   in `apps/api/.env` (copy `.env.example`). `CREDENTIALS_KEY` is required.
   The dashboard's env is declared and typed in `apps/dash/.env.schema` via varlock.
+- Dashboard copy follows `apps/dash/COPY.md`: a page description is one line,
+  help text is one or two short sentences, and anything longer links to
+  `apps/docs` with `DocsLink` instead of explaining itself. The documentation
+  is the place for length; the dashboard is not.
 - Colours, radii, fonts and shadows come from `@airship/tokens`: no raw hex
   or `rgb()` in `apps/home` components or dashboard classes, and no Tailwind
   palette colours (`bg-emerald-500`); use the semantic roles (`bg-success`,

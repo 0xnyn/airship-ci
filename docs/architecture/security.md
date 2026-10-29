@@ -84,9 +84,9 @@ This is the sharpest edge of the design, so it gets the most rules.
 | **Deletion is guarded** | Disconnecting a cloud — or replacing its key with one for a *different* account — is **refused while runners launched with it are alive**, because without that key their machines could not be terminated. The check and the delete take the installation lock, so no runner can slip in between |
 
 What the credential can do is your choice, and it should be the minimum:
-[aws-setup.md](aws-setup.md#step-1--create-the-iam-user-aws-admin) and
-[gcp-setup.md](gcp-setup.md#step-3--grant-roles-gcp-admin) and
-[azure-setup.md](azure-setup.md#step-3--least-privilege-optional-azure-admin) give
+[aws-setup-console.md](aws-setup-console.md#step-1--create-the-iam-user-aws-admin) and
+[gcp-setup-console.md](gcp-setup-console.md#step-3--grant-roles-gcp-admin) and
+[azure-setup-console.md](azure-setup-console.md#step-3--least-privilege-optional-azure-admin) give
 least-privilege policies, and [daytona-setup.md](daytona-setup.md#step-2--create-an-api-key-daytona-admin)
 the two permissions a Daytona key needs. On AWS the terminate permission can be conditioned
 on Airship's own tag, so the credential **cannot destroy anything Airship did
@@ -193,7 +193,7 @@ belong in GitHub Actions secrets, which never pass through Airship.
 ## Known exposures, stated plainly
 
 These follow from the model. None is a surprise; each has a mitigation, and
-some of them are a deliberate price for Cirun parity.
+some of them are a deliberate trade-off.
 
 **1. The JIT registration travels in instance metadata.**
 On AWS, anyone in your account who can call `ec2:DescribeInstanceAttribute`
@@ -211,7 +211,7 @@ the sandbox's life, readable by anyone who can reach that sandbox's toolbox
 (exposure 8); it is spent the moment the runner registers.
 
 **2. The cache bucket is one namespace per organization.**
-As on Cirun, there is no per-branch or per-repository isolation: a pull
+There is no per-branch or per-repository isolation: a pull
 request's job can write an entry a main-branch job later restores, and one
 repository can restore another's keys. **Keep public repositories with fork
 pull requests off cache runners**, or make their keys unguessable. The
@@ -228,7 +228,7 @@ it — including a fork pull request's code on a public repository activated
 for public access. Treat it exactly as you would a repository secret.
 
 **5. Any image the account can launch is allowed.**
-As on Cirun, there is no image allowlist. An `airship.yaml` can name any AMI or
+There is no image allowlist. An `airship.yaml` can name any AMI or
 Compute Engine image your credential can boot, any Azure marketplace image
 whose terms the subscription accepted or managed or gallery image of the
 connected subscription, or on Daytona any container

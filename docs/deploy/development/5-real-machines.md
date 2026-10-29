@@ -33,9 +33,9 @@ Any one of the four is enough to understand the whole lifecycle.
 
 | Cloud | Credential it needs | Cheapest useful test | Setup guide |
 | --- | --- | --- | --- |
-| **AWS** | An IAM access key | `t3.medium`, a few cents an hour | [architecture/aws-setup.md](../../architecture/aws-setup.md) |
-| Google Cloud | A service account JSON key | `e2-standard-2` | [architecture/gcp-setup.md](../../architecture/gcp-setup.md) |
-| Azure | A service principal | `Standard_D2s_v5` | [architecture/azure-setup.md](../../architecture/azure-setup.md) |
+| **AWS** | An IAM access key | `t3.medium`, a few cents an hour | [architecture/aws-setup-console.md](../../architecture/aws-setup-console.md) |
+| Google Cloud | A service account JSON key | `e2-standard-2` | [architecture/gcp-setup-console.md](../../architecture/gcp-setup-console.md) |
+| Azure | A service principal | `Standard_D2s_v5` | [architecture/azure-setup-console.md](../../architecture/azure-setup-console.md) |
 | Daytona | An API key | No image to pick, fastest to start | [architecture/daytona-setup.md](../../architecture/daytona-setup.md) |
 
 AWS is the best first choice: it is the most used, it has the one-line
@@ -53,7 +53,7 @@ warning.
 ## Connect it (AWS)
 
 Create the IAM user first:
-[aws-setup.md, step 1](../../architecture/aws-setup.md#step-1--create-the-iam-user-aws-admin).
+[aws-setup-console.md, step 1](../../architecture/aws-setup-console.md#step-1--create-the-iam-user-aws-admin).
 In a scratch account, `AmazonEC2FullAccess` is fine; the scoped policy in
 that guide is what a shared account should use. Airship never assumes a
 role or uses the machine's own identity — it is one long-lived access key,

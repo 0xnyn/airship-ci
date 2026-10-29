@@ -32,9 +32,8 @@ export function SignIn() {
 
   return (
     <AuthFrame>
-      <AuthHeading eyebrow="Sign in" title="Your CI, on your cloud.">
-        Fresh GitHub Actions runners in your own AWS, Google Cloud or Azure
-        account, one per job, configured by an airship.yaml.
+      <AuthHeading eyebrow="Sign in" title="Your CI, on your cloud">
+        GitHub Actions runners in your own AWS, Google Cloud or Azure account.
       </AuthHeading>
       {failure ? (
         <p

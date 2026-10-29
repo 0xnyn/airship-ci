@@ -11,6 +11,7 @@ import { $api } from "@/lib/api";
 import { formatDuration, formatInteger } from "@/lib/format";
 import { CodeBlock } from "./copy-button";
 import { EmptyRow, ErrorRow } from "./data-table";
+import { DocsLink } from "./docs-link";
 import { EventRow } from "./events";
 import { useOrg } from "./org-context";
 import { PageHeader, SectionHeading } from "./page-header";
@@ -21,6 +22,7 @@ import { RelativeTime } from "./time";
 const POLL_MS = 10_000;
 const PERCENT = 100;
 const RECENT = 6;
+const MINUTES_PER_HOUR = 60;
 
 export function Overview() {
   const { org } = useOrg();
@@ -38,7 +40,7 @@ export function Overview() {
   return (
     <>
       <PageHeader
-        description="Jobs and runners across every activated repository in the last 24 hours."
+        description="Fleet and job activity, last 24 hours"
         title="Dashboard"
       />
       {clouds.isSuccess && repos.isSuccess && !ready ? (
@@ -76,7 +78,7 @@ function Stats({ overview }: { overview: Schemas["Overview"] }) {
         <SectionHeading id="last-day">Last 24 hours</SectionHeading>
         <StatGrid label="Jobs">
           <Stat
-            hint={`${formatInteger(overview.jobs)} queued in total`}
+            hint={`${formatInteger(overview.jobs)} across all runners`}
             label="Jobs on Airship"
             value={formatInteger(overview.airshipJobs)}
           />
@@ -96,7 +98,7 @@ function Stats({ overview }: { overview: Schemas["Overview"] }) {
             }
           />
           <Stat
-            hint="Time jobs spent on your machines"
+            hint={`About ${formatInteger(Math.round(overview.runnerMinutes / MINUTES_PER_HOUR))} machine hours`}
             label="Runner minutes"
             value={formatInteger(Math.round(overview.runnerMinutes))}
           />
@@ -109,9 +111,9 @@ function Stats({ overview }: { overview: Schemas["Overview"] }) {
 const runnerStates = [
   {
     dot: "bg-faint",
-    hint: "Waiting for a free slot",
+    hint: "No free slot yet",
     key: "pending",
-    label: "Pending",
+    label: "Waiting",
   },
   {
     dot: "bg-warning",
@@ -121,7 +123,7 @@ const runnerStates = [
   },
   {
     dot: "bg-success",
-    hint: "Booted, waiting for a job",
+    hint: "Booted, no job yet",
     key: "idle",
     label: "Idle",
   },
@@ -220,29 +222,30 @@ function GettingStarted({
   const { org } = useOrg();
   const steps = [
     {
-      description:
-        "The app is installed on this organization. Give it access to the repositories whose jobs should run here.",
+      action: "Repositories",
+      description: "Grant it access on GitHub",
       done: true,
       href: `/${org.login}/repositories`,
       title: "Install the GitHub App",
     },
     {
-      description:
-        "Paste an AWS access key or a Google Cloud service account key under Cloud. Runners launch as machines in that account.",
+      action: "Cloud",
+      description: "Runners launch in the account you connect",
       done: clouds.length > 0,
       href: `/${org.login}/cloud`,
       title: "Connect a cloud",
     },
     {
+      action: "Repositories",
       description:
-        "Only activated repositories can launch machines, so a config file alone never spends your budget.",
+        "Airship only reads airship.yaml in repositories you activate",
       done: repositories.length > 0,
       href: `/${org.login}/repositories`,
       title: "Activate a repository",
     },
     {
-      description:
-        "Define runners in code and point a workflow at one of their labels.",
+      action: "Repositories",
+      description: "Point runs-on at one of its labels",
       done: false,
       href: `/${org.login}/repositories`,
       title: "Commit an airship.yaml",
@@ -294,7 +297,7 @@ function GettingStarted({
                   className={buttonVariants({ size: "sm", variant: "outline" })}
                   href={step.href as Route}
                 >
-                  Open
+                  {step.action}
                 </Link>
               )}
             </li>
@@ -328,9 +331,7 @@ function RecentJobs() {
         <ErrorRow error={jobs.error} fallback="Could not load jobs" />
       ) : null}
       {jobs.isSuccess && items.length === 0 ? (
-        <EmptyRow>
-          No jobs yet. Push to an activated repository to see them here.
-        </EmptyRow>
+        <EmptyRow>No jobs yet. Push to an activated repository.</EmptyRow>
       ) : null}
       {items.length > 0 ? (
         <PanelList>
@@ -392,7 +393,7 @@ function RecentEvents() {
         <ErrorRow error={events.error} fallback="Could not load events" />
       ) : null}
       {events.isSuccess && items.length === 0 ? (
-        <EmptyRow>Nothing has happened yet.</EmptyRow>
+        <EmptyRow>No events yet</EmptyRow>
       ) : null}
       {items.length > 0 ? (
         <PanelList>
@@ -421,13 +422,12 @@ function Usage() {
       - uses: actions/checkout@v5`;
   return (
     <section aria-labelledby="usage" className="grid gap-3">
-      <SectionHeading id="usage">Define a runner and use it</SectionHeading>
+      <SectionHeading id="usage">Define a runner</SectionHeading>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        Commit an <code className="font-mono">airship.yaml</code> at the root of
-        an activated repository, then set{" "}
-        <code className="font-mono">runs-on</code> to one of its labels. The{" "}
-        <code className="font-mono">--run_id</code> suffix keeps each run on its
-        own machine.
+        Commit this at the root of an activated repository, then point{" "}
+        <code className="font-mono">runs-on</code> at one of its labels. The{" "}
+        <code className="font-mono">--run_id</code> suffix gives each run its
+        own machine. <DocsLink page="airship.yaml" />
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
         <CodeBlock

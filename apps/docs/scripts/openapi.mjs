@@ -100,7 +100,7 @@ function rewrite(node, path = "") {
       continue;
     }
     if (key === "summary" && typeof value === "string") {
-      const plain = value.replace(" (Cirun-compatible)", "");
+      const plain = value;
       if (!(plain in PROSE)) {
         throw new Error(
           `summary at ${at} has no documented wording: ${JSON.stringify(plain)}.\n` +

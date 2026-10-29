@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
 import { ErrorRow } from "./data-table";
+import { DocsLink } from "./docs-link";
 
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
@@ -32,7 +33,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader
-        description="Limits that apply to every repository in the organization."
+        description="Limits for the whole organization"
         title="Settings"
       />
       {settings.isError ? (
@@ -58,7 +59,7 @@ function MaxRunners({ initial }: { initial: number }) {
   const update = $api.useMutation("patch", SETTINGS, {
     onSuccess: async (saved) => {
       setValue(String(saved.maxRunners));
-      toast.success(`Saved: at most ${saved.maxRunners} runners at once`);
+      toast.success(`Runner limit saved: ${saved.maxRunners}`);
       await invalidatePath(queryClient, SETTINGS);
     },
   });
@@ -79,7 +80,7 @@ function MaxRunners({ initial }: { initial: number }) {
       onSubmit={submit}
     >
       <Field data-invalid={update.isError || undefined}>
-        <FieldLabel htmlFor="max-runners">Most runners at once</FieldLabel>
+        <FieldLabel htmlFor="max-runners">Runner limit</FieldLabel>
         <Input
           aria-invalid={update.isError || undefined}
           className="w-32 font-mono"
@@ -95,7 +96,7 @@ function MaxRunners({ initial }: { initial: number }) {
         />
         <FieldDescription>
           Live machines across every repository, idle pools included. Jobs past
-          the limit wait for a slot. It bounds what a config file can cost you.
+          the limit wait for a slot. <DocsLink page="Capacity and limits" />
         </FieldDescription>
         {update.isError ? (
           <FieldError>
@@ -120,7 +121,7 @@ function MaxRunners({ initial }: { initial: number }) {
         </div>
       ) : (
         <p className="text-muted-foreground text-xs">
-          Only organization owners can change this.
+          Only organization owners can change this
         </p>
       )}
     </form>

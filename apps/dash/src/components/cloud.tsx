@@ -35,6 +35,7 @@ import {
 } from "@/lib/labels";
 import { CodeBlock } from "./copy-button";
 import { ErrorRow } from "./data-table";
+import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { CloudStatus } from "./status";
@@ -65,6 +66,8 @@ const cloudCopy: Record<
     account: string;
     location: string;
     intro: ReactNode;
+    /** Set where the cache proxy has no object storage to speak to. */
+    noCache?: boolean;
   }
 > = {
   aws: {
@@ -72,11 +75,8 @@ const cloudCopy: Record<
     identity: "Access key",
     intro: (
       <>
-        Create an IAM user with the AmazonEC2FullAccess policy, generate an
-        access key for it, and paste the key here. Runners get an EC2 instance
-        each, in the default VPC of the region a{" "}
-        <code className="font-mono">airship.yaml</code> names, or the default
-        region below.
+        An access key for an IAM user with AmazonEC2FullAccess. Each runner is
+        an EC2 instance. <DocsLink page="Amazon Web Services" />
       </>
     ),
     location: "Default region",
@@ -87,34 +87,21 @@ const cloudCopy: Record<
     identity: "Application",
     intro: (
       <>
-        Register an application in Microsoft Entra, give it the Contributor role
-        on the subscription, create a client secret for it and paste the IDs and
-        the secret here. Runners get a virtual machine each, in the{" "}
-        <code className="font-mono">airship-runners</code> resource group and
-        the region an <code className="font-mono">airship.yaml</code> names, or
-        the default region below. Azure has no object storage the cache proxy
-        speaks, so <code className="font-mono">cache: true</code> launches
-        without it.
+        An Entra application with the Contributor role on the subscription. Each
+        runner is a virtual machine. <DocsLink page="Microsoft Azure" />
       </>
     ),
     location: "Default region",
+    noCache: true,
     title: "Microsoft Azure",
   },
   daytona: {
     account: "Organization",
     identity: "API key",
-    intro: (
-      <>
-        Create an organization API key with the sandbox permissions and paste it
-        here. Runners get a Daytona sandbox each, built from the container image
-        an <code className="font-mono">airship.yaml</code> names (or started
-        from one of your snapshots), in the region it names or the default
-        region below. Daytona has no object storage, so{" "}
-        <code className="font-mono">cache: true</code> launches without the
-        cache proxy.
-      </>
-    ),
+    intro:
+      "An organization API key with the sandbox permissions. Each runner is a sandbox.",
     location: "Default region",
+    noCache: true,
     title: "Daytona",
   },
   gcp: {
@@ -122,11 +109,8 @@ const cloudCopy: Record<
     identity: "Service account",
     intro: (
       <>
-        Create a service account with the Compute Admin role, enable the Compute
-        Engine API, download a JSON key for it and paste the file here. Runners
-        get a Compute Engine instance each, in the zone a{" "}
-        <code className="font-mono">airship.yaml</code> names (or any zone of
-        the region it names), or the default zone below.
+        A JSON key for a service account with the Compute Admin role. Each
+        runner is a Compute Engine instance. <DocsLink page="Google Cloud" />
       </>
     ),
     location: "Default zone",
@@ -145,8 +129,8 @@ export function CloudPage() {
   return (
     <>
       <PageHeader
-        description="Airship launches every runner in your own cloud account with the credentials you connect here. They are stored encrypted and never shown again. Connect any of the clouds; each runner definition says which it launches in."
-        title="Cloud credentials"
+        description="Where Airship launches runners. Credentials are encrypted and never shown again."
+        title="Cloud"
       />
       <CloudSection
         clouds={clouds}
@@ -217,6 +201,12 @@ function CloudSection({
           <p className="max-w-prose text-muted-foreground text-xs/relaxed">
             {copy.intro}
           </p>
+          {copy.noCache ? (
+            <p className="text-muted-foreground text-xs">
+              <code className="font-mono">cache: true</code> launches without
+              the cache proxy here
+            </p>
+          ) : null}
         </div>
         {existing ? (
           <span className="rounded-full border px-2.5 py-1 font-mono text-[11px]">
@@ -285,7 +275,7 @@ function useForgetKey(connect: { isSuccess: boolean; reset: () => void }) {
 function NotConnected({ title }: { title: string }) {
   return (
     <p className="text-muted-foreground text-xs">
-      No {title} account is connected. An organization owner can connect one.
+      No {title} account is connected. Only organization owners can connect one.
     </p>
   );
 }
@@ -296,9 +286,29 @@ function ReplaceNote({ existing }: { existing: Schemas["Cloud"] | undefined }) {
   }
   return (
     <p className="text-muted-foreground text-xs">
-      Pasting a new key replaces the current one. Runners already launched keep
-      working.
+      A new credential replaces the current one. Live runners keep working.
     </p>
+  );
+}
+
+/** A connect form's submit button, named for what it does rather than "Save". */
+function ConnectButton({
+  existing,
+  pending,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+  pending: boolean;
+}) {
+  let label = existing ? "Replace credentials" : "Connect";
+  if (pending) {
+    label = "Verifying…";
+  }
+  return (
+    <div>
+      <Button disabled={pending} type="submit">
+        {label}
+      </Button>
+    </div>
   );
 }
 
@@ -331,7 +341,7 @@ function LocationSelect({
         ))}
       </select>
       <FieldDescription>
-        Used when a runner definition names no region.
+        Used when a definition names no region
       </FieldDescription>
     </Field>
   );
@@ -425,11 +435,7 @@ function ConnectAWSForm({
           {errorMessage(connect.error, "Could not connect AWS")}
         </FieldError>
       ) : null}
-      <div>
-        <Button disabled={connect.isPending} type="submit">
-          {connect.isPending ? "Verifying…" : "Save"}
-        </Button>
-      </div>
+      <ConnectButton existing={existing} pending={connect.isPending} />
     </form>
   );
 }
@@ -494,8 +500,8 @@ function ConnectGCPForm({
             value={key}
           />
           <FieldDescription>
-            The whole JSON file Google Cloud downloads when you create a key.
-            Only its project and email are kept readable.
+            The whole JSON file Google Cloud downloads. Only the project and
+            email stay readable.
           </FieldDescription>
         </Field>
         <LocationSelect
@@ -511,11 +517,7 @@ function ConnectGCPForm({
           {errorMessage(connect.error, "Could not connect Google Cloud")}
         </FieldError>
       ) : null}
-      <div>
-        <Button disabled={connect.isPending} type="submit">
-          {connect.isPending ? "Verifying…" : "Save"}
-        </Button>
-      </div>
+      <ConnectButton existing={existing} pending={connect.isPending} />
     </form>
   );
 }
@@ -593,7 +595,7 @@ function ConnectAzureForm({
             value={subscriptionId}
           />
           <FieldDescription>
-            The subscription the application has the Contributor role on.
+            Where the application has the Contributor role
           </FieldDescription>
         </Field>
         <Field>
@@ -631,9 +633,7 @@ function ConnectAzureForm({
             type="password"
             value={clientSecret}
           />
-          <FieldDescription>
-            The secret&apos;s value, shown once when it is created.
-          </FieldDescription>
+          <FieldDescription>The value, not the secret ID</FieldDescription>
         </Field>
         <LocationSelect
           id="azure-region"
@@ -648,11 +648,7 @@ function ConnectAzureForm({
           {errorMessage(connect.error, "Could not connect Microsoft Azure")}
         </FieldError>
       ) : null}
-      <div>
-        <Button disabled={connect.isPending} type="submit">
-          {connect.isPending ? "Verifying…" : "Save"}
-        </Button>
-      </div>
+      <ConnectButton existing={existing} pending={connect.isPending} />
     </form>
   );
 }
@@ -721,7 +717,7 @@ function ConnectDaytonaForm({
             value={apiKey}
           />
           <FieldDescription>
-            An organization key with write:sandboxes and delete:sandboxes.
+            Needs write:sandboxes and delete:sandboxes
           </FieldDescription>
         </Field>
         <Field>
@@ -737,7 +733,7 @@ function ConnectDaytonaForm({
             value={apiUrl}
           />
           <FieldDescription>
-            Leave empty for the hosted service; set it for your own Daytona.
+            Leave empty for the hosted service
           </FieldDescription>
         </Field>
         <LocationSelect
@@ -753,11 +749,7 @@ function ConnectDaytonaForm({
           {errorMessage(connect.error, "Could not connect Daytona")}
         </FieldError>
       ) : null}
-      <div>
-        <Button disabled={connect.isPending} type="submit">
-          {connect.isPending ? "Verifying…" : "Save"}
-        </Button>
-      </div>
+      <ConnectButton existing={existing} pending={connect.isPending} />
     </form>
   );
 }
@@ -793,9 +785,8 @@ function Disconnect({ cloud }: { cloud: Schemas["Cloud"] }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect {title}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Jobs on this cloud stop getting runners until an account is
-              connected again. Runners that are still alive must finish first;
-              the key itself is not changed on {title}.
+              Jobs on this cloud stop getting runners until you connect an
+              account again. Live runners finish first.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -829,11 +820,8 @@ aws iam create-access-key --user-name airship`;
         Creating the IAM user
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        AmazonEC2FullAccess covers everything a runner needs: launching and
-        terminating instances, reading images and subnets, and creating the
-        egress-only security group Airship uses in the default VPC. Runner
-        machines themselves get no AWS credentials unless a definition sets an
-        instance profile.
+        AmazonEC2FullAccess covers everything a runner needs.{" "}
+        <DocsLink page="Amazon Web Services" />
       </p>
       <CodeBlock
         file="terminal"
@@ -859,12 +847,8 @@ gcloud iam service-accounts keys create service-account.json \\
         Creating the service account
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        The Compute Admin role covers launching and deleting instances, reading
-        images and zones, and creating the Cloud NAT that runners without a
-        public address use. Runner machines get no service account unless a
-        definition sets one with{" "}
-        <code className="font-mono">serviceAccounts</code>. GPU runners also
-        need a GPU quota in the zone, which new projects have at zero.
+        The Compute Admin role covers everything a runner needs. GPU runners
+        also need GPU quota in the zone. <DocsLink page="Google Cloud" />
       </p>
       <CodeBlock
         file="terminal"
@@ -892,20 +876,9 @@ function AzureApp() {
         Registering the Azure application
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        Airship creates one resource group,{" "}
-        <code className="font-mono">airship-runners</code>, in the subscription,
-        with a virtual network and security group per region (and a NAT gateway
-        where definitions set{" "}
-        <code className="font-mono">enable_public_ip: false</code>). Each runner
-        is a virtual machine with its own network interface, public address and
-        OS disk, all deleted with it. The Contributor role covers that; a custom
-        role needs the Microsoft.Compute, Microsoft.Network and
-        Microsoft.Resources write and delete actions. Marketplace images with
-        terms (most third-party ones) must have them accepted on the
-        subscription first (
-        <code className="font-mono">az vm image terms accept</code>), and the
-        sizes a definition names need quota in its regions. Client secrets
-        expire; the next launch fails until a new one is pasted here.
+        The Contributor role covers everything a runner needs. Client secrets
+        expire; launches fail until you paste a new one.{" "}
+        <DocsLink page="Microsoft Azure" />
       </p>
       <CodeBlock
         file="terminal"
@@ -924,14 +897,9 @@ function DaytonaKey() {
         Creating the Daytona API key
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        In the Daytona dashboard, open your organization&apos;s API keys and
-        create one with the Sandboxes write and delete permissions (Volumes read
-        too, if definitions mount volumes). Each runner is a sandbox with
-        auto-stop off, delete-on-stop on and a time to live just past the
-        runner&apos;s maximum lifetime; Airship starts the runner through the
-        toolbox API and the sandbox stops itself when the job is done. Keys with
-        an expiry stop working on that date, and the next launch fails until a
-        new key is pasted here.
+        An organization key needs the Sandboxes write and delete permissions,
+        and Volumes read if definitions mount volumes. Keys with an expiry stop
+        working on that date.
       </p>
     </section>
   );

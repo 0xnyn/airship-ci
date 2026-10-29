@@ -51,7 +51,7 @@ export function Events() {
   return (
     <>
       <PageHeader
-        description="What Airship did and why: launches, failures, clouds connected, repositories activated, config files that stopped parsing."
+        description="What Airship did. Kept for 30 days."
         title="Events"
       />
       <FilterTabs
@@ -66,9 +66,7 @@ export function Events() {
       ) : null}
       {events.isSuccess && items.length === 0 ? (
         <EmptyRow>
-          {level === "all"
-            ? "Nothing has happened yet."
-            : "No events at this level in the last 30 days."}
+          {level === "all" ? "No events yet" : "No events at this level"}
         </EmptyRow>
       ) : null}
       {items.length > 0 ? (

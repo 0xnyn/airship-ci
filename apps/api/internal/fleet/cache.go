@@ -87,7 +87,7 @@ func (s *Service) CacheGrant(ctx context.Context, token string) (cloud.Grant, er
 	if !ok {
 		return cloud.Grant{}, ErrNoCacheGrant
 	}
-	// One namespace per bucket, as Cirun: entries are addressed by key and
+	// One namespace per bucket: entries are addressed by key and
 	// version alone, so repositories of one organization share a cache.
 	grant, err := cacher.CacheGrant(ctx, secret, runner.Region, *runner.CacheBucket, "", runner.Name, s.cfg.CacheGrantTTL)
 	if err != nil {

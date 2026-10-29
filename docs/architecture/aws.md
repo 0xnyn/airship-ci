@@ -6,7 +6,7 @@ behaves when EC2 says no.
 
 **Audience.** Cloud and platform engineers who have to approve the IAM
 policy and explain the blast radius. For the hands-on path, read
-[aws-setup.md](aws-setup.md) next.
+[aws-setup-console.md](aws-setup-console.md) next.
 
 **Status.** The EC2 provider runs against [moto](https://github.com/getmoto/moto)
 (`make test-aws-emulator`: request shapes, tags, default VPC and security
@@ -198,7 +198,7 @@ file and the boot script skips the download entirely.
 extra_config:
   BlockDeviceMappings:
     - VolumeSize: 100           # 8–16384 GiB, default 75
-      VolumeType: gp3           # gp2 (default, as Cirun), gp3, io1, io2
+      VolumeType: gp3           # gp2 (default), gp3, io1, io2
       Iops: 6000                # gp3 3000–16000; io1/io2 required
       Throughput: 1000          # gp3 only, 125–1000 MiB/s
       VolumeInitializationRate: 300   # 100–300 MiB/s, snapshot-backed AMIs
@@ -209,7 +209,7 @@ instance. Combinations EC2 would refuse are rejected as config errors — for
 instance `Throughput: 1000` needs `Iops: 4000`, because EBS allows at most
 a quarter MiB/s of throughput per IOPS.
 
-**The default is gp2 at 75 GiB, matching Cirun.** On anything disk-bound —
+**The default is gp2 at 75 GiB.** On anything disk-bound —
 a Docker build, a large cache restore, a monorepo checkout — gp3's default
 125 MiB/s is usually the ceiling you are hitting, not the network and not
 the CPU. `VolumeType: gp3`, `Iops: 6000`, `Throughput: 1000` is the single
@@ -273,7 +273,7 @@ actions/cache  ──►   terminates TLS for the             reserve/commit as 
 
 Two things to know before you turn it on:
 
-- **Scope.** As on Cirun, every repository in the organization shares the
+- **Scope.** Every repository in the organization shares the
   bucket and there is no per-branch isolation: a pull request's job can
   write an entry a main-branch job restores. Keep public repositories with
   fork pull requests off cache runners, or make their keys unguessable.

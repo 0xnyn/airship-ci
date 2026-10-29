@@ -2134,7 +2134,7 @@
             "apiToken": []
           }
         ],
-        "summary": "Read the organization's access.yaml (Cirun-compatible)",
+        "summary": "Read the organization's access.yaml",
         "tags": [
           "Developer API"
         ]
@@ -2178,7 +2178,7 @@
             "apiToken": []
           }
         ],
-        "summary": "Open a pull request changing access.yaml (Cirun-compatible)",
+        "summary": "Open a pull request changing access.yaml",
         "tags": [
           "Developer API"
         ]
@@ -2214,7 +2214,7 @@
             "apiToken": []
           }
         ],
-        "summary": "List connected clouds (Cirun-compatible)",
+        "summary": "List connected clouds",
         "tags": [
           "Developer API"
         ]
@@ -2258,7 +2258,7 @@
             "apiToken": []
           }
         ],
-        "summary": "Connect a cloud (Cirun-compatible)",
+        "summary": "Connect a cloud",
         "tags": [
           "Developer API"
         ]
@@ -2294,7 +2294,7 @@
             "apiToken": []
           }
         ],
-        "summary": "List repositories (Cirun-compatible)",
+        "summary": "List repositories",
         "tags": [
           "Developer API"
         ]
@@ -2338,7 +2338,7 @@
             "apiToken": []
           }
         ],
-        "summary": "Activate or deactivate a repository (Cirun-compatible)",
+        "summary": "Activate or deactivate a repository",
         "tags": [
           "Developer API"
         ]

@@ -266,8 +266,8 @@ sandbox; pass the parallelism explicitly.
 
 ## Shapes, images and snapshots
 
-Cirun has no Daytona cloud, so its fields were given meanings rather than
-copied:
+Daytona is not a machine cloud like the others, so the config fields were
+given meanings of their own:
 
 ```yaml
 runners:

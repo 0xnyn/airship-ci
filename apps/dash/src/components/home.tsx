@@ -49,9 +49,7 @@ function InstallApp() {
   return (
     <AuthFrame>
       <AuthHeading eyebrow="Get started" title="Install Airship on GitHub">
-        Airship runs the workflows of organizations that installed its GitHub
-        App. Install it on yours, then come back here. If it is already
-        installed, you need to be a member of that organization.
+        Airship only sees organizations it is installed on.
       </AuthHeading>
       {installUrl ? (
         <a className={buttonVariants({ size: "lg" })} href={installUrl}>
@@ -59,7 +57,7 @@ function InstallApp() {
         </a>
       ) : (
         <p className="text-muted-foreground text-xs">
-          No GitHub App is configured for this Airship deployment.
+          No GitHub App is configured for this Airship deployment
         </p>
       )}
     </AuthFrame>

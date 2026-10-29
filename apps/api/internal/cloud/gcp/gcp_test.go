@@ -384,7 +384,7 @@ func TestExtraConfigOptions(t *testing.T) {
 		t.Errorf("boot disk = %+v", boot)
 	}
 	extra := instance.GetDisks()[1]
-	// Cirun documents a zonal diskType path; the zone in it is whatever the
+	// A zonal diskType path is accepted; the zone in it is whatever the
 	// user copied, so only the type survives and the launch zone is used.
 	zone := strings.TrimPrefix(instance.GetZone(), f.server.URL+"/compute/v1/projects/"+project+"/zones/")
 	if extra.GetBoot() || !extra.GetAutoDelete() || extra.GetInitializeParams().GetDiskSizeGb() != 42 || extra.GetInitializeParams().GetDiskType() != "zones/"+zone+"/diskTypes/pd-balanced" {

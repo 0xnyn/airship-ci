@@ -46,6 +46,7 @@ import { errorMessage } from "@/lib/api-errors";
 
 import { CodeBlock } from "./copy-button";
 import { EmptyRow, TableSkeleton } from "./data-table";
+import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { RelativeTime } from "./time";
@@ -59,14 +60,14 @@ export function APIKeys() {
   return (
     <>
       <PageHeader
-        description="Tokens let scripts activate repositories and connect clouds without a browser, and let machines built with provision_via: pull_from_api fetch their boot script. They belong to this organization."
+        description="Tokens for scripts and the Airship API"
         title="API keys"
       />
       {isAdmin ? (
         <APITokens />
       ) : (
         <EmptyRow>
-          Only organization owners can see and create API keys.
+          Only organization owners can see and create API keys
         </EmptyRow>
       )}
       <Usage />
@@ -75,16 +76,12 @@ export function APIKeys() {
 }
 
 function Usage() {
-  const cirun = [
-    "pip install cirun",
-    `export CIRUN_API_ENDPOINT=${ENV.NEXT_PUBLIC_API_URL}/api/v1`,
-    "export CIRUN_API_KEY=asa_...",
-    "cirun repo add OWNER/REPO",
-    "cirun cloud connect aws --access-key AKIA... --secret-key ...",
-    "cirun cloud connect gcp --key-file service-account.json",
-    "cirun cloud connect azure --subscription-id ... --tenant-id ... --client-id ... --client-secret ...",
-    `curl -X POST ${ENV.NEXT_PUBLIC_API_URL}/api/v1/cloud-connect -H "Authorization: Bearer asa_..." \\`,
-    `  -H "Content-Type: application/json" -d '{"cloud": "daytona", "credentials": {"api_key": "dtn_..."}}'`,
+  const clouds = [
+    `curl ${ENV.NEXT_PUBLIC_API_URL}/api/v1/cloud-connect \\`,
+    '  -H "Authorization: Bearer asa_..."',
+    `curl -X POST ${ENV.NEXT_PUBLIC_API_URL}/api/v1/cloud-connect \\`,
+    '  -H "Authorization: Bearer asa_..." -H "Content-Type: application/json" \\',
+    `  -d '{"cloud": "aws", "credentials": {"access_key": "AKIA...", "secret_key": "..."}}'`,
   ].join("\n");
   const curl = [
     `curl ${ENV.NEXT_PUBLIC_API_URL}/api/v1/repo \\`,
@@ -100,9 +97,7 @@ function Usage() {
         Using a key
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        Send the key as a bearer token. The routes are the ones Cirun's command
-        line client speaks, so cirun-py works as is: point it at this deployment
-        and use the key.
+        Send the key as a bearer token. <DocsLink page="Developer API" />
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
         <CodeBlock
@@ -113,9 +108,9 @@ function Usage() {
         />
         <CodeBlock
           file="terminal"
-          label="Copy cirun-py example"
+          label="Copy clouds example"
           language="shell"
-          value={cirun}
+          value={clouds}
         />
       </div>
     </section>
@@ -137,13 +132,11 @@ export function APITokens() {
     body = <TableSkeleton />;
   } else if (tokens.isError) {
     body = (
-      <EmptyRow>{errorMessage(tokens.error, "Could not list tokens")}</EmptyRow>
+      <EmptyRow>{errorMessage(tokens.error, "Could not list keys")}</EmptyRow>
     );
   } else if (items.length === 0) {
     body = (
-      <EmptyRow>
-        No keys yet. Create one to manage repositories and clouds from a script.
-      </EmptyRow>
+      <EmptyRow>No keys yet. Create one to use the API from a script.</EmptyRow>
     );
   } else {
     body = (
@@ -151,7 +144,7 @@ export function APITokens() {
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead>Token</TableHead>
+            <TableHead>Key</TableHead>
             <TableHead>Created</TableHead>
             <TableHead>Last used</TableHead>
             <TableHead className="w-0">
@@ -190,12 +183,12 @@ export function APITokens() {
     <div className="grid gap-3">
       <div className="flex items-start justify-between gap-4">
         <p className="text-muted-foreground text-xs">
-          A key can activate any repository the app can see and replace the
-          cloud credentials. Treat it like a cloud credential.
+          A key can activate repositories and replace cloud credentials. Treat
+          it like one.
         </p>
         <Button onClick={() => setCreating(true)} size="sm" variant="outline">
           <Plus />
-          New key
+          Create key
         </Button>
       </div>
       {body}
@@ -260,7 +253,7 @@ function CreateTokenDialog({
           <DialogHeader>
             <DialogTitle>New API key</DialogTitle>
             <DialogDescription>
-              The key is shown once, after you create it.
+              The key is shown once, right after you create it
             </DialogDescription>
           </DialogHeader>
           <Field data-invalid={create.isError || undefined}>
@@ -271,16 +264,16 @@ function CreateTokenDialog({
               id="api-token-name"
               maxLength={63}
               onChange={(event) => setName(event.target.value)}
-              placeholder="cirun-py on CI"
+              placeholder="release script on CI"
               required
               value={name}
             />
             <FieldDescription>
-              What uses it, so you know what breaks if you revoke it.
+              What uses it, so you know what breaks if you revoke it
             </FieldDescription>
             {create.isError ? (
               <FieldError>
-                {errorMessage(create.error, "Could not create the token")}
+                {errorMessage(create.error, "Could not create the key")}
               </FieldError>
             ) : null}
           </Field>
@@ -320,8 +313,8 @@ function TokenSecretDialog({
         <DialogHeader>
           <DialogTitle>{secret.apiToken.name}</DialogTitle>
           <DialogDescription>
-            This key is shown once. Airship only stores a hash of it; if you
-            lose it, revoke it and create another.
+            Copy it now. Airship stores only a hash, so it cannot be shown
+            again.
           </DialogDescription>
         </DialogHeader>
         <CodeBlock label="Copy key" value={secret.token} />
@@ -346,7 +339,7 @@ function RevokeToken({ token }: { token: Schemas["APIToken"] }) {
   const revoke = $api.useMutation("delete", "/v1/orgs/{org}/api-tokens/{id}", {
     onError: (error) => {
       setOpen(false);
-      toast.error(errorMessage(error, "Could not revoke the token"));
+      toast.error(errorMessage(error, "Could not revoke the key"));
     },
     onSuccess: async () => {
       setOpen(false);
@@ -365,7 +358,7 @@ function RevokeToken({ token }: { token: Schemas["APIToken"] }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke {token.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Scripts using it are refused from their next request.
+              Scripts using it stop working immediately
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -39,7 +39,7 @@ runners:
 	}
 }
 
-// Cirun's fallback example #3: lists are zipped, scalars repeat.
+// Fallback example: lists are zipped, scalars repeat.
 func TestFallbacksZip(t *testing.T) {
 	f := mustParse(t, `
 runners:
@@ -178,7 +178,7 @@ runners:
 `, "email must be a service account address"},
 		"label prefix": {`
 runners:
-  - {name: a, cloud: aws, instance_type: c7i.large, labels: [cirun-a]}
+  - {name: a, cloud: aws, instance_type: c7i.large, labels: [other-a]}
 `, `must start with "airship-"`},
 		"suffix separator in label": {`
 runners:
@@ -321,7 +321,7 @@ func TestParseRejectsHugeAndAliasBombs(t *testing.T) {
 	}
 }
 
-// Cirun's AWS extra_config and gpu fields all land on the runner.
+// The AWS extra_config and gpu fields all land on the runner.
 func TestParseExtraConfig(t *testing.T) {
 	f := mustParse(t, `
 runners:
@@ -516,7 +516,7 @@ func TestArchForInstanceType(t *testing.T) {
 	}
 }
 
-// A GCP definition keeps Cirun's shape: region is a zone, gpu names the
+// A GCP definition: region is a zone, gpu names the
 // accelerator, and extra_config carries Compute Engine settings.
 func TestGCPRunner(t *testing.T) {
 	f := mustParse(t, `
@@ -875,7 +875,7 @@ func TestGlobalFileAllowsIdle(t *testing.T) {
 	}
 }
 
-// Every runner registers the product label, as Cirun registers cirun.io,
+// Every runner registers the product label,
 // so a job may ask for any Airship runner next to its config label.
 func TestPlanProductLabel(t *testing.T) {
 	r := Runner{Name: "build", Cloud: CloudAWS, Labels: []string{"airship-build"}, Variants: []Variant{{InstanceType: "c7i.large", Arch: "x64"}}}

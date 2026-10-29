@@ -20,7 +20,7 @@ import (
 )
 
 // DefaultRegion is where runners launch when neither the config nor the
-// credentials say; Cirun's default.
+// credentials say.
 const DefaultRegion = "eu-west-1"
 
 // Cloud is a connected cloud account, without its secret.
@@ -71,7 +71,7 @@ func (h *handlers) listClouds(ctx context.Context, in *orgInput) (*cloudListOutp
 }
 
 // ConnectAWS is the request body for connecting an AWS account: an IAM
-// user's access key, as Cirun asks for it.
+// user's access key.
 type ConnectAWS struct {
 	AccessKeyID     string `doc:"IAM access key ID"                                 json:"accessKeyId" maxLength:"128" minLength:"16" pattern:"^[A-Z0-9]+$"`
 	SecretAccessKey string `doc:"IAM secret access key"                             json:"secretAccessKey" maxLength:"128" minLength:"16"`
@@ -110,7 +110,7 @@ func (h *handlers) connectAWS(ctx context.Context, in *connectAWSInput) (*cloudO
 }
 
 // ConnectGCP is the request body for connecting a Google Cloud project: a
-// service account's JSON key, pasted whole, as Cirun asks for it.
+// service account's JSON key, pasted whole.
 type ConnectGCP struct {
 	ServiceAccountKey string `doc:"The service account key file's JSON, as downloaded from Google Cloud" json:"serviceAccountKey" maxLength:"16384" minLength:"2"`
 	DefaultRegion     string `default:"us-central1" doc:"Zone (us-central1-b) or region (us-central1) used when a config names none" json:"defaultRegion,omitempty" maxLength:"64" pattern:"^[a-z]+-[a-z]+[0-9]+(-[a-z])?$"`
@@ -180,7 +180,7 @@ func (h *handlers) connectDaytona(ctx context.Context, in *connectDaytonaInput) 
 
 // ConnectAzure is the request body for connecting an Azure subscription: a
 // Microsoft Entra application (service principal) with the Contributor
-// role on the subscription, as Cirun asks for it.
+// role on the subscription.
 type ConnectAzure struct {
 	SubscriptionID string `doc:"Subscription ID" format:"uuid" json:"subscriptionId"`
 	TenantID       string `doc:"Directory (tenant) ID of the application" format:"uuid" json:"tenantId"`

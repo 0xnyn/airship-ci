@@ -4,7 +4,7 @@ export const skipReasonLabel: Record<string, string> = {
   config_invalid: "The repository's airship.yaml has a problem",
   installation_suspended: "The GitHub App installation is suspended",
   no_cloud: "No cloud is connected",
-  public_repository: "Public repository; public access is not allowed",
+  public_repository: "The repository is public and public access is off",
   repository_inactive: "The repository is not activated",
   unsatisfiable_labels: "No runner serves all of its labels",
 };

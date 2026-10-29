@@ -169,7 +169,7 @@ func Plan(jobLabels []string, candidates []Candidate) []Attempt {
 
 // registeredLabels are what a runner registers with GitHub: the defaults
 // every self-hosted runner carries, the cloud, whether it has a GPU (as
-// Cirun labels them), the definition's labels and the job's own config
+// they are labelled), the definition's labels and the job's own config
 // labels. The OS label is left to the runner, which knows what it runs on.
 func registeredLabels(cloud string, arch string, gpu bool, defined, asked []string) []string {
 	labels := []string{"self-hosted", arch, cloud, "cpu", ProductLabel}

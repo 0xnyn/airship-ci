@@ -23,7 +23,7 @@ const (
 	defaultNetwork = "global/networks/default"
 	// NATName names the Cloud Router and NAT the provider creates in a
 	// region for runners launched without a public address on the default
-	// network, as Cirun does. Runners on another network get their own,
+	// network. Runners on another network get their own,
 	// named after it (see natName): a NAT serves one network.
 	NATName = "airship-nat"
 )

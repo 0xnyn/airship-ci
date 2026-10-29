@@ -103,7 +103,7 @@ Ordered by how often it happens.
 | **Instances keep running after jobs finish**; the AWS bill climbs | `DATABASE_URL` is on port 6543 (transaction mode), so the reconciler's advisory lock leaked and the reconciler stopped on every replica | Switch to 5432 and deploy. Restarting the Supabase project clears the stuck lock at once ([3-supabase.md](3-supabase.md#1-the-session-pooler-never-the-transaction-pooler)) |
 | Jobs stay queued, nothing in **Events** | Webhooks are not arriving | GitHub App → Recent Deliveries. `401` = secret mismatch, `502`/timeout = API down or wrong URL, nothing at all = **Workflow job** not subscribed |
 | Jobs stay queued, `capacity.reached` in **Events** | `max_runners` is below the queue | Raise **Most runners at once** under **Settings** |
-| Jobs stay queued, an EC2 error in **Events** | The customer's quota or IAM | The message is the cloud's own; [aws-setup.md](../../architecture/aws-setup.md) covers the policy |
+| Jobs stay queued, an EC2 error in **Events** | The customer's quota or IAM | The message is the cloud's own; [aws-setup-console.md](../../architecture/aws-setup-console.md) covers the policy |
 | Sign-in loops back to the sign-in page | Dashboard and API are not on the same registrable domain | Nothing to configure — the hostnames have to change ([1-accounts.md](1-accounts.md#3-two-hostnames-on-one-domain)) |
 | `/healthz` says `"status":"degraded"`, `"database":"down"` | Supabase pool size too small, or a network restriction that no longer matches Render's outbound ranges | [3-supabase.md, steps 4–5](3-supabase.md#step-4--pool-size) |
 | Everything is fine but jobs are slow to start | Normal: 1–3 minutes is instance boot plus runner registration, not Airship | |

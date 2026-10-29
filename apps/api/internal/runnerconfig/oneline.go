@@ -6,7 +6,7 @@ import (
 )
 
 // One-line runners describe the machine in the label itself, so a
-// workflow needs no config file, as Cirun's "one line change" runners:
+// workflow needs no config file — a "one line change" runner:
 //
 //	runs-on: airship-aws-t2-large-ubuntu2204--${{ github.run_id }}
 //	runs-on: airship-aws-c7g-xlarge-spot

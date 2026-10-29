@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// An Azure definition names VM sizes, regions and images as Cirun's docs
+// An Azure definition names VM sizes, regions and images as Azure's docs
 // spell them, with the OS disk and the public address in extra_config.
 func TestAzureRunner(t *testing.T) {
 	f := mustParse(t, `

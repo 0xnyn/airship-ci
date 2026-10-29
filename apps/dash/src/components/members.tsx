@@ -35,16 +35,13 @@ export function Teams() {
 
   return (
     <>
-      <PageHeader
-        description="Everyone who has opened this dashboard. Access follows GitHub: organization owners can change settings, other members can look, and anyone removed from the organization loses access within the hour."
-        title="Teams"
-      />
+      <PageHeader description="Who can open this dashboard" title="Teams" />
       {members.isPending ? <TableSkeleton /> : null}
       {members.isError ? (
         <ErrorRow error={members.error} fallback="Could not load members" />
       ) : null}
       {members.isSuccess && items.length === 0 ? (
-        <EmptyRow>Nobody has signed in yet.</EmptyRow>
+        <EmptyRow>Nobody has signed in yet</EmptyRow>
       ) : null}
       {items.length > 0 ? (
         <Table>
@@ -52,7 +49,7 @@ export function Teams() {
             <TableRow>
               <TableHead>Member</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead className="text-right">Checked with GitHub</TableHead>
+              <TableHead className="text-right">Role checked</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -88,10 +85,8 @@ export function Teams() {
         </Table>
       ) : null}
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        To give someone access, add them to the GitHub organization. To let them
-        change settings, make them an organization owner. Who may launch
-        organization-wide runners is decided per repository in{" "}
-        <code className="font-mono">access.yaml</code>.
+        Add someone to the GitHub organization to give them access, or make them
+        an owner to let them change settings.
       </p>
     </>
   );

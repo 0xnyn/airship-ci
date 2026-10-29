@@ -39,6 +39,7 @@ import { errorMessage } from "@/lib/api-errors";
 import { parseRepositoryInput } from "@/lib/repository-name";
 
 import { EmptyRow, FilterTabs, TableSkeleton } from "./data-table";
+import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { StatusDot } from "./status";
@@ -71,16 +72,7 @@ export function Repositories() {
   return (
     <>
       <PageHeader
-        description={
-          <>
-            Airship only reads the{" "}
-            <code className="font-mono">airship.yaml</code> of repositories you
-            activate here, so a file alone never launches a machine. Jobs in an
-            activated repository that ask for a{" "}
-            <code className="font-mono">airship-</code> label get a fresh runner
-            each.
-          </>
-        }
+        description="Repositories Airship may run jobs for"
         title="Repositories"
       />
       <ConnectGitHub />
@@ -156,7 +148,7 @@ function ConnectGitHub() {
 
   return (
     <Step
-      description="The app is installed on this organization. Grant it access to every repository whose jobs should run here, including the .airship repository if you define organization runners."
+      description="Grant the app access on GitHub"
       number={1}
       title="Connect GitHub"
     >
@@ -173,7 +165,7 @@ function ConnectGitHub() {
           </a>
         ) : (
           <p className="text-muted-foreground text-xs">
-            No GitHub App is configured for this deployment.
+            No GitHub App is configured for this deployment
           </p>
         )}
       </div>
@@ -214,7 +206,7 @@ function Activate() {
       return;
     }
     if (match.activated) {
-      setProblem(`${match.fullName} is already active.`);
+      setProblem(`${match.fullName} is already activated`);
       return;
     }
     setProblem(null);
@@ -223,7 +215,7 @@ function Activate() {
 
   return (
     <Step
-      description="Enter a repository to activate Airship on it. Its runners are defined in an airship.yaml at the root of the repository, read at each job's commit."
+      description="Runners come from its airship.yaml"
       number={2}
       title="Activate a repository"
     >
@@ -263,7 +255,7 @@ function Activate() {
         </form>
       ) : (
         <p className="text-muted-foreground text-xs">
-          Only organization owners can activate repositories.
+          Only organization owners can activate repositories
         </p>
       )}
       <ActivateDialog
@@ -303,7 +295,7 @@ function ActivatedList() {
       <EmptyRow>
         {visible === 0
           ? "The app cannot see any repositories yet. Grant it access on GitHub."
-          : `None of the ${visible} repositories the app can see is activated.`}
+          : `None of the ${visible} repositories the app can see is activated`}
       </EmptyRow>
     );
   }
@@ -314,7 +306,7 @@ function ActivatedList() {
         <TableRow>
           <TableHead>Repository</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>airship.yaml on the default branch</TableHead>
+          <TableHead>airship.yaml (default branch)</TableHead>
           <TableHead className="text-right">Checked</TableHead>
           <TableHead className="w-0 text-right">Active</TableHead>
         </TableRow>
@@ -398,7 +390,7 @@ function ConfigStatus({ repo }: { repo: Schemas["Repository"] }) {
   if (!config.sha) {
     return (
       <span className="text-muted-foreground">
-        None; jobs can still use one-line labels and organization runners
+        None (one-line labels still work)
       </span>
     );
   }
@@ -486,23 +478,20 @@ function ActivateDialog({
           <DialogHeader>
             <DialogTitle>Activate {repo.fullName}?</DialogTitle>
             <DialogDescription>
-              Jobs asking for a <code className="font-mono">airship-</code>{" "}
-              label will launch the machines its{" "}
-              <code className="font-mono">airship.yaml</code> defines, in your
-              connected cloud account, and its idle pools start right away. Pull
-              requests from forks always use the file on the default branch,
-              never their own.
+              Jobs asking for an <code className="font-mono">airship-</code>{" "}
+              label will launch machines in your cloud account, and any idle
+              pools start right away. <DocsLink page="Security and trust" />
             </DialogDescription>
           </DialogHeader>
           <Field orientation="horizontal">
             <FieldContent>
               <FieldLabel htmlFor="allow-public">
-                Keep running jobs while it is public
+                Run jobs while public
               </FieldLabel>
               <FieldDescription>
                 {repo.private
-                  ? "If the repository is made public, Airship stops running its jobs unless this is on."
-                  : "This repository is public: anyone can open a pull request and run code on your machines."}
+                  ? "If this repository becomes public, Airship stops its jobs unless this is on"
+                  : "This repository is public: anyone who opens a pull request can run code on your machines"}
               </FieldDescription>
             </FieldContent>
             <Switch
@@ -525,7 +514,7 @@ function ActivateDialog({
 const modeLabel: Record<Schemas["Pool"]["mode"], string> = {
   fixed: "Always",
   schedule: "Scheduled",
-  usage: "After use",
+  usage: "After a job",
 };
 
 function Pools() {
@@ -545,8 +534,8 @@ function Pools() {
     return (
       <EmptyRow>
         No idle pools. Add an <code className="font-mono">idle:</code> section
-        to a runner in an activated repository to keep machines booted and
-        registered ahead of jobs. Pools are read from the default branch.
+        to a runner to keep machines ready before jobs arrive.{" "}
+        <DocsLink page="Idle runners" />
       </EmptyRow>
     );
   }
@@ -556,7 +545,7 @@ function Pools() {
         <TableRow>
           <TableHead>Runner</TableHead>
           <TableHead>Mode</TableHead>
-          <TableHead className="text-right">Wanted now</TableHead>
+          <TableHead className="text-right">Wanted</TableHead>
           <TableHead className="text-right">Idle</TableHead>
           <TableHead className="text-right">Running jobs</TableHead>
         </TableRow>
@@ -614,10 +603,10 @@ function OrganizationConfig() {
   if (!found) {
     return (
       <EmptyRow>
-        No organization runners. Create a repository named{" "}
-        <code className="font-mono">.airship</code> with a{" "}
-        <code className="font-mono">airship.global.yaml</code> to share runner
-        definitions across repositories, and give the app access to it.
+        No organization runners. Add an{" "}
+        <code className="font-mono">airship.global.yaml</code> to a{" "}
+        <code className="font-mono">.airship</code> repository to share
+        definitions. <DocsLink page="Organization-wide runners" />
       </EmptyRow>
     );
   }
@@ -626,8 +615,9 @@ function OrganizationConfig() {
       {problem ? <p className="text-destructive text-xs">{problem}</p> : null}
       <p className="text-muted-foreground text-xs">
         {restricted
-          ? "access.yaml decides which repositories and people can use these runners."
-          : "There is no access.yaml, so every activated repository can use these runners."}
+          ? "access.yaml decides which repositories and people can use these runners"
+          : "No access.yaml, so every activated repository can use these runners"}{" "}
+        <DocsLink page="Access control" />
       </p>
       <RunnerSummary runners={runners} />
     </div>

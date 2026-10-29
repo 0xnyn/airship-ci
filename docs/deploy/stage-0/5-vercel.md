@@ -25,7 +25,11 @@ serve the pages, and everything with state lives on Render and Supabase.
 Vercel installs from the repository root, because `apps/dash` is part of
 the pnpm workspace, and builds the `@airship/client` and `@airship/ui`
 sources along with the app (`transpilePackages`). The generated API client
-is committed, so the build doesn't need Go.
+is committed, so the build doesn't need Go: `apps/dash/turbo.json` drops
+the `^build` dependency the root config gives every other package, which
+would otherwise pull `@airship/api`'s Go build into this one. A build that
+fails with `go: command not found` is running from the wrong Root
+Directory — it must be `apps/dash`.
 
 ---
 

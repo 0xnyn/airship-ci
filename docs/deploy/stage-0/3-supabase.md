@@ -115,7 +115,7 @@ postgres://airship.<ref>:<password>@aws-<n>-<region>.pooler.supabase.com:5432/po
 
 | Part | Where it comes from |
 | --- | --- |
-| `airship.<ref>` | Through the shared pooler the user name carries the project ref: the role from above, a dot, then your project's ref (the `<ref>` in the host Supabase shows). **`airship` alone fails** with `Tenant or user not found` |
+| `airship.<ref>` | Through the shared pooler the user name carries the project ref: the role from above, a dot, then the project's ref. The ref is the 20 characters after `/project/` in the dashboard URL, also shown as **Project Settings → General → Project ID**; the pooler host does not contain it. Easiest is to copy the Connect dialog's own string, which reads `postgres.<ref>`, and swap `postgres` for `airship`, keeping the dot and the ref. `airship` **alone fails** with `Tenant or user not found` |
 | `<password>` | The `openssl rand -hex 24` above. Percent-encode it if it contains `@`, `:`, `/`, `?` or `#` — the `hex` one doesn't |
 | the host | Copy it from the Connect dialog. `<n>` is a pooler cluster number and can't be worked out from the region |
 | `:5432` | Session mode. **Never 6543** |
@@ -166,8 +166,11 @@ doesn't use them.
 ## Step 4 — Pool size
 
 In session mode, every client connection holds one of the pooler's server
-connections. The limit is the **Pool Size** under **Database Settings →
-Connection pooling**, which is small on the smallest compute sizes.
+connections. The limit is **Pool Size**, in **Project Settings → Database →
+Connection pooling** (`/dashboard/project/<ref>/settings/database` — the
+gear, not the **Database** item in the left nav, which is the table editor
+and roles). Older dashboards label the field *Default pool size*. It is
+small on the smallest compute sizes.
 
 Airship's usage, with `pool_max_conns=4`:
 
@@ -181,11 +184,17 @@ Airship's usage, with `pool_max_conns=4`:
 Set the pool size to at least **20**. If it's too small, new connections
 fail with `max clients reached`, and the API's `/healthz` turns `degraded`.
 
+**Max client connections**, on the same page, is read-only: it comes from
+the compute size, and raising Pool Size does not raise it. Pool Size is how
+many connections the pooler opens to Postgres; that one is how many clients
+may attach to the pooler. In session mode each client pins a server
+connection, so both have to cover the table above.
+
 ---
 
 ## Step 5 — Network and TLS
 
-Under **Database Settings**:
+On the same **Project Settings → Database** page:
 
 - **Enforce SSL on incoming connections**: on.
 - **Network Restrictions**: allow only the API's outbound addresses. On
@@ -258,6 +267,8 @@ Next: [step 4 — the API on Render](4-render.md).
 | Finished machines stay up until `RUNNER_MAX_LIFETIME`, idle runners are never reaped | `DATABASE_URL` uses port 6543 (transaction mode). Switch to 5432 and deploy. The stuck lock may hold until the pooler drops that connection; restarting the project clears it at once |
 | `dial tcp [2a05:...]:5432: connect: network is unreachable` | The direct connection's IPv6 address, from a platform without IPv6. Use the session pooler |
 | `FATAL: Tenant or user not found` | The user is `airship` instead of `airship.<ref>`, or the host is a different pooler cluster than the Connect dialog shows |
+| `dial tcp 127.0.0.1:5432: connect: connection refused`, with `database=airship` | `DATABASE_URL` never reached the command, so `godotenv` loaded `apps/api/.env` and it tried your local Postgres. Usually a space after the `\` line continuation — zsh then runs the assignment and `go run` as two commands, and prints `command not found:  `. Put it all on one line |
+| `password authentication failed for user "airship.<ref>"` (SQLSTATE 28P01), against a `db.<ref>.supabase.co` address | Not the password: the `airship.<ref>` user is only for the pooler. The direct host goes straight to Postgres, which has no such role and reports an unknown role this way. Swap the host for `aws-<n>-<region>.pooler.supabase.com` — and use the pooler anyway, so you test the string Render will use |
 | `max clients reached` / `/healthz` says `degraded` under deploys | Pool size too small (step 4) |
 | `password authentication failed` with a password you know is right | An unencoded `@`, `:`, `/`, `?` or `#` in the password. Percent-encode it |
 

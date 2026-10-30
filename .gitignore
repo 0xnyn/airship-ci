@@ -19,6 +19,7 @@ apps/dash/src/env.ts
 
 # Tooling
 .turbo
+.wrangler
 coverage
 
 # Editors and OS

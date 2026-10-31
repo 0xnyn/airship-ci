@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Airship",
-  "description": "Airship launches a fresh machine in your own AWS, Google Cloud or Azure account for every GitHub Actions job, from one airship.yaml per repository.",
+  "description": "Fully managed GitHub Actions runners in your AWS, Google Cloud, or Azure account, with autoscaling, build caching, and warm runner pools.",
   "colors": {
     "primary": "#3064ff",
     "light": "#9efaff",

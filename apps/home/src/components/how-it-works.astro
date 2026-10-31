@@ -144,10 +144,6 @@ const { content } = Astro.props;
           <div class="how-content">
             <h3 class="how-title">{card.title}</h3>
             <p class="how-desc">{card.description}</p>
-            <p class="how-foot">
-              <span class="dot" style="background: var(--dot-yellow)" />
-              <span>{card.footnote}</span>
-            </p>
           </div>
         </div>
       );
@@ -216,18 +212,6 @@ const { content } = Astro.props;
     color: var(--white-80);
     letter-spacing: -0.32px;
     line-height: 24px;
-    margin-bottom: 24px;
-  }
-
-  .how-foot {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--white-80);
-    letter-spacing: -0.24px;
-    line-height: 18px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
 
   /* Shared panel look for the three diagrams. */

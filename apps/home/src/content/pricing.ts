@@ -118,13 +118,4 @@ export const pricing = {
       price: "Custom",
     },
   ] satisfies Plan[],
-  table: {
-    airshipOnDemand: "Airship on-demand",
-    airshipSpot: "Airship spot",
-    /** Filled in from the cloud picked in the calculator. */
-    description:
-      "Linux x64 list prices. Airship's rows include the machine: {cloud} {family} in {region}.",
-    provider: "Provider",
-    title: "Per minute, by size",
-  }, // TODO: this whole table is extra and we don't need it the calculator is enough
 };

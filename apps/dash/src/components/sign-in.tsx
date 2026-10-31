@@ -32,8 +32,8 @@ export function SignIn() {
 
   return (
     <AuthFrame>
-      <AuthHeading eyebrow="Sign in" title="Your CI, on your cloud">
-        GitHub Actions runners in your own AWS, Google Cloud or Azure account.
+      <AuthHeading eyebrow="Sign in" title="Run your CI in your cloud">
+        Fully managed GitHub Actions runners in your AWS, GCP, or Azure account.
       </AuthHeading>
       {failure ? (
         <p

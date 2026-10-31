@@ -52,7 +52,7 @@ second one queues properly. If it keeps happening:
     `airship-build--123` matches a definition with `airship-build`, but
     `airship-buildd--123` matches nothing.
   </Accordion>
-  <Accordion title="The job asks for something the runner is not" icon="cpu">
+  <Accordion title="The job needs something the runner does not have" icon="cpu">
     A job on `[self-hosted, airship-build, gpu]` needs a definition with
     `gpu:` set. One asking for `arm64` needs an Arm instance type. One asking
     for `windows` needs a definition naming a Windows image — the Ubuntu

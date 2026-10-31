@@ -820,7 +820,7 @@ aws iam create-access-key --user-name airship`;
         Creating the IAM user
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        AmazonEC2FullAccess covers everything a runner needs.{" "}
+        AmazonEC2FullAccess covers everything Airship needs to manage runners.{" "}
         <DocsLink page="Amazon Web Services" />
       </p>
       <CodeBlock
@@ -847,8 +847,9 @@ gcloud iam service-accounts keys create service-account.json \\
         Creating the service account
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        The Compute Admin role covers everything a runner needs. GPU runners
-        also need GPU quota in the zone. <DocsLink page="Google Cloud" />
+        The Compute Admin role covers everything Airship needs to manage
+        runners. GPU runners also need GPU quota in the zone.{" "}
+        <DocsLink page="Google Cloud" />
       </p>
       <CodeBlock
         file="terminal"
@@ -876,8 +877,8 @@ function AzureApp() {
         Registering the Azure application
       </h2>
       <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        The Contributor role covers everything a runner needs. Client secrets
-        expire; launches fail until you paste a new one.{" "}
+        The Contributor role covers everything Airship needs to manage runners.
+        Client secrets expire; launches fail until you paste a new one.{" "}
         <DocsLink page="Microsoft Azure" />
       </p>
       <CodeBlock

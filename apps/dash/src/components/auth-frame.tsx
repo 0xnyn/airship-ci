@@ -20,7 +20,7 @@ export function AuthFrame({ children }: { children: ReactNode }) {
           <div className="grid w-full max-w-sm gap-6">{children}</div>
         </div>
         <p className="relative font-mono text-[11px] text-muted-foreground">
-          GitHub Actions runners in your own cloud.
+          Run your CI in your cloud.
         </p>
       </div>
       <div className="relative hidden overflow-hidden lg:block lg:p-(--shell-inset) lg:pl-0">

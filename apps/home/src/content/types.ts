@@ -38,9 +38,9 @@ export interface CodeFile {
 
 export type IconName =
   | "cloud"
-  | "file"
-  | "spark"
-  | "layers"
+  | "autoscale"
+  | "bolt"
+  | "managed"
   | "lock"
   | "network"
   | "one-job"

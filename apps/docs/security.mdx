@@ -57,7 +57,7 @@ The sharpest edge of the design, so it gets the most rules.
 | Rule | Detail |
 | --- | --- |
 | **Verified before stored** | AWS with `sts:GetCallerIdentity`; Google Cloud with a Compute `projects.get`; Azure by signing in to Entra and reading the subscription, which must be visible to the application and not disabled. A key that does not work is never written |
-| **Sealed at rest** | AES-256-GCM under a key held in the control plane's environment, not in its database |
+| **Encrypted at rest** | AES-256-GCM under a key held in the control plane's environment, not in its database |
 | **Bound to its row** | The sealed blob is tied to its installation and cloud. Lifting the row into another installation's record makes it undecryptable |
 | **Opened per call** | Decrypted, handed to the provider for one API call, discarded. Never written to a log, an error, a metric or a response |
 | **Never echoed** | No endpoint returns a secret. The dashboard shows only the public half your cloud reported at verification |

@@ -50,11 +50,11 @@ const ROWS = [
 const CARDS = [
   {
     copy: {
-      label: "Self-hosted GitHub Actions runners",
+      label: "Fully managed GitHub Actions runners",
       rows: ROWS,
       section: "Runners",
-      sub: "A fresh machine in your AWS, Google Cloud or Azure account for every job.",
-      title: "Your CI,\non your cloud.",
+      sub: "Autoscaling runners in your AWS, GCP, or Azure account.",
+      title: "Run your CI\nin your cloud.",
       url: "airshipci.com",
     },
     still: "apps/home/public/og/og.jpg",

@@ -15,12 +15,13 @@ export type Size = (typeof SIZES)[number];
 export type CloudId = "aws" | "gcp" | "azure";
 
 export interface Cloud {
-  /** The machine family priced, as shown on the page. */
+  /** The machine family the hourly prices are for. */
   family: string;
   id: CloudId;
   name: string;
   /** On-demand Linux price per hour for each size. */
   onDemandHourly: Record<Size, number>;
+  /** The region the hourly prices are for. */
   region: string;
   source: string;
   /**
@@ -93,9 +94,6 @@ export const cloudPerMin = (id: CloudId, size: Size, spot: boolean): number => {
   );
 };
 
-export const airshipPerMin = (id: CloudId, size: Size, spot: boolean): number =>
-  cloudPerMin(id, size, spot) + AIRSHIP_FEE_PER_MIN;
-
 export interface Competitor {
   id: string;
   name: string;
@@ -154,5 +152,3 @@ export const competitors: Competitor[] = [
 
 export const money = (n: number): string =>
   n >= 100 ? `$${Math.round(n).toLocaleString("en-US")}` : `$${n.toFixed(2)}`;
-
-export const perMinute = (n: number): string => `$${n.toFixed(4)}`;

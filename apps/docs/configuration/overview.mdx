@@ -137,7 +137,7 @@ into a workflow of its own.
 
 ```yaml airship.yaml
 runners:
-  # The everyday builder: spot first, on-demand second, a second family third.
+  # The everyday builder: Spot with on-demand fallback, then a second family.
   - name: build
     cloud: aws
     instance_type: [c7i.2xlarge, c7i.2xlarge, m7i.2xlarge]

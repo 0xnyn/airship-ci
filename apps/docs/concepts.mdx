@@ -23,12 +23,12 @@ icon: "book-open"
 
 <ResponseField name="Runner definition" type="an entry in airship.yaml">
   A named description of a machine: its cloud, size, image, region and the
-  labels it serves. A definition is a recipe, not a machine — nothing exists
-  until a job asks for one of its labels.
+  labels it serves. A definition is a recipe, not a machine — nothing launches
+  until a queued job requests one of its labels.
 </ResponseField>
 
 <ResponseField name="Label" type="the airship- prefix">
-  How a job asks for a machine. Only labels starting with `airship-` are
+  How a job requests a runner. Only labels starting with `airship-` are
   looked up, so every other job on the repository is untouched and costs
   nothing. See [Labels and runs-on](/configuration/labels).
 </ResponseField>
@@ -103,7 +103,7 @@ them directly. The levers:
     bounds total spend.
   </Card>
   <Card title="Spot capacity" icon="trending-down" href="/configuration/fallbacks" arrow>
-    `preemptible: [true, false]` tries spot first and falls back to on-demand.
+    `preemptible: [true, false]` runs on Spot and falls back to on-demand when capacity runs out.
   </Card>
   <Card title="Machine lifetime" icon="timer" href="/how-it-works#runner-states" arrow>
     Eight hours by default, enforced by the machine on itself.

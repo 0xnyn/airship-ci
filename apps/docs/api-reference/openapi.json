@@ -586,7 +586,7 @@
     }
   },
   "info": {
-    "description": "Airship runs every GitHub Actions job on a fresh machine in your own cloud account, configured by an `airship.yaml` in each repository.\n\nThis reference covers the token-authenticated API for scripting Airship itself: activating repositories, connecting clouds and editing runner access policies. Create a token under **API keys** in the dashboard and send it as `Authorization: Bearer asa_...`.",
+    "description": "Airship runs fully managed GitHub Actions runners in your own cloud account, configured by an `airship.yaml` in each repository.\n\nThis reference covers the token-authenticated API for scripting Airship itself: activating repositories, connecting clouds and editing runner access policies. Create a token under **API keys** in the dashboard and send it as `Authorization: Bearer asa_...`.",
     "title": "Airship developer API",
     "version": "1.0.0"
   },

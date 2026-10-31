@@ -4,24 +4,15 @@ import Footer from "../components/footer.astro";
 import Navbar from "../components/navbar.astro";
 import SectionHeading from "../components/section-heading.astro";
 import { getStarted } from "../content/home";
-import {
-  airshipPerMin,
-  clouds,
-  competitors,
-  perMinute,
-  SIZES,
-} from "../content/prices";
+import { clouds, competitors, SIZES } from "../content/prices";
 import { pricing } from "../content/pricing";
 import Layout from "../layouts/layout.astro";
 
-const { compare, hero, meta, plans, table } = pricing;
+const { compare, hero, meta, plans } = pricing;
 const startCloud =
   clouds.find((c) => c.id === compare.defaults.cloud) ?? clouds[0];
 const fillCloud = (template: string): string =>
-  template
-    .replace("{cloud}", startCloud.name)
-    .replace("{family}", startCloud.family)
-    .replace("{region}", startCloud.region);
+  template.replace("{cloud}", startCloud.name);
 const short = (m: number): string =>
   m >= 1_000_000 ? `${m / 1_000_000}M` : `${m / 1000}k`;
 ---
@@ -239,55 +230,6 @@ const short = (m: number): string =>
       </div>
     </section>
 
-    <section class="table-section" aria-labelledby="per-minute">
-      <h2 class="section-title" id="per-minute">{table.title}</h2>
-      <p
-        class="section-desc table-desc"
-        data-out="table-desc"
-        data-template={table.description}
-      >
-        {fillCloud(table.description)}
-      </p>
-      <div class="table-wrap">
-        <table class="price-table">
-          <thead>
-            <tr>
-              <th scope="col">{table.provider}</th>
-              {SIZES.map((s) => <th scope="col">{s} vCPU</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            <tr class="row-airship">
-              <th scope="row">{table.airshipSpot}</th>
-              {SIZES.map((s) => (
-                <td data-airship="spot" data-size={s}>
-                  {perMinute(airshipPerMin(startCloud.id, s, true))}
-                </td>
-              ))}
-            </tr>
-            <tr class="row-airship">
-              <th scope="row">{table.airshipOnDemand}</th>
-              {SIZES.map((s) => (
-                <td data-airship="on-demand" data-size={s}>
-                  {perMinute(airshipPerMin(startCloud.id, s, false))}
-                </td>
-              ))}
-            </tr>
-            {
-              competitors.map((c) => (
-                <tr>
-                  <th scope="row">{c.name}</th>
-                  {SIZES.map((s) => (
-                    <td>{perMinute(c.perMin[s])}</td>
-                  ))}
-                </tr>
-              ))
-            }
-          </tbody>
-        </table>
-      </div>
-    </section>
-
     <Cta content={getStarted} />
   </main>
   <Footer />
@@ -296,13 +238,11 @@ const short = (m: number): string =>
 <script>
   import {
     AIRSHIP_FEE_PER_MIN,
-    airshipPerMin,
     type CloudId,
     cloudPerMin,
     clouds,
     competitors,
     money,
-    perMinute,
     type Size,
   } from "../content/prices";
 
@@ -312,23 +252,17 @@ const short = (m: number): string =>
     form.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)
       ?.value ?? "";
 
-  // The cloud named in the legend and the table, and Airship's table rows.
+  // The cloud named in the legend.
   const showCloud = (id: CloudId): void => {
     const cloud = clouds.find((c) => c.id === id) ?? clouds[0];
-    for (const node of document.querySelectorAll<HTMLElement>(
-      '[data-out="cloud-legend"], [data-out="table-desc"]'
-    )) {
-      node.textContent = (node.dataset.template ?? "")
-        .replace("{cloud}", cloud.name)
-        .replace("{family}", cloud.family)
-        .replace("{region}", cloud.region);
-    }
-    for (const cell of document.querySelectorAll<HTMLElement>(
-      "[data-airship]"
-    )) {
-      const size = Number(cell.dataset.size) as Size;
-      const spot = cell.dataset.airship === "spot";
-      cell.textContent = perMinute(airshipPerMin(cloud.id, size, spot));
+    const node = document.querySelector<HTMLElement>(
+      '[data-out="cloud-legend"]'
+    );
+    if (node) {
+      node.textContent = (node.dataset.template ?? "").replace(
+        "{cloud}",
+        cloud.name
+      );
     }
   };
 
@@ -407,8 +341,7 @@ const short = (m: number): string =>
 <style>
   .pricing-hero,
   .plans,
-  .compare,
-  .table-section {
+  .compare {
     max-width: 1080px;
     margin: 0 auto;
   }
@@ -692,7 +625,6 @@ const short = (m: number): string =>
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dot-cyan) 45%, transparent);
   }
 
-
   .legend li[hidden] {
     display: none;
   }
@@ -742,76 +674,10 @@ const short = (m: number): string =>
     background: var(--chip-bg);
   }
 
-  /* Table */
-  .table-section {
-    padding: 48px 0 24px;
-  }
-
-  .table-desc {
-    margin-bottom: 32px;
-  }
-
-  .table-wrap {
-    overflow-x: auto;
-    border-radius: 4px;
-    background: var(--card-bg);
-  }
-
-  .price-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .price-table th,
-  .price-table td {
-    padding: 14px 20px;
-    text-align: right;
-    white-space: nowrap;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .price-table th[scope="row"],
-  .price-table thead th:first-child {
-    text-align: left;
-    font-weight: 400;
-    color: var(--white-80);
-  }
-
-  .price-table thead th {
-    font-weight: 400;
-    color: var(--white-50);
-  }
-
-  .price-table td {
-    color: var(--white-70);
-  }
-
-  .price-table tbody tr:last-child th,
-  .price-table tbody tr:last-child td {
-    border-bottom: 0;
-  }
-
-  .row-airship th[scope="row"],
-  .row-airship td {
-    color: var(--white);
-  }
-
-  .row-airship th[scope="row"] {
-    box-shadow: inset 2px 0 0 var(--dot-cyan);
-  }
-
-
-
-
-
   @media (max-width: 1199px) {
     .pricing-hero,
     .plans,
-    .compare,
-    .table-section {
+    .compare {
       padding-left: 24px;
       padding-right: 24px;
     }
@@ -824,8 +690,7 @@ const short = (m: number): string =>
   @media (max-width: 809px) {
     .pricing-hero,
     .plans,
-    .compare,
-    .table-section {
+    .compare {
       padding-left: 16px;
       padding-right: 16px;
     }

@@ -54,8 +54,8 @@ const CREDENTIALS_DESCRIPTION =
 /** Rewrites applied to `description` strings, longest match first. */
 const DESCRIPTIONS = {
   "Airship runs GitHub Actions jobs on ephemeral machines in your own cloud account, configured by an airship.yaml in each repository. The TypeScript client in packages/client is generated from this document.":
-    "Airship runs every GitHub Actions job on a fresh machine in your own " +
-    "cloud account, configured by an `airship.yaml` in each repository.\n\n" +
+    "Airship runs fully managed GitHub Actions runners in your own cloud " +
+    "account, configured by an `airship.yaml` in each repository.\n\n" +
     "This reference covers the token-authenticated API for scripting Airship " +
     "itself: activating repositories, connecting clouds and editing runner " +
     "access policies. Create a token under **API keys** in the dashboard and " +

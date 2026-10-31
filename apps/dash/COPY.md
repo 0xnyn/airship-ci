@@ -56,8 +56,8 @@ two sentences. No colons after labels.
 "Open" where the destination can be named.
 
 **Empty states** say what is missing and the one next thing to do, in at most
-two short sentences. "No active runners. One starts the next time a job asks
-for an `airship-` label." Not a tutorial.
+two short sentences. "No active runners. One launches as soon as a job is
+queued for an `airship-` label." Not a tutorial.
 
 **Errors** say what failed and what to do. No blame, no apology, no "Oops". A
 cloud's own message is better than a paraphrase of it.

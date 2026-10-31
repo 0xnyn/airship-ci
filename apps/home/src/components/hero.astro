@@ -16,16 +16,8 @@ const { content } = Astro.props;
   <div class="hero-dots" aria-hidden="true"></div>
   <div class="hero-header">
     <div class="hero-heading">
-      <p class="section-label">
-        <span class="dot" style="background: var(--dot-white)"></span>
-        <span>{content.label}</span>
-      </p>
       <h1 class="hero-title">{content.title}</h1>
       <p class="hero-body"><Rich text={content.body} /></p>
-      <p class="hero-sub">
-        <span class="dot" style="background: var(--dot-yellow)"></span>
-        <span>{content.sub}</span>
-      </p>
       <div class="hero-buttons">
         <a href={content.buttons.primary.href} class="btn btn-primary">
           {content.buttons.primary.label}
@@ -125,24 +117,12 @@ const { content } = Astro.props;
     color: var(--white-80);
     letter-spacing: -0.32px;
     line-height: 24px;
-    margin-bottom: 20px;
+    margin-bottom: 32px;
     max-width: 580px;
   }
 
   .hero-body :global(code) {
     color: var(--white);
-  }
-
-  .hero-sub {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--white-80);
-    letter-spacing: -0.24px;
-    line-height: 18px;
-    margin-bottom: 25px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
 
   .hero-buttons {

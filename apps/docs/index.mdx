@@ -1,19 +1,20 @@
 ---
-title: "GitHub Actions runners in your own cloud"
+title: "Run your CI in your cloud"
 sidebarTitle: "Introduction"
-description: "Every GitHub Actions job gets a fresh machine in your own cloud account, described by one file in your repository."
+description: "Fully managed GitHub Actions runners in your AWS, Google Cloud, or Azure account, with autoscaling, build caching, and warm runner pools."
 mode: "wide"
 ---
 
-Airship is a control plane for GitHub Actions runners. You connect a cloud
-account once, activate a repository, and commit an `airship.yaml` that
-describes the machines you want. From then on, every job that asks for one of
-your labels gets its own machine — launched when the job is queued, destroyed
-when the job ends.
+Airship gives you fully managed GitHub Actions runners in your own AWS,
+Google Cloud, or Azure account. Connect a cloud, activate a repository, and
+commit an `airship.yaml` that describes the runners you want. Airship
+provisions a runner as each job is queued and terminates it when the job
+ends.
 
-Nothing is installed in your account. There is no autoscaling group to tune,
-no runner image to keep alive, no agent to upgrade. The machines are yours,
-in your regions, on your bill.
+There is no runner provisioning, management, or maintenance: no autoscaling
+group to tune, no runner image to keep alive, no agent to upgrade. Runners
+launch in your regions and bill to your cloud account, so your existing cloud
+credits cover the compute.
 
 ```yaml airship.yaml
 runners:

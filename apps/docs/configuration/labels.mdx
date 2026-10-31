@@ -1,10 +1,10 @@
 ---
 title: "Labels and runs-on"
-description: "How a job asks for a machine, why the run_id suffix matters, and how matrix jobs get a machine each."
+description: "How a job requests a runner, why the run_id suffix matters, and how matrix jobs get a machine each."
 icon: "tag"
 ---
 
-A job asks Airship for a machine by its label. Every label a definition
+A job requests a runner by its label. Every label a definition
 serves must start with `airship-`, and only those labels are looked up — a job
 on `ubuntu-latest` costs no API calls and is never touched.
 

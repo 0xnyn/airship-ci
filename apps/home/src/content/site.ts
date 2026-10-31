@@ -12,7 +12,7 @@ export const apiUrl: string =
 
 export const site = {
   description:
-    "Airship launches a fresh machine in your AWS, Google Cloud or Azure account for every GitHub Actions job, from one airship.yaml per repository.",
+    "Fully managed GitHub Actions runners in your AWS, GCP, or Azure account, with autoscaling, build caching, and warm runner pools.",
   name: "Airship",
   tagline: "Run your CI in your cloud",
 };
@@ -23,7 +23,7 @@ export const og = {
   height: 630,
   image: "/og/og.jpg",
   imageAlt:
-    "Airship: Your CI, on your cloud. A runner list with jobs launching, busy and finished.",
+    "Airship: Run your CI in your cloud. A runner list with jobs launching, busy and finished.",
   twitter: "summary_large_image",
   video: "/og/og.mp4",
   width: 1200,

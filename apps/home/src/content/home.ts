@@ -47,19 +47,19 @@ export const hero = {
     {
       description:
         "Right-size instances and automatically scale runners to match demand.",
-      icon: "file", // TODO: get better icon for this
+      icon: "autoscale",
       title: "Faster CI",
     },
     {
       description:
         "Speed up builds with caching, warm pools, and optimized compute.",
-      icon: "spark", // TODO: get better icon for this
+      icon: "bolt",
       title: "Faster Builds",
     },
     {
       description:
         "No runner provisioning, management, or maintenance required.",
-      icon: "layers", // TODO: get better icon for this
+      icon: "managed",
       title: "Managed Runners",
     },
   ] satisfies { description: string; icon: IconName; title: string }[],
@@ -141,8 +141,6 @@ export const hero = {
       { label: "Cap", value: "14 / 40" },
     ],
   } satisfies Fleet,
-  label: "Run your CI in your cloud", // TODO: remove this from UI
-  sub: "AWS · Google Cloud · Azure", // TODO: remove this from UI
   title: "Run your CI in your cloud",
   workflow: {
     code: `
@@ -361,8 +359,6 @@ $ curl -H "Authorization: Bearer $AIRSHIP_TOKEN" \\
   ] satisfies Feature[],
 };
 
-/* ──────────────────────────── Clouds ──────────────────────────── */
-
 /* ───────────────────────── How it works ───────────────────────── */
 
 export type HowVisual =
@@ -394,7 +390,6 @@ export type HowVisual =
 export interface HowCard {
   backdrop: Backdrop;
   description: string;
-  footnote: string;
   title: string;
   visual: HowVisual;
 }
@@ -406,7 +401,6 @@ export const how = {
       backdrop: { angle: -15, focus: 0.3, intensity: 0.7 },
       description:
         "Airship automatically provisions runners in your cloud as GitHub Actions jobs are queued.",
-      footnote: "Labels without the airship- prefix cost no API calls.", // TODO: remove this from UI
       title: "On-Demand Provisioning",
       visual: {
         kind: "sequence",
@@ -439,7 +433,6 @@ export const how = {
       backdrop: { angle: -40, focus: 0.75, intensity: 0.7 },
       description:
         "Airship securely provisions and manages runners in your account.",
-      footnote: "Give it a role scoped to what Airship launches.", // TODO: remove this from UI
       title: "Secure Cloud Access",
       visual: {
         kind: "vault",
@@ -459,7 +452,6 @@ export const how = {
     {
       backdrop: { angle: -25, focus: 0.5, intensity: 0.7 },
       description: "Airship automatically cleans up idle or orphaned machines.",
-      footnote: "Idle 10 minutes, or 8 hours old: the machine goes.", // TODO: remove this from UI
       title: "Automatic Runner Cleanup",
       visual: {
         kind: "lifecycle",
@@ -479,7 +471,6 @@ export const how = {
       backdrop: { angle: -32, focus: 0.65, intensity: 0.7 },
       description:
         "Configure runner machine types, regions, operating systems, and images to match your workloads.",
-      footnote: "Change cloud: in airship.yaml and nothing else.", // TODO: remove this from UI
       title: "Multi-Cloud Support",
       visual: {
         clouds: [
@@ -555,8 +546,6 @@ export const security = {
       note: "Deploy the control plane in your environment",
     },
   ] satisfies { icon: IconName; label: string; note: string }[],
-  footnote:
-    "Runners register with a just-in-time config for a single job, so a machine can't pick up work it wasn't launched for. Only labels starting with airship- are looked up, and only in repositories someone activated.", // TODO: remove this from UI
   heading: {
     accent: "green",
     description:

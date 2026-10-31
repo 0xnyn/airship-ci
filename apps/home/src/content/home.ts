@@ -32,7 +32,7 @@ export interface Fleet {
 
 export const hero = {
   backdrop: { angle: -28, focus: 0.66 } satisfies Backdrop,
-  body: "Commit an `airship.yaml`, point `runs-on` at an `airship-` label, and every job gets its own machine in your cloud account. Airship launches it, watches it and tears it down.",
+  body: "Get fully managed GitHub Actions runners in your own cloud with autoscaling, build caching, warm runner pools, and more.",
   buttons: {
     primary: { href: appUrl, label: "Start for free" },
     secondary: { href: docsUrl, label: "Read the docs" },
@@ -40,27 +40,27 @@ export const hero = {
   cards: [
     {
       description:
-        "Machines launch in your AWS, Google Cloud or Azure account. You pay the cloud, at your rates.",
+        "Run CI in your AWS, GCP, or Azure account using existing cloud credits.",
       icon: "cloud",
-      title: "Your account, your bill",
+      title: "Cloud Native",
     },
     {
       description:
-        "airship.yaml says what a runner is: machine type, image, region, spot, GPU. runs-on picks it.",
-      icon: "file",
-      title: "One file per repo",
+        "Right-size instances and automatically scale runners to match demand.",
+      icon: "file", // TODO: get better icon for this
+      title: "Faster CI",
     },
     {
       description:
-        "Every job gets a new machine that registers for that one job and is gone when it ends.",
-      icon: "spark",
-      title: "Fresh machine per job",
+        "Speed up builds with caching, warm pools, and optimized compute.",
+      icon: "spark", // TODO: get better icon for this
+      title: "Faster Builds",
     },
     {
       description:
-        "List instance types in order. Spot capacity first, on-demand when the cloud says no.",
-      icon: "layers",
-      title: "Spot, then fall back",
+        "No runner provisioning, management, or maintenance required.",
+      icon: "layers", // TODO: get better icon for this
+      title: "Managed Runners",
     },
   ] satisfies { description: string; icon: IconName; title: string }[],
   fleet: {
@@ -141,9 +141,9 @@ export const hero = {
       { label: "Cap", value: "14 / 40" },
     ],
   } satisfies Fleet,
-  label: "Self-hosted GitHub Actions runners",
-  sub: "AWS · Google Cloud · Azure",
-  title: "Your CI, on your cloud. Without running a single runner yourself.",
+  label: "Run your CI in your cloud", // TODO: remove this from UI
+  sub: "AWS · Google Cloud · Azure", // TODO: remove this from UI
+  title: "Run your CI in your cloud",
   workflow: {
     code: `
 jobs:
@@ -193,15 +193,16 @@ export const features = {
   heading: {
     accent: "gold",
     description:
-      "Each repository describes its runners in airship.yaml. Airship turns that into machines.",
+      "From simple tests to complex builds, everything you need to run and scale CI in your own cloud.",
     label: "Features",
-    title: "Everything a runner needs, in one file",
+    title: "Built for every workload",
   } satisfies Heading,
   items: [
     {
       description:
-        "The same airship.yaml launches EC2 instances, Compute Engine VMs or Azure VMs. Change cloud: and nothing else.",
+        "Run CI across AWS, GCP, and Azure with one configuration. Switch clouds without rewriting your workflows.",
       id: "clouds",
+
       preview: {
         code: {
           code: `
@@ -224,12 +225,13 @@ runners:
         },
         kind: "code",
       },
-      title: "Three clouds, one format",
+      title: "Multi-cloud support",
     },
     {
       description:
-        "List instance types, regions and spot flags in order. Airship walks the list until a cloud says yes, and records why the others said no.",
+        "Cut compute costs with Spot instances and automatically fall back to on-demand when capacity runs out.",
       id: "spot",
+
       preview: {
         attempts: [
           {
@@ -254,24 +256,26 @@ runners:
         heading: "Launching `airship-build`",
         kind: "attempts",
       },
-      title: "Spot first, on-demand when it runs out",
+      title: "Spot with fallback",
     },
     {
       description:
-        "Keep a few machines booted so jobs start in seconds: always, in office hours, or for a while after work arrives. Per repository or for the whole organization.",
+        "Keep runners ready for incoming jobs with warm pools that scale to your schedule and workload.",
       id: "idle",
+
       preview: {
         footnote: "A job takes a warm runner; a new one boots behind it.",
         heading: "Idle runners · `mon-fri 9-17 → 4`, otherwise 1",
         hourly: officeHours,
         kind: "schedule",
       },
-      title: "Warm runners, on a schedule",
+      title: "Warm runner pools",
     },
     {
       description:
-        "Add gpu: and Airship attaches the accelerator and installs the NVIDIA driver on Ubuntu images that lack one. T4, L4, A100, H100 and up.",
+        "Run GPU-intensive CI workloads on the accelerators you need, with automatic driver setup.",
       id: "gpu",
+
       preview: {
         code: {
           code: `
@@ -296,8 +300,9 @@ runners:
     },
     {
       description:
-        "Ubuntu by default; any AMI, Compute Engine image or Azure gallery image of your own. Windows images get a Windows boot script.",
+        "Run CI on Linux, Windows, or ARM using your own machine images, dependencies, and configurations.",
       id: "images",
+
       preview: {
         heading: "`machine_image:`",
         items: [
@@ -310,12 +315,13 @@ runners:
         ],
         kind: "list",
       },
-      title: "Windows, ARM and your own images",
+      title: "Custom environments",
     },
     {
       description:
-        "On AWS, cache: true puts a proxy on the runner that serves actions/cache from an S3 bucket in your account, in the runner's region. No size limit but yours.",
+        "Speed up repeated builds with GitHub Actions-compatible caching backed by storage in your own cloud.",
       id: "cache",
+
       preview: {
         code: {
           code: `
@@ -332,11 +338,11 @@ runners:
         ],
         kind: "code-and-flow",
       },
-      title: "Cache in your own bucket",
+      title: "Build caching",
     },
     {
       description:
-        "Activate repositories, connect clouds and change access rules from scripts or your own tooling, with a scoped API token.",
+        "Automate repository setup, cloud connections, and access management with a simple API.",
       id: "api",
       preview: {
         code: {
@@ -350,7 +356,7 @@ $ curl -H "Authorization: Bearer $AIRSHIP_TOKEN" \\
         },
         kind: "code",
       },
-      title: "A developer API",
+      title: "Developer API",
     },
   ] satisfies Feature[],
 };
@@ -399,9 +405,9 @@ export const how = {
     {
       backdrop: { angle: -15, focus: 0.3, intensity: 0.7 },
       description:
-        "GitHub tells Airship a job wants an airship- label. Airship finds the runner in that repository's airship.yaml and launches it in your account, registered for exactly that job.",
-      footnote: "Labels without the airship- prefix cost no API calls.",
-      title: "A job asks. A machine answers.",
+        "Airship automatically provisions runners in your cloud as GitHub Actions jobs are queued.",
+      footnote: "Labels without the airship- prefix cost no API calls.", // TODO: remove this from UI
+      title: "On-Demand Provisioning",
       visual: {
         kind: "sequence",
         label:
@@ -432,9 +438,9 @@ export const how = {
     {
       backdrop: { angle: -40, focus: 0.75, intensity: 0.7 },
       description:
-        "The access key you connect is encrypted, tied to its own database row, and opened only for the length of one cloud call. It is never logged and never sent back.",
-      footnote: "Give it a role scoped to what Airship launches.",
-      title: "Your key, sealed at rest",
+        "Airship securely provisions and manages runners in your account.",
+      footnote: "Give it a role scoped to what Airship launches.", // TODO: remove this from UI
+      title: "Secure Cloud Access",
       visual: {
         kind: "vault",
         open: {
@@ -452,10 +458,9 @@ export const how = {
     },
     {
       backdrop: { angle: -25, focus: 0.5, intensity: 0.7 },
-      description:
-        "Every runner moves through one lifecycle, and every ending is recorded. A reconciler compares the cloud with the database and removes machines nobody is using, so a lost answer from the cloud doesn't become a bill.",
-      footnote: "Idle 10 minutes, or 8 hours old: the machine goes.",
-      title: "Nothing left running",
+      description: "Airship automatically cleans up idle or orphaned machines.",
+      footnote: "Idle 10 minutes, or 8 hours old: the machine goes.", // TODO: remove this from UI
+      title: "Automatic Runner Cleanup",
       visual: {
         kind: "lifecycle",
         reasons: [
@@ -473,9 +478,9 @@ export const how = {
     {
       backdrop: { angle: -32, focus: 0.65, intensity: 0.7 },
       description:
-        "Connect one cloud or all three. Each runner names its cloud, and machines launch with your credentials, in your regions, on your bill.",
-      footnote: "Change cloud: in airship.yaml and nothing else.",
-      title: "Runs where your account already is",
+        "Configure runner machine types, regions, operating systems, and images to match your workloads.",
+      footnote: "Change cloud: in airship.yaml and nothing else.", // TODO: remove this from UI
+      title: "Multi-Cloud Support",
       visual: {
         clouds: [
           {
@@ -514,9 +519,9 @@ export const how = {
   heading: {
     accent: "blue",
     description:
-      "Airship's control plane holds your sealed cloud key, listens to GitHub, and launches, watches and terminates machines in your account. Nothing long-lived runs on your side.",
+      "Run GitHub Actions on AWS, GCP, or Azure without managing the underlying infrastructure.",
     label: "How it works",
-    title: "We run the fleet. You own the machines.",
+    title: "Fully Managed GitHub Actions Runners",
   } satisfies Heading,
 };
 
@@ -526,38 +531,38 @@ export const security = {
   badges: [
     {
       icon: "lock",
-      label: "SEALED KEYS",
-      note: "Encrypted at rest, opened per call",
+      label: "ISOLATED BUILDS",
+      note: "Each job runs on its own machine",
     },
     {
       icon: "network",
       label: "YOUR NETWORK",
-      note: "Your network, your subnets",
+      note: "Run within your own VPCs and subnets",
     },
     {
       icon: "one-job",
-      label: "ONE JOB",
-      note: "One machine per job, then gone",
+      label: "EPHEMERAL RUNNERS",
+      note: "Automatically terminated after each job",
     },
     {
       icon: "key",
-      label: "SCOPED CACHE",
-      note: "Short-lived grants to one bucket",
+      label: "SCOPED CACHE ACCESS",
+      note: "Temporary access to designated cache storage",
     },
     {
       icon: "server",
-      label: "SELF-HOST",
-      note: "Run the control plane yourself",
+      label: "SELF-HOSTED CONTROL PLANE",
+      note: "Deploy the control plane in your environment",
     },
   ] satisfies { icon: IconName; label: string; note: string }[],
   footnote:
-    "Runners register with a just-in-time config for a single job, so a machine can't pick up work it wasn't launched for. Only labels starting with airship- are looked up, and only in repositories someone activated.",
+    "Runners register with a just-in-time config for a single job, so a machine can't pick up work it wasn't launched for. Only labels starting with airship- are looked up, and only in repositories someone activated.", // TODO: remove this from UI
   heading: {
     accent: "green",
     description:
-      "Airship reads airship.yaml and job events from GitHub and makes cloud calls with your key. Your code, secrets and build output stay between GitHub and your machines.",
+      "Run GitHub Actions within your own cloud environment, without exposing your code or secrets to third-party runners.",
     label: "Security",
-    title: "Your jobs run on machines you own",
+    title: "Secure by Design",
   } satisfies Heading,
 };
 

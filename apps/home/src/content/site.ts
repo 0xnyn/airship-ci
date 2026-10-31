@@ -14,7 +14,7 @@ export const site = {
   description:
     "Airship launches a fresh machine in your AWS, Google Cloud or Azure account for every GitHub Actions job, from one airship.yaml per repository.",
   name: "Airship",
-  tagline: "GitHub Actions runners in your own cloud",
+  tagline: "Run your CI in your cloud",
 };
 
 // The social card: rendered from og/card.html by `pnpm og`, served from

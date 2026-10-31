@@ -32,8 +32,7 @@ export const pricing = {
     },
     heading: {
       accent: "cyan",
-      description:
-        "Airship's total is its fee, plus what your cloud charges for the machine unless your cloud credits cover it. Everyone else's is their list price.",
+      description: "Compare your monthly CI costs across providers.",
       label: "Compare",
       title: "What a month of CI costs",
     } satisfies Heading,
@@ -63,12 +62,13 @@ export const pricing = {
       "less than GitHub-hosted runners: {saved} a month saved, and {cheapest}% under the cheapest alternative.",
   },
   hero: {
-    description: `Airship charges a flat $${AIRSHIP_FEE_PER_MIN} per runner-minute, whatever the machine size. The machines are yours, billed by your cloud at your rates, with spot and your discounts applied.`,
+    description:
+      "Pay a flat fee per runner-minute. Use your existing cloud credits to cover compute costs.",
     label: "Pricing",
-    title: "A fifth of a cent a minute. Your cloud bills the rest, at cost.",
+    title: "Simple, usage-based pricing.",
   },
   meta: {
-    description: `Airship costs $${AIRSHIP_FEE_PER_MIN} per runner-minute on top of your own cloud bill, at any machine size. Compare it with GitHub-hosted runners, Blacksmith, Depot, WarpBuild and Namespace.`,
+    description: `Airship costs $${AIRSHIP_FEE_PER_MIN} per runner-minute. Compare it with GitHub-hosted runners, Blacksmith, Depot, WarpBuild and Namespace.`,
     title: "Pricing · Airship",
   },
   plans: [
@@ -126,5 +126,5 @@ export const pricing = {
       "Linux x64 list prices. Airship's rows include the machine: {cloud} {family} in {region}.",
     provider: "Provider",
     title: "Per minute, by size",
-  },
+  }, // TODO: this whole table is extra and we don't need it the calculator is enough
 };

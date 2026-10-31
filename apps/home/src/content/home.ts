@@ -1,5 +1,5 @@
 // Everything the landing page says and shows. Components only lay it out.
-import { apiUrl, appUrl, docsUrl } from "./site";
+import { apiUrl, appUrl, calUrl, docsUrl } from "./site";
 import type { Backdrop, CodeFile, Heading, IconName, Link } from "./types";
 
 /* ───────────────────────────── Hero ───────────────────────────── */
@@ -34,7 +34,7 @@ export const hero = {
   backdrop: { angle: -28, focus: 0.66 } satisfies Backdrop,
   body: "Get fully managed GitHub Actions runners in your own cloud with autoscaling, build caching, warm runner pools, and more.",
   buttons: {
-    primary: { href: appUrl, label: "Start for free" },
+    primary: { href: calUrl, label: "Get started" },
     secondary: { href: docsUrl, label: "Read the docs" },
   } satisfies Record<string, Link>,
   cards: [
@@ -559,7 +559,7 @@ export const security = {
 
 export const getStarted = {
   backdrop: { angle: -35, focus: 0.7, intensity: 0.9 } satisfies Backdrop,
-  button: { href: appUrl, label: "Start for free" } satisfies Link,
+  button: { href: calUrl, label: "Get started" } satisfies Link,
   code: {
     code: `
 runners:

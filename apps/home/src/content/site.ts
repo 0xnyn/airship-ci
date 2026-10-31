@@ -1,7 +1,7 @@
 import type { Link } from "./types";
 
 // Where the site sends people. Override at build time with PUBLIC_APP_URL /
-// PUBLIC_DOCS_URL / PUBLIC_API_URL.
+// PUBLIC_DOCS_URL / PUBLIC_API_URL / PUBLIC_CAL_URL.
 export const siteUrl = "https://airshipci.com";
 export const appUrl: string =
   import.meta.env.PUBLIC_APP_URL ?? "https://app.airshipci.com";
@@ -9,6 +9,9 @@ export const docsUrl: string =
   import.meta.env.PUBLIC_DOCS_URL ?? "https://docs.airshipci.com";
 export const apiUrl: string =
   import.meta.env.PUBLIC_API_URL ?? "https://api.airshipci.com";
+// Where "Get started" and "Talk to us" go: a call booked on Cal.
+export const calUrl: string =
+  import.meta.env.PUBLIC_CAL_URL ?? "https://cal.com/airship/quick-chat";
 
 export const site = {
   description:
@@ -30,7 +33,7 @@ export const og = {
 };
 
 export const nav = {
-  cta: { href: appUrl, label: "Start for free" } satisfies Link,
+  cta: { href: calUrl, label: "Get started" } satisfies Link,
   links: [
     { href: "/#features", label: "Features" },
     { href: "/#how", label: "How it works" },
@@ -52,6 +55,7 @@ export const footer = {
         { href: "/pricing", label: "Pricing" },
         { href: docsUrl, label: "Docs" },
         { href: appUrl, label: "Dashboard" },
+        { href: calUrl, label: "Talk to us" },
       ],
     },
   ] as FooterColumn[],

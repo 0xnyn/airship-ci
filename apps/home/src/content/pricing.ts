@@ -5,7 +5,7 @@ import {
   FREE_MINUTES,
   type Size,
 } from "./prices";
-import { appUrl } from "./site";
+import { appUrl, calUrl } from "./site";
 import type { Heading, Link } from "./types";
 
 const free = FREE_MINUTES.toLocaleString("en-US");
@@ -106,7 +106,7 @@ export const pricing = {
     },
     {
       audience: "For large fleets and strict networks",
-      cta: { href: appUrl, label: "Talk to us" },
+      cta: { href: calUrl, label: "Talk to us" },
       features: [
         "Volume pricing",
         "Run the control plane yourself",

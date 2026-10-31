@@ -161,14 +161,15 @@ with the session cookie.
 
 ## `apps/home/.env`
 
-Three optional `PUBLIC_*` values, all commented out, which only change
+Four optional `PUBLIC_*` values, all commented out, which only change
 where the marketing site's buttons point:
 
 | Variable | Set it to | Effect |
 | --- | --- | --- |
-| `PUBLIC_APP_URL` | `http://localhost:3000` | "Start for free" and "Connect a cloud" go to your local dashboard instead of production |
+| `PUBLIC_APP_URL` | `http://localhost:3000` | The pricing plans' "Start for free" and "Connect a cloud" go to your local dashboard instead of production |
 | `PUBLIC_DOCS_URL` | `http://localhost:4100` | Docs links go to your local Mintlify preview |
 | `PUBLIC_API_URL` | `http://localhost:8080` | The developer-API example on the page |
+| `PUBLIC_CAL_URL` | Another Cal booking page | "Get started" and "Talk to us" book a call there instead of `https://cal.com/airship/quick-chat` |
 
 Astro inlines `PUBLIC_*` at build time, so a static build keeps whatever
 was set when it was built.

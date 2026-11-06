@@ -53,6 +53,7 @@ export const footer = {
     {
       links: [
         { href: "/pricing", label: "Pricing" },
+        { href: "/team", label: "Team" },
         { href: docsUrl, label: "Docs" },
         { href: appUrl, label: "Dashboard" },
         { href: calUrl, label: "Talk to us" },

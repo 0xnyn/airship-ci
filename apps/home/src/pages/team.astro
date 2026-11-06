@@ -1,0 +1,129 @@
+---
+import Footer from "../components/footer.astro";
+import Navbar from "../components/navbar.astro";
+import { team } from "../content/team";
+import Layout from "../layouts/layout.astro";
+---
+
+<Layout title="Team · Airship" description={team.description}>
+  <Navbar />
+  <main class="team">
+    <p class="section-label">
+      <span class="dot" style="background: var(--dot-cyan)"></span>
+      <span>{team.label}</span>
+    </p>
+    <h1>{team.title}</h1>
+    <p class="section-desc">{team.description}</p>
+    <div class="members">
+      {
+        team.members.map((member) => (
+          <article class="member">
+            <p class="role">{member.role}</p>
+            <h2>{member.name}</h2>
+            <a href={member.href} target="_blank" rel="noopener noreferrer">
+              LinkedIn profile <span aria-hidden="true">↗</span>
+              <span class="sr-only"> for {member.name} (opens in a new tab)</span>
+            </a>
+          </article>
+        ))
+      }
+    </div>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .team {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 75px 0 72px;
+  }
+
+  h1 {
+    font-size: 52px;
+    font-weight: 500;
+    letter-spacing: -2.2px;
+    line-height: 56px;
+    margin-bottom: 24px;
+  }
+
+  .members {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 48px;
+  }
+
+  .member {
+    background: var(--card-bg);
+    border-radius: var(--radius-sm);
+    padding: 28px;
+  }
+
+  .role {
+    color: var(--white-70);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+
+  h2 {
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.6px;
+    margin-bottom: 24px;
+  }
+
+  .member a {
+    color: var(--white-80);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .member a:hover {
+    color: var(--white);
+  }
+
+  .member a:focus-visible {
+    outline: 2px solid var(--dot-cyan);
+    outline-offset: 4px;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  @media (max-width: 1199px) {
+    .team {
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+  }
+
+  @media (max-width: 809px) {
+    .team {
+      padding: 48px 16px 40px;
+    }
+
+    h1 {
+      font-size: 34px;
+      line-height: 38px;
+      letter-spacing: -1.4px;
+    }
+
+    .members {
+      grid-template-columns: 1fr;
+      margin-top: 32px;
+    }
+  }
+</style>

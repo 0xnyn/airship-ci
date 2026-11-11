@@ -14,6 +14,12 @@ allowBuilds:
 # Varlock replaces Next's env loader so .env.schema validates and types env.
 overrides:
   "@next/env": npm:@varlock/nextjs-integration@1.2.5
+  # Security fixes the Mintlify CLI has not picked up yet (Dependabot):
+  # js-yaml GHSA-2883-xcg3-v3hh, sharp GHSA-f88m-g3jw-g9cj,
+  # GHSA-rgj7-g3m4-5g8c and GHSA-wq5f-xc86-pv6w. Drop each once `mint`
+  # depends on a patched version itself.
+  "js-yaml@>=4.0.0 <4.3.2": ^4.3.2
+  "sharp@<0.35.5": ^0.35.5
 
 # Versions shared by more than one package. Reference with "catalog:".
 catalog:
@@ -40,14 +46,14 @@ peerDependencyRules:
 # Written by pnpm: the Mintlify CLI publishes continuously, so its versions
 # are newer than the registry delay this workspace otherwise waits out.
 minimumReleaseAgeExclude:
-  - '@mintlify/cli@4.0.1760'
+  - '@mintlify/cli@4.0.1760 || 4.1.16'
   - '@mintlify/common@1.0.1317'
   - '@mintlify/link-rot@3.0.1554'
   - '@mintlify/models@0.0.380'
   - '@mintlify/og@0.0.116'
-  - '@mintlify/package-builder@0.0.106'
+  - '@mintlify/package-builder@0.0.106 || 0.0.147'
   - '@mintlify/prebuild@1.0.1489'
   - '@mintlify/previewing@4.0.1572'
   - '@mintlify/scraping@4.0.1195'
   - '@mintlify/validation@0.1.948'
-  - mint@4.2.1157
+  - mint@4.2.1157 || 4.3.16

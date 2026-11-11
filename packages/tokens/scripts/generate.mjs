@@ -113,6 +113,7 @@ const shellEntries = [
   ["radius", radius.lg],
   ["shell-inset", `${shell.inset}px`],
   ["sidebar-width", `${shell.sidebarWidth}px`],
+  ["sidebar-rail-width", `${shell.sidebarRailWidth}px`],
   ["topbar-height", `${shell.topBarHeight}px`],
   ["content-width", `${shell.contentWidth}px`],
   ["ease", motion.ease],

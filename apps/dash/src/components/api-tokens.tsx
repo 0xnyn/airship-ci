@@ -27,16 +27,8 @@ import {
   FieldLabel,
 } from "@airship/ui/components/field";
 import { Input } from "@airship/ui/components/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@airship/ui/components/table";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -49,6 +41,12 @@ import { EmptyRow, TableSkeleton } from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
+import {
+  SettingsCard,
+  SettingsCardBody,
+  SettingsCardFooter,
+  SettingsCardHeader,
+} from "./panel";
 import { RelativeTime } from "./time";
 
 const API_TOKENS = "/v1/orgs/{org}/api-tokens";
@@ -92,14 +90,17 @@ function Usage() {
   ].join("\n");
 
   return (
-    <section aria-labelledby="api-usage" className="grid gap-3">
-      <h2 className="font-medium text-[15px] tracking-tight" id="api-usage">
-        Using a key
-      </h2>
-      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        Send the key as a bearer token. <DocsLink page="Developer API" />
-      </p>
-      <div className="grid gap-3 lg:grid-cols-2">
+    <SettingsCard aria-labelledby="api-usage">
+      <SettingsCardHeader
+        description={
+          <>
+            Send the key as a bearer token. <DocsLink page="Developer API" />
+          </>
+        }
+        id="api-usage"
+        title="Using a key"
+      />
+      <SettingsCardBody className="grid gap-3 lg:grid-cols-2">
         <CodeBlock
           file="terminal"
           label="Copy curl example"
@@ -112,8 +113,8 @@ function Usage() {
           language="shell"
           value={clouds}
         />
-      </div>
-    </section>
+      </SettingsCardBody>
+    </SettingsCard>
   );
 }
 
@@ -129,69 +130,81 @@ export function APITokens() {
 
   let body: ReactNode;
   if (tokens.isPending) {
-    body = <TableSkeleton />;
+    body = (
+      <SettingsCardBody>
+        <TableSkeleton />
+      </SettingsCardBody>
+    );
   } else if (tokens.isError) {
     body = (
-      <EmptyRow>{errorMessage(tokens.error, "Could not list keys")}</EmptyRow>
+      <SettingsCardBody>
+        <EmptyRow>{errorMessage(tokens.error, "Could not list keys")}</EmptyRow>
+      </SettingsCardBody>
     );
   } else if (items.length === 0) {
     body = (
-      <EmptyRow>No keys yet. Create one to use the API from a script.</EmptyRow>
+      <SettingsCardBody>
+        <EmptyRow>
+          No keys yet. Create one to use the API from a script.
+        </EmptyRow>
+      </SettingsCardBody>
     );
   } else {
     body = (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Key</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Last used</TableHead>
-            <TableHead className="w-0">
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((token) => (
-            <TableRow key={token.id}>
-              <TableCell className="font-medium">{token.name}</TableCell>
-              <TableCell className="font-mono text-muted-foreground">
+      <ul aria-label="API keys" className="border-t">
+        {items.map((token) => (
+          <li
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-5 py-3 last:border-b-0 md:px-6"
+            key={token.id}
+          >
+            <span
+              aria-hidden="true"
+              className="grid size-8 shrink-0 place-items-center rounded-md border bg-muted text-muted-foreground"
+            >
+              <KeyRound className="size-4" />
+            </span>
+            <div className="grid min-w-0 flex-1 gap-0.5">
+              <span className="truncate font-medium text-sm">{token.name}</span>
+              <span className="truncate font-mono text-muted-foreground text-xs">
                 {token.tokenHint}…
-              </TableCell>
-              <TableCell>
-                <RelativeTime value={token.createdAt} />
-              </TableCell>
-              <TableCell>
+              </span>
+            </div>
+            <div className="grid gap-0.5 text-right text-muted-foreground text-xs">
+              <span>
+                Created <RelativeTime value={token.createdAt} />
+              </span>
+              <span>
                 {token.lastUsedAt ? (
-                  <RelativeTime value={token.lastUsedAt} />
+                  <>
+                    Used <RelativeTime value={token.lastUsedAt} />
+                  </>
                 ) : (
-                  <span className="text-muted-foreground">Never</span>
+                  "Never used"
                 )}
-              </TableCell>
-              <TableCell>
-                <RevokeToken token={token} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </span>
+            </div>
+            <RevokeToken token={token} />
+          </li>
+        ))}
+      </ul>
     );
   }
 
   return (
-    <div className="grid gap-3">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-muted-foreground text-xs">
-          A key can activate repositories and replace cloud credentials. Treat
-          it like one.
-        </p>
-        <Button onClick={() => setCreating(true)} size="sm" variant="outline">
-          <Plus />
-          Create key
-        </Button>
-      </div>
+    <SettingsCard aria-labelledby="api-keys-title">
+      <SettingsCardHeader
+        action={
+          <Button onClick={() => setCreating(true)}>
+            <Plus />
+            Create key
+          </Button>
+        }
+        description="Each key is shown once, right after you create it"
+        id="api-keys-title"
+        title="Keys"
+      />
       {body}
+      <SettingsCardFooter note="A key can activate repositories and replace cloud credentials. Treat it like one." />
       <CreateTokenDialog
         onCreated={(created) => {
           setCreating(false);
@@ -201,7 +214,7 @@ export function APITokens() {
         open={creating}
       />
       <TokenSecretDialog onClose={() => setSecret(null)} secret={secret} />
-    </div>
+    </SettingsCard>
   );
 }
 
@@ -318,7 +331,7 @@ function TokenSecretDialog({
           </DialogDescription>
         </DialogHeader>
         <CodeBlock label="Copy key" value={secret.token} />
-        <p className="text-muted-foreground text-xs">
+        <p className="text-muted-foreground text-sm">
           Activate a repository with it:
         </p>
         <CodeBlock
@@ -350,7 +363,12 @@ function RevokeToken({ token }: { token: Schemas["APIToken"] }) {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} size="sm" variant="ghost">
+      <Button
+        className="text-danger-foreground hover:text-danger-foreground"
+        onClick={() => setOpen(true)}
+        size="sm"
+        variant="ghost"
+      >
         Revoke
       </Button>
       <AlertDialog onOpenChange={setOpen} open={open}>

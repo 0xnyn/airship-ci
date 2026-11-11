@@ -14,28 +14,13 @@ import {
 
 import { isActiveSection } from "@/lib/navigation";
 
-/**
- * The signal colour a section wears as its dot, as the landing page gives
- * each of its sections one. Class names rather than values so they follow
- * the theme; the colours themselves come from @airship/tokens.
- */
-export const accentDot = {
-  blue: "bg-active",
-  cyan: "bg-info",
-  gold: "bg-warning",
-  green: "bg-success",
-  white: "bg-foreground",
-  yellow: "bg-highlight",
-} as const;
-
-export type Accent = keyof typeof accentDot;
-
 export interface Section {
-  accent: Accent;
   /** Path under the organization, "" for its home. */
   href: string;
   icon: LucideIcon;
   label: string;
+  /** The key pressed after G to go here, e.g. "j" for G J. */
+  shortcut: string;
 }
 
 export interface SectionGroup {
@@ -47,39 +32,44 @@ export const sectionGroups: readonly SectionGroup[] = [
   {
     label: "Fleet",
     sections: [
-      { accent: "white", href: "", icon: LayoutDashboard, label: "Dashboard" },
-      { accent: "blue", href: "/runners", icon: Activity, label: "Runners" },
-      { accent: "green", href: "/jobs", icon: ListChecks, label: "Jobs" },
+      { href: "", icon: LayoutDashboard, label: "Dashboard", shortcut: "d" },
+      { href: "/runners", icon: Activity, label: "Runners", shortcut: "r" },
+      { href: "/jobs", icon: ListChecks, label: "Jobs", shortcut: "j" },
       {
-        accent: "cyan",
         href: "/analytics",
         icon: BarChart3,
         label: "Analytics",
+        shortcut: "a",
       },
-      { accent: "gold", href: "/events", icon: Radio, label: "Events" },
+      { href: "/events", icon: Radio, label: "Events", shortcut: "e" },
     ],
   },
   {
     label: "Setup",
     sections: [
       {
-        accent: "yellow",
         href: "/repositories",
         icon: FolderGit2,
         label: "Repositories",
+        shortcut: "p",
       },
-      { accent: "cyan", href: "/cloud", icon: Cloud, label: "Cloud" },
+      { href: "/cloud", icon: Cloud, label: "Cloud", shortcut: "c" },
     ],
   },
   {
     label: "Organization",
     sections: [
-      { accent: "green", href: "/teams", icon: Users, label: "Teams" },
-      { accent: "gold", href: "/api-keys", icon: KeyRound, label: "API keys" },
-      { accent: "white", href: "/settings", icon: Settings, label: "Settings" },
+      { href: "/teams", icon: Users, label: "Teams", shortcut: "t" },
+      { href: "/api-keys", icon: KeyRound, label: "API keys", shortcut: "k" },
+      { href: "/settings", icon: Settings, label: "Settings", shortcut: "s" },
     ],
   },
 ];
+
+/** Every section, in navigation order. */
+export const sections: readonly Section[] = sectionGroups.flatMap(
+  (group) => group.sections
+);
 
 /** The section and group the current path belongs to, if any. */
 export function currentSection(

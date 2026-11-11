@@ -1,12 +1,7 @@
 "use client";
 
 import { Button } from "@airship/ui/components/button";
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-} from "@airship/ui/components/field";
+import { Field, FieldError, FieldLabel } from "@airship/ui/components/field";
 import { Input } from "@airship/ui/components/input";
 import { Skeleton } from "@airship/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,6 +14,12 @@ import { DocsLink } from "./docs-link";
 
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
+import {
+  SettingsCard,
+  SettingsCardBody,
+  SettingsCardFooter,
+  SettingsCardHeader,
+} from "./panel";
 
 const SETTINGS = "/v1/orgs/{org}/settings";
 const MIN_RUNNERS = 1;
@@ -39,7 +40,7 @@ export function SettingsPage() {
       {settings.isError ? (
         <ErrorRow error={settings.error} fallback="Could not load settings" />
       ) : null}
-      {settings.isPending ? <Skeleton className="h-24" /> : null}
+      {settings.isPending ? <Skeleton className="h-48" /> : null}
       {settings.data ? (
         // Keyed on the stored value, so a change saved elsewhere resets
         // the form instead of leaving a stale number ready to save back.
@@ -75,55 +76,71 @@ function MaxRunners({ initial }: { initial: number }) {
   };
 
   return (
-    <form
-      className="grid max-w-md gap-4 rounded-lg border bg-card p-5"
-      onSubmit={submit}
-    >
-      <Field data-invalid={update.isError || undefined}>
-        <FieldLabel htmlFor="max-runners">Runner limit</FieldLabel>
-        <Input
-          aria-invalid={update.isError || undefined}
-          className="w-32 font-mono"
-          disabled={!isAdmin}
-          id="max-runners"
-          inputMode="numeric"
-          max={MAX_RUNNERS}
-          min={MIN_RUNNERS}
-          onChange={(event) => setValue(event.target.value)}
-          required
-          type="number"
-          value={value}
+    <SettingsCard aria-labelledby="max-runners-title">
+      <form onSubmit={submit}>
+        <SettingsCardHeader
+          description={
+            <>
+              Live machines across every repository, idle pools included. Jobs
+              past the limit wait for a slot.
+            </>
+          }
+          id="max-runners-title"
+          title="Runner limit"
         />
-        <FieldDescription>
-          Live machines across every repository, idle pools included. Jobs past
-          the limit wait for a slot. <DocsLink page="Capacity and limits" />
-        </FieldDescription>
-        {update.isError ? (
-          <FieldError>
-            {errorMessage(update.error, "Could not save settings")}
-          </FieldError>
-        ) : null}
-      </Field>
-      {isAdmin ? (
-        <div>
-          <Button
-            disabled={
-              update.isPending ||
-              !changed ||
-              Number.isNaN(parsed) ||
-              parsed < MIN_RUNNERS ||
-              parsed > MAX_RUNNERS
-            }
-            type="submit"
-          >
-            {update.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          Only organization owners can change this
-        </p>
-      )}
-    </form>
+        <SettingsCardBody>
+          <Field data-invalid={update.isError || undefined}>
+            <FieldLabel className="sr-only" htmlFor="max-runners">
+              Runner limit
+            </FieldLabel>
+            <Input
+              aria-invalid={update.isError || undefined}
+              className="w-full max-w-40 font-mono"
+              disabled={!isAdmin}
+              id="max-runners"
+              inputMode="numeric"
+              max={MAX_RUNNERS}
+              min={MIN_RUNNERS}
+              onChange={(event) => setValue(event.target.value)}
+              required
+              type="number"
+              value={value}
+            />
+            {update.isError ? (
+              <FieldError>
+                {errorMessage(update.error, "Could not save settings")}
+              </FieldError>
+            ) : null}
+          </Field>
+        </SettingsCardBody>
+        <SettingsCardFooter
+          note={
+            isAdmin ? (
+              <>
+                Between {MIN_RUNNERS} and {MAX_RUNNERS.toLocaleString("en-US")}.{" "}
+                <DocsLink page="Capacity and limits" />
+              </>
+            ) : (
+              "Only organization owners can change this"
+            )
+          }
+        >
+          {isAdmin ? (
+            <Button
+              disabled={
+                update.isPending ||
+                !changed ||
+                Number.isNaN(parsed) ||
+                parsed < MIN_RUNNERS ||
+                parsed > MAX_RUNNERS
+              }
+              type="submit"
+            >
+              {update.isPending ? "Saving…" : "Save"}
+            </Button>
+          ) : null}
+        </SettingsCardFooter>
+      </form>
+    </SettingsCard>
   );
 }

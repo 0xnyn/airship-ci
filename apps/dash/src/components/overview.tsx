@@ -150,13 +150,13 @@ function RunnersNow({
   return (
     <section aria-labelledby="runners-now">
       <Panel className="relative">
-        <div className="flex items-center justify-between gap-4 border-b px-4 py-3 md:px-5">
+        <div className="flex items-center justify-between gap-4 border-b px-4 py-3.5 md:px-5">
           <h2
-            className="flex items-center gap-2 font-medium text-[15px] tracking-tight"
+            className="flex items-center gap-2 font-semibold text-base tracking-tight"
             id="runners-now"
           >
             Runners now
-            <span className="figure font-mono font-normal text-muted-foreground text-xs">
+            <span className="figure rounded-full bg-muted px-1.5 font-normal text-muted-foreground text-xs">
               {formatInteger(total)}
             </span>
           </h2>
@@ -182,7 +182,10 @@ function RunnersNow({
             </div>
           ))}
         </div>
-        <div aria-hidden="true" className="flex h-1 w-full gap-px bg-muted">
+        <div
+          aria-hidden="true"
+          className="mx-4 mb-4 flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-muted md:mx-5 md:mb-5"
+        >
           {total > 0
             ? runnerStates.map((state) =>
                 runners[state.key] > 0 ? (
@@ -257,7 +260,7 @@ function GettingStarted({
       <section aria-labelledby="getting-started" className="grid gap-4 p-5">
         <div className="grid gap-1">
           <h2
-            className="font-medium text-[15px] tracking-tight"
+            className="font-semibold text-base tracking-tight"
             id="getting-started"
           >
             Get started
@@ -272,7 +275,7 @@ function GettingStarted({
               <span
                 aria-hidden="true"
                 className={cn(
-                  "grid size-5 shrink-0 place-items-center rounded-full border font-mono text-[10px] text-muted-foreground",
+                  "figure grid size-5 shrink-0 place-items-center rounded-full border text-[11px] text-muted-foreground",
                   step.done && "border-transparent bg-success text-background"
                 )}
               >
@@ -337,11 +340,11 @@ function RecentJobs() {
         <PanelList>
           {items.map((job) => (
             <li
-              className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-xs transition-colors hover:bg-muted/40"
+              className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-xs transition-colors hover:bg-muted"
               key={job.id}
             >
               <div className="grid min-w-0 gap-1">
-                <span className="truncate font-medium text-[13px]">
+                <span className="truncate font-medium text-sm">
                   {job.workflowName ? (
                     <span className="text-muted-foreground">
                       {job.workflowName} /{" "}
@@ -355,7 +358,7 @@ function RecentJobs() {
               </div>
               <div className="grid justify-items-end gap-1">
                 <JobStatus job={job} />
-                <span className="font-mono text-[11px] text-muted-foreground">
+                <span className="text-muted-foreground text-xs tabular-nums">
                   <RelativeTime value={job.queuedAt} />
                 </span>
               </div>

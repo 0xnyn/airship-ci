@@ -14,7 +14,7 @@ import { useState } from "react";
 import { $api } from "@/lib/api";
 import { formatDuration, secondsBetween } from "@/lib/format";
 import { sourceLabel } from "@/lib/labels";
-
+import { CloudLogo } from "./cloud-logo";
 import {
   EmptyRow,
   ErrorRow,
@@ -123,7 +123,9 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
       </TableCell>
       <TableCell className="max-w-72">
         <div className="grid gap-0.5">
-          <span className="truncate font-mono text-[11px]">{runner.name}</span>
+          <span className="truncate font-medium font-mono text-xs">
+            {runner.name}
+          </span>
           <span className="truncate text-muted-foreground">
             {runner.repository}
             {runner.jobId ? ` · job ${runner.jobId}` : ""}
@@ -132,7 +134,7 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
       </TableCell>
       <TableCell>
         <div className="grid gap-0.5">
-          <span className="font-mono text-[11px]">{runner.definition}</span>
+          <span className="font-mono text-xs">{runner.definition}</span>
           <span className="text-muted-foreground">
             {sourceLabel[runner.source] ?? runner.source}
             {runner.warm ? " · idle pool" : ""}
@@ -141,22 +143,26 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
       </TableCell>
       <TableCell>
         <div className="grid gap-0.5">
-          <span className="font-mono text-[11px]">
+          <span className="font-mono text-xs">
             {runner.instanceType || "—"}
             {runner.spot ? " spot" : ""}
           </span>
-          <span className="truncate font-mono text-[11px] text-muted-foreground">
-            {runner.cloud} {runner.region}
-            {runner.instanceId ? ` · ${runner.instanceId}` : ""}
+          <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+            <CloudLogo className="size-3.5" name={runner.cloud} />
+            <span className="sr-only">{runner.cloud}</span>
+            <span className="truncate">
+              {runner.region}
+              {runner.instanceId ? ` · ${runner.instanceId}` : ""}
+            </span>
           </span>
         </div>
       </TableCell>
-      <TableCell className="text-right font-mono tabular-nums">
+      <TableCell className="text-right tabular-nums">
         {runner.runningAt
           ? formatDuration(secondsBetween(runner.runningAt, runner.finishedAt))
           : "—"}
       </TableCell>
-      <TableCell className="text-right text-muted-foreground">
+      <TableCell className="text-right text-muted-foreground tabular-nums">
         <RelativeTime value={runner.createdAt} />
       </TableCell>
     </TableRow>

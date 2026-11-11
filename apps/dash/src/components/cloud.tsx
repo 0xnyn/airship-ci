@@ -23,6 +23,7 @@ import { Skeleton } from "@airship/ui/components/skeleton";
 import { Textarea } from "@airship/ui/components/textarea";
 import { cn } from "@airship/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { $api, invalidatePath } from "@/lib/api";
@@ -33,11 +34,20 @@ import {
   daytonaRegions,
   gcpLocations,
 } from "@/lib/labels";
+import { CloudLogo } from "./cloud-logo";
 import { CodeBlock } from "./copy-button";
 import { ErrorRow } from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
+import {
+  Fact,
+  Facts,
+  SettingsCard,
+  SettingsCardBody,
+  SettingsCardFooter,
+  SettingsCardHeader,
+} from "./panel";
 import { CloudStatus } from "./status";
 import { RelativeTime } from "./time";
 
@@ -48,14 +58,6 @@ const DEFAULT_DAYTONA_REGION = "us";
 const DEFAULT_AZURE_REGION = "eastus";
 
 type CloudName = Schemas["Cloud"]["cloud"];
-
-/** Each cloud's own colour, as the landing page names clouds. */
-const cloudDot: Record<CloudName, string> = {
-  aws: "bg-cloud-aws",
-  azure: "bg-cloud-azure",
-  daytona: "bg-cloud-daytona",
-  gcp: "bg-cloud-gcp",
-};
 
 /** What the dashboard says about each cloud. */
 const cloudCopy: Record<
@@ -118,6 +120,40 @@ const cloudCopy: Record<
   },
 };
 
+const ORDER: readonly CloudName[] = ["aws", "gcp", "azure", "daytona"];
+
+function CloudTile({
+  name,
+  size = "md",
+}: {
+  name: CloudName;
+  size?: "sm" | "md";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "grid shrink-0 place-items-center rounded-lg border bg-background text-foreground shadow-xs",
+        size === "md" ? "size-11" : "size-9"
+      )}
+    >
+      <CloudLogo className={size === "md" ? "size-6" : "size-5"} name={name} />
+    </span>
+  );
+}
+
+function StatusPill({ cloud }: { cloud: Schemas["Cloud"] | undefined }) {
+  return (
+    <span className="inline-flex h-6 items-center rounded-full border bg-background px-2.5 text-xs">
+      {cloud ? (
+        <CloudStatus cloud={cloud} />
+      ) : (
+        <span className="text-muted-foreground">Not connected</span>
+      )}
+    </span>
+  );
+}
+
 export function CloudPage() {
   const { org } = useOrg();
   const clouds = $api.useQuery("get", CLOUDS, {
@@ -125,6 +161,15 @@ export function CloudPage() {
   });
   const find = (name: CloudName) =>
     clouds.data?.items?.find((item) => item.cloud === name);
+  const forms: Record<
+    CloudName,
+    (existing: Schemas["Cloud"] | undefined) => ReactNode
+  > = {
+    aws: (existing) => <ConnectAWSForm existing={existing} />,
+    azure: (existing) => <ConnectAzureForm existing={existing} />,
+    daytona: (existing) => <ConnectDaytonaForm existing={existing} />,
+    gcp: (existing) => <ConnectGCPForm existing={existing} />,
+  };
 
   return (
     <>
@@ -132,36 +177,52 @@ export function CloudPage() {
         description="Where Airship launches runners. Credentials are encrypted and never shown again."
         title="Cloud"
       />
-      <CloudSection
-        clouds={clouds}
-        existing={find("aws")}
-        form={(existing) => <ConnectAWSForm existing={existing} />}
-        name="aws"
-      />
-      <CloudSection
-        clouds={clouds}
-        existing={find("gcp")}
-        form={(existing) => <ConnectGCPForm existing={existing} />}
-        name="gcp"
-      />
-      <CloudSection
-        clouds={clouds}
-        existing={find("azure")}
-        form={(existing) => <ConnectAzureForm existing={existing} />}
-        name="azure"
-      />
-      <CloudSection
-        clouds={clouds}
-        existing={find("daytona")}
-        form={(existing) => <ConnectDaytonaForm existing={existing} />}
-        name="daytona"
-      />
-      <AWSPolicy />
-      <GCPRole />
-      <AzureApp />
-      <DaytonaKey />
+      <nav
+        aria-label="Providers"
+        className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border lg:grid-cols-4"
+      >
+        {ORDER.map((name) => (
+          <a
+            className="flex items-center gap-3 bg-card p-4 transition-colors hover:bg-muted"
+            href={`#${name}`}
+            key={name}
+          >
+            <CloudTile name={name} size="sm" />
+            <span className="grid min-w-0 gap-0.5">
+              <span className="truncate font-medium text-sm">
+                {cloudCopy[name].title}
+              </span>
+              <span className="text-xs">
+                {clouds.isPending ? (
+                  <Skeleton className="h-3 w-16" />
+                ) : (
+                  <ProviderState cloud={find(name)} />
+                )}
+              </span>
+            </span>
+          </a>
+        ))}
+      </nav>
+      <div className="grid gap-6">
+        {ORDER.map((name) => (
+          <CloudSection
+            clouds={clouds}
+            existing={find(name)}
+            form={forms[name]}
+            key={name}
+            name={name}
+          />
+        ))}
+      </div>
     </>
   );
+}
+
+function ProviderState({ cloud }: { cloud: Schemas["Cloud"] | undefined }) {
+  if (!cloud) {
+    return <span className="text-muted-foreground">Not connected</span>;
+  }
+  return <CloudStatus cloud={cloud} />;
 }
 
 function CloudSection({
@@ -182,84 +243,82 @@ function CloudSection({
 }) {
   const copy = cloudCopy[name];
   return (
-    <section
-      aria-labelledby={name}
-      className="grid gap-5 rounded-lg border bg-card p-5"
+    <SettingsCard
+      aria-labelledby={`${name}-title`}
+      className="scroll-mt-6"
+      id={name}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="grid gap-1.5">
-          <h2
-            className="flex items-center gap-2 font-medium text-[15px] tracking-tight"
-            id={name}
-          >
-            <span
-              aria-hidden="true"
-              className={cn("h-2 w-3.5 rounded-full", cloudDot[name])}
-            />
-            {copy.title}
-          </h2>
-          <p className="max-w-prose text-muted-foreground text-xs/relaxed">
+      <SettingsCardHeader
+        action={clouds.isSuccess ? <StatusPill cloud={existing} /> : null}
+        description={
+          <>
             {copy.intro}
-          </p>
-          {copy.noCache ? (
-            <p className="text-muted-foreground text-xs">
-              <code className="font-mono">cache: true</code> launches without
-              the cache proxy here
-            </p>
-          ) : null}
-        </div>
-        {existing ? (
-          <span className="rounded-full border px-2.5 py-1 font-mono text-[11px]">
-            <CloudStatus cloud={existing} />
-          </span>
-        ) : null}
-      </div>
-      {clouds.isPending ? <Skeleton className="h-32" /> : null}
+            {copy.noCache ? (
+              <>
+                {" "}
+                <code className="whitespace-nowrap font-mono text-[13px] text-foreground">
+                  cache: true
+                </code>{" "}
+                launches without the cache proxy here.
+              </>
+            ) : null}
+          </>
+        }
+        icon={<CloudTile name={name} />}
+        id={`${name}-title`}
+        title={copy.title}
+      />
+      {clouds.isPending ? (
+        <SettingsCardBody>
+          <Skeleton className="h-24" />
+        </SettingsCardBody>
+      ) : null}
       {clouds.isError ? (
-        <ErrorRow
-          error={clouds.error}
-          fallback="Could not load the cloud connection"
-        />
+        <SettingsCardBody>
+          <ErrorRow
+            error={clouds.error}
+            fallback="Could not load the cloud connection"
+          />
+        </SettingsCardBody>
       ) : null}
       {clouds.isSuccess && existing ? <Connected cloud={existing} /> : null}
       {clouds.isSuccess ? form(existing) : null}
-    </section>
+    </SettingsCard>
   );
 }
 
 function Connected({ cloud }: { cloud: Schemas["Cloud"] }) {
-  const { isAdmin } = useOrg();
   const copy = cloudCopy[cloud.cloud];
   return (
-    <div className="grid gap-3">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 rounded-md border bg-muted/40 p-3.5 text-xs">
-        <dt className="text-muted-foreground">{copy.identity}</dt>
-        <dd className="truncate font-mono">{cloud.identity}</dd>
-        <dt className="text-muted-foreground">{copy.account}</dt>
-        <dd className="font-mono">{cloud.accountId ?? "—"}</dd>
-        <dt className="text-muted-foreground">Identity</dt>
-        <dd className="truncate font-mono" title={cloud.principal ?? undefined}>
-          {cloud.principal ?? "—"}
-        </dd>
-        <dt className="text-muted-foreground">{copy.location}</dt>
-        <dd className="font-mono">{cloud.defaultRegion}</dd>
-        <dt className="text-muted-foreground">Connected</dt>
-        <dd>
+    <SettingsCardBody className="grid gap-4">
+      <Facts className="rounded-md border bg-background p-4 lg:grid-cols-4">
+        <Fact label={copy.identity} mono>
+          <span title={cloud.identity}>{cloud.identity}</span>
+        </Fact>
+        <Fact label={copy.account} mono>
+          {cloud.accountId ?? "—"}
+        </Fact>
+        <Fact label={copy.location} mono>
+          {cloud.defaultRegion}
+        </Fact>
+        <Fact label="Connected">
           <RelativeTime value={cloud.connectedAt} />
           {cloud.verifiedAt ? (
             <span className="text-muted-foreground">
               , verified <RelativeTime value={cloud.verifiedAt} />
             </span>
           ) : null}
-        </dd>
-      </dl>
+        </Fact>
+      </Facts>
       {cloud.error ? (
-        <p className="text-destructive" role="alert">
+        <p
+          className="rounded-md border border-danger/25 bg-danger-surface px-3 py-2 text-danger-foreground text-sm"
+          role="alert"
+        >
           {cloud.error}
         </p>
       ) : null}
-      {isAdmin ? <Disconnect cloud={cloud} /> : null}
-    </div>
+    </SettingsCardBody>
   );
 }
 
@@ -274,41 +333,99 @@ function useForgetKey(connect: { isSuccess: boolean; reset: () => void }) {
 
 function NotConnected({ title }: { title: string }) {
   return (
-    <p className="text-muted-foreground text-xs">
-      No {title} account is connected. Only organization owners can connect one.
-    </p>
+    <SettingsCardFooter
+      note={`No ${title} account is connected. Only organization owners can connect one.`}
+    />
   );
 }
 
-function ReplaceNote({ existing }: { existing: Schemas["Cloud"] | undefined }) {
-  if (!existing) {
-    return null;
-  }
-  return (
-    <p className="text-muted-foreground text-xs">
-      A new credential replaces the current one. Live runners keep working.
-    </p>
-  );
-}
-
-/** A connect form's submit button, named for what it does rather than "Save". */
-function ConnectButton({
+/**
+ * A connect form inside a cloud's card. Connected, it folds away behind
+ * "Replace credentials" so the card shows what is there; not connected, the
+ * fields are open. The footer holds the note and the actions.
+ */
+function CredentialsForm({
+  children,
+  cloud,
   existing,
+  label,
+  onSubmit,
   pending,
 }: {
+  children: ReactNode;
+  cloud: CloudName;
   existing: Schemas["Cloud"] | undefined;
+  label: string;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   pending: boolean;
 }) {
-  let label = existing ? "Replace credentials" : "Connect";
+  const [editing, setEditing] = useState(false);
+  const open = !existing || editing;
+  const updatedAt = existing?.updatedAt;
+
+  // A successful replace changes the connection; fold the form again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs per update.
+  useEffect(() => {
+    setEditing(false);
+  }, [updatedAt]);
+
+  let submit = existing ? "Replace credentials" : "Connect";
   if (pending) {
-    label = "Verifying…";
+    submit = "Verifying…";
   }
+  let note: ReactNode = "Encrypted at rest and never shown again.";
+  if (open) {
+    note = existing
+      ? "A new credential replaces the current one. Live runners keep working."
+      : "Airship verifies the credential before saving it.";
+  }
+
   return (
-    <div>
-      <Button disabled={pending} type="submit">
-        {label}
-      </Button>
-    </div>
+    <form aria-label={label} onSubmit={onSubmit}>
+      {open ? (
+        <SettingsCardBody className="grid gap-5 border-t pt-5">
+          {children}
+          <details className="group rounded-md border bg-background">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-sm transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden">
+              <ChevronRight
+                aria-hidden="true"
+                className="size-4 text-muted-foreground transition-transform group-open:rotate-90"
+              />
+              {guides[cloud].title}
+            </summary>
+            <div className="grid gap-3 border-t p-3">{guides[cloud].body}</div>
+          </details>
+        </SettingsCardBody>
+      ) : null}
+      <SettingsCardFooter note={note}>
+        {existing && !editing ? (
+          <>
+            <Disconnect cloud={existing} />
+            <Button
+              onClick={() => setEditing(true)}
+              type="button"
+              variant="outline"
+            >
+              Replace credentials
+            </Button>
+          </>
+        ) : null}
+        {existing && editing ? (
+          <Button
+            onClick={() => setEditing(false)}
+            type="button"
+            variant="ghost"
+          >
+            Cancel
+          </Button>
+        ) : null}
+        {open ? (
+          <Button disabled={pending} type="submit">
+            {submit}
+          </Button>
+        ) : null}
+      </SettingsCardFooter>
+    </form>
   );
 }
 
@@ -329,7 +446,7 @@ function LocationSelect({
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <select
-        className="h-8 rounded-md border border-input bg-transparent px-2.5 font-mono text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 dark:bg-input/30"
+        className="h-9 rounded-md border border-input bg-background px-2.5 font-mono text-[13px] outline-none transition-colors focus-visible:border-foreground/40 focus-visible:ring-[3px] focus-visible:ring-foreground/10 dark:bg-input/30"
         id={id}
         onChange={(event) => onChange(event.target.value)}
         value={value}
@@ -386,12 +503,13 @@ function ConnectAWSForm({
   };
 
   return (
-    <form
-      aria-label={existing ? "Replace AWS credentials" : "Connect AWS"}
-      className="grid gap-4 border-t pt-4"
+    <CredentialsForm
+      cloud="aws"
+      existing={existing}
+      label={existing ? "Replace AWS credentials" : "Connect AWS"}
       onSubmit={submit}
+      pending={connect.isPending}
     >
-      <ReplaceNote existing={existing} />
       <div className="grid gap-4 md:grid-cols-3">
         <Field data-invalid={connect.isError || undefined}>
           <FieldLabel htmlFor="aws-access-key">Access key</FieldLabel>
@@ -435,8 +553,7 @@ function ConnectAWSForm({
           {errorMessage(connect.error, "Could not connect AWS")}
         </FieldError>
       ) : null}
-      <ConnectButton existing={existing} pending={connect.isPending} />
-    </form>
+    </CredentialsForm>
   );
 }
 
@@ -475,14 +592,15 @@ function ConnectGCPForm({
   };
 
   return (
-    <form
-      aria-label={
+    <CredentialsForm
+      cloud="gcp"
+      existing={existing}
+      label={
         existing ? "Replace Google Cloud credentials" : "Connect Google Cloud"
       }
-      className="grid gap-4 border-t pt-4"
       onSubmit={submit}
+      pending={connect.isPending}
     >
-      <ReplaceNote existing={existing} />
       <div className="grid gap-4 md:grid-cols-[2fr_1fr]">
         <Field data-invalid={connect.isError || undefined}>
           <FieldLabel htmlFor="gcp-key">Service account key</FieldLabel>
@@ -517,8 +635,7 @@ function ConnectGCPForm({
           {errorMessage(connect.error, "Could not connect Google Cloud")}
         </FieldError>
       ) : null}
-      <ConnectButton existing={existing} pending={connect.isPending} />
-    </form>
+    </CredentialsForm>
   );
 }
 
@@ -575,14 +692,13 @@ function ConnectAzureForm({
   } as const;
 
   return (
-    <form
-      aria-label={
-        existing ? "Replace Azure credentials" : "Connect Microsoft Azure"
-      }
-      className="grid gap-4 border-t pt-4"
+    <CredentialsForm
+      cloud="azure"
+      existing={existing}
+      label={existing ? "Replace Azure credentials" : "Connect Microsoft Azure"}
       onSubmit={submit}
+      pending={connect.isPending}
     >
-      <ReplaceNote existing={existing} />
       <div className="grid gap-4 md:grid-cols-3">
         <Field>
           <FieldLabel htmlFor="azure-subscription-id">
@@ -648,8 +764,7 @@ function ConnectAzureForm({
           {errorMessage(connect.error, "Could not connect Microsoft Azure")}
         </FieldError>
       ) : null}
-      <ConnectButton existing={existing} pending={connect.isPending} />
-    </form>
+    </CredentialsForm>
   );
 }
 
@@ -694,12 +809,13 @@ function ConnectDaytonaForm({
   };
 
   return (
-    <form
-      aria-label={existing ? "Replace Daytona credentials" : "Connect Daytona"}
-      className="grid gap-4 border-t pt-4"
+    <CredentialsForm
+      cloud="daytona"
+      existing={existing}
+      label={existing ? "Replace Daytona credentials" : "Connect Daytona"}
       onSubmit={submit}
+      pending={connect.isPending}
     >
-      <ReplaceNote existing={existing} />
       <div className="grid gap-4 md:grid-cols-3">
         <Field data-invalid={connect.isError || undefined}>
           <FieldLabel htmlFor="daytona-api-key">API key</FieldLabel>
@@ -749,8 +865,7 @@ function ConnectDaytonaForm({
           {errorMessage(connect.error, "Could not connect Daytona")}
         </FieldError>
       ) : null}
-      <ConnectButton existing={existing} pending={connect.isPending} />
-    </form>
+    </CredentialsForm>
   );
 }
 
@@ -776,8 +891,13 @@ function Disconnect({ cloud }: { cloud: Schemas["Cloud"] }) {
   );
 
   return (
-    <div>
-      <Button onClick={() => setOpen(true)} size="sm" variant="outline">
+    <>
+      <Button
+        className="text-danger-foreground hover:text-danger-foreground"
+        onClick={() => setOpen(true)}
+        type="button"
+        variant="ghost"
+      >
         Disconnect
       </Button>
       <AlertDialog onOpenChange={setOpen} open={open}>
@@ -805,103 +925,95 @@ function Disconnect({ cloud }: { cloud: Schemas["Cloud"] }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }
 
-function AWSPolicy() {
-  const commands = `aws iam create-user --user-name airship
+const AWS_COMMANDS = `aws iam create-user --user-name airship
 aws iam attach-user-policy --user-name airship \\
   --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
 aws iam create-access-key --user-name airship`;
-  return (
-    <section aria-labelledby="iam" className="grid gap-3">
-      <h2 className="font-medium text-[15px] tracking-tight" id="iam">
-        Creating the IAM user
-      </h2>
-      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        AmazonEC2FullAccess covers everything Airship needs to manage runners.{" "}
-        <DocsLink page="Amazon Web Services" />
-      </p>
-      <CodeBlock
-        file="terminal"
-        label="Copy IAM commands"
-        language="shell"
-        value={commands}
-      />
-    </section>
-  );
-}
 
-function GCPRole() {
-  const commands = `gcloud services enable compute.googleapis.com
+const GCP_COMMANDS = `gcloud services enable compute.googleapis.com
 gcloud iam service-accounts create airship --display-name "Airship runners"
 gcloud projects add-iam-policy-binding PROJECT_ID \\
   --member serviceAccount:airship@PROJECT_ID.iam.gserviceaccount.com \\
   --role roles/compute.admin
 gcloud iam service-accounts keys create service-account.json \\
   --iam-account airship@PROJECT_ID.iam.gserviceaccount.com`;
-  return (
-    <section aria-labelledby="gcp-role" className="grid gap-3">
-      <h2 className="font-medium text-[15px] tracking-tight" id="gcp-role">
-        Creating the service account
-      </h2>
-      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        The Compute Admin role covers everything Airship needs to manage
-        runners. GPU runners also need GPU quota in the zone.{" "}
-        <DocsLink page="Google Cloud" />
-      </p>
-      <CodeBlock
-        file="terminal"
-        label="Copy gcloud commands"
-        language="shell"
-        value={commands}
-      />
-    </section>
-  );
-}
 
-function AzureApp() {
-  const commands = [
-    "az login",
-    'SUBSCRIPTION_ID="$(az account show --query id -o tsv)"',
-    "az ad sp create-for-rbac --name airship-runners --role Contributor \\",
-    '  --scopes "/subscriptions/$SUBSCRIPTION_ID"',
-    "# appId is the application (client) ID, password the client secret,",
-    "# tenant the directory (tenant) ID.",
-  ].join("\n");
+const AZURE_COMMANDS = [
+  "az login",
+  'SUBSCRIPTION_ID="$(az account show --query id -o tsv)"',
+  "az ad sp create-for-rbac --name airship-runners --role Contributor \\",
+  '  --scopes "/subscriptions/$SUBSCRIPTION_ID"',
+  "# appId is the application (client) ID, password the client secret,",
+  "# tenant the directory (tenant) ID.",
+].join("\n");
 
-  return (
-    <section aria-labelledby="azure-app" className="grid gap-3">
-      <h2 className="font-medium text-[15px] tracking-tight" id="azure-app">
-        Registering the Azure application
-      </h2>
-      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-        The Contributor role covers everything Airship needs to manage runners.
-        Client secrets expire; launches fail until you paste a new one.{" "}
-        <DocsLink page="Microsoft Azure" />
-      </p>
-      <CodeBlock
-        file="terminal"
-        label="Copy az commands"
-        language="shell"
-        value={commands}
-      />
-    </section>
-  );
-}
-
-function DaytonaKey() {
-  return (
-    <section aria-labelledby="daytona-key" className="grid gap-3">
-      <h2 className="font-medium text-[15px] tracking-tight" id="daytona-key">
-        Creating the Daytona API key
-      </h2>
-      <p className="max-w-prose text-muted-foreground text-xs/relaxed">
+/** How to make the credential each form asks for. */
+const guides: Record<CloudName, { body: ReactNode; title: string }> = {
+  aws: {
+    body: (
+      <>
+        <p className="text-muted-foreground text-sm">
+          AmazonEC2FullAccess covers everything Airship needs to manage runners.{" "}
+          <DocsLink page="Amazon Web Services" />
+        </p>
+        <CodeBlock
+          file="terminal"
+          label="Copy IAM commands"
+          language="shell"
+          value={AWS_COMMANDS}
+        />
+      </>
+    ),
+    title: "Creating the IAM user",
+  },
+  azure: {
+    body: (
+      <>
+        <p className="text-muted-foreground text-sm">
+          The Contributor role covers everything Airship needs to manage
+          runners. Client secrets expire; launches fail until you paste a new
+          one. <DocsLink page="Microsoft Azure" />
+        </p>
+        <CodeBlock
+          file="terminal"
+          label="Copy az commands"
+          language="shell"
+          value={AZURE_COMMANDS}
+        />
+      </>
+    ),
+    title: "Registering the Azure application",
+  },
+  daytona: {
+    body: (
+      <p className="text-muted-foreground text-sm">
         An organization key needs the Sandboxes write and delete permissions,
         and Volumes read if definitions mount volumes. Keys with an expiry stop
         working on that date.
       </p>
-    </section>
-  );
-}
+    ),
+    title: "Creating the Daytona API key",
+  },
+  gcp: {
+    body: (
+      <>
+        <p className="text-muted-foreground text-sm">
+          The Compute Admin role covers everything Airship needs to manage
+          runners. GPU runners also need GPU quota in the zone.{" "}
+          <DocsLink page="Google Cloud" />
+        </p>
+        <CodeBlock
+          file="terminal"
+          label="Copy gcloud commands"
+          language="shell"
+          value={GCP_COMMANDS}
+        />
+      </>
+    ),
+    title: "Creating the service account",
+  },
+};

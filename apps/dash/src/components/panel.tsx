@@ -63,8 +63,8 @@ export function Stat({
   value: string;
 }) {
   return (
-    <div className="grid content-start gap-2 bg-card p-4 md:p-5">
-      <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground tracking-label">
+    <div className="grid content-start gap-2.5 bg-card p-4 md:p-5">
+      <span className="flex items-center gap-1.5 font-medium text-muted-foreground text-sm">
         {dot ? (
           <span
             aria-hidden="true"
@@ -73,7 +73,7 @@ export function Stat({
         ) : null}
         {label}
       </span>
-      <span className="figure font-medium text-[26px] leading-none tracking-display">
+      <span className="figure font-semibold text-[28px] leading-none tracking-[-0.03em]">
         {value}
       </span>
       {hint ? (
@@ -93,10 +93,127 @@ export function MoreLink({
 }) {
   return (
     <Link
-      className="font-mono text-[11px] text-muted-foreground tracking-label transition-colors hover:text-foreground"
+      className="text-muted-foreground text-sm transition-colors hover:text-foreground"
       href={href as Route}
     >
       {children} →
     </Link>
+  );
+}
+
+/**
+ * A settings card: a framed section with a title, a body, and a muted footer
+ * bar that holds a note on the left and the card's actions on the right.
+ */
+export function SettingsCard({
+  className,
+  ...props
+}: ComponentProps<"section">) {
+  return (
+    <section
+      className={cn("overflow-hidden rounded-lg border bg-card", className)}
+      {...props}
+    />
+  );
+}
+
+/** A settings card's header: an optional icon, the title and one line. */
+export function SettingsCardHeader({
+  action,
+  description,
+  icon,
+  id,
+  title,
+}: {
+  action?: ReactNode;
+  description?: ReactNode;
+  icon?: ReactNode;
+  id?: string;
+  title: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-start gap-x-4 gap-y-3 p-5 md:px-6">
+      {icon}
+      <div className="grid min-w-0 flex-1 gap-1">
+        <h2 className="font-semibold text-base tracking-tight" id={id}>
+          {title}
+        </h2>
+        {description ? (
+          <p className="max-w-prose text-pretty text-muted-foreground text-sm leading-relaxed">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      {action ? <div className="flex shrink-0 gap-2">{action}</div> : null}
+    </div>
+  );
+}
+
+/** The padded content of a settings card. */
+export function SettingsCardBody({
+  className,
+  ...props
+}: ComponentProps<"div">) {
+  return <div className={cn("px-5 pb-5 md:px-6", className)} {...props} />;
+}
+
+/** The footer bar: a quiet note on the left, the actions on the right. */
+export function SettingsCardFooter({
+  children,
+  note,
+}: {
+  children?: ReactNode;
+  note?: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t bg-muted px-5 py-3 md:px-6">
+      <div className="min-w-0 text-pretty text-muted-foreground text-sm">
+        {note}
+      </div>
+      {children ? (
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Label-over-value facts in a row, as a settings card lists what it holds. */
+export function Facts({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <dl
+      className={cn(
+        "grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3",
+        className
+      )}
+    >
+      {children}
+    </dl>
+  );
+}
+
+export function Fact({
+  children,
+  label,
+  mono = false,
+}: {
+  children: ReactNode;
+  label: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="grid min-w-0 gap-1">
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd className={cn("truncate text-sm", mono && "font-mono text-[13px]")}>
+        {children}
+      </dd>
+    </div>
   );
 }

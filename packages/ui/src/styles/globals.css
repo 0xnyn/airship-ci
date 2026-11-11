@@ -27,7 +27,6 @@
   }
 
   body {
-    font-variant-numeric: slashed-zero;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;

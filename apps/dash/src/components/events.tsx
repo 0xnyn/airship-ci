@@ -2,6 +2,7 @@
 
 import type { Schemas } from "@airship/client";
 import { cn } from "@airship/ui/lib/utils";
+import { CircleX, Info, type LucideIcon, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { $api } from "@/lib/api";
@@ -85,13 +86,28 @@ export function Events() {
   );
 }
 
-const levelBar: Record<Schemas["Event"]["level"], string> = {
-  error: "bg-danger",
-  info: "bg-transparent",
-  warning: "bg-warning",
+const levelIcon: Record<
+  Schemas["Event"]["level"],
+  { className: string; icon: LucideIcon; label: string }
+> = {
+  error: {
+    className: "bg-danger-surface text-danger-foreground",
+    icon: CircleX,
+    label: "Error",
+  },
+  info: {
+    className: "bg-muted text-muted-foreground",
+    icon: Info,
+    label: "Info",
+  },
+  warning: {
+    className: "bg-warning-surface text-warning-foreground",
+    icon: TriangleAlert,
+    label: "Warning",
+  },
 };
 
-/** One event, as a list item. The left edge carries the level. */
+/** One event, as a list item. A leading icon carries the level. */
 export function EventRow({
   compact = false,
   event,
@@ -99,29 +115,32 @@ export function EventRow({
   compact?: boolean;
   event: Schemas["Event"];
 }) {
+  const level = levelIcon[event.level];
+  const Icon = level.icon;
   return (
     <li
       className={cn(
-        "relative grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 px-4 text-xs transition-colors hover:bg-muted/40",
+        "grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1 px-4 text-xs transition-colors hover:bg-muted",
         compact ? "py-3" : "py-3.5"
       )}
     >
       <span
-        aria-hidden="true"
         className={cn(
-          "absolute inset-y-2 left-0 w-[3px] rounded-r-full",
-          levelBar[event.level]
+          "row-span-2 mt-px grid size-5 place-items-center rounded-full",
+          level.className
         )}
-      />
-      <span
-        className={cn("text-pretty text-[13px]", compact && "line-clamp-2")}
+        title={level.label}
       >
+        <Icon aria-hidden="true" className="size-3" />
+        <span className="sr-only">{level.label}</span>
+      </span>
+      <span className={cn("text-pretty text-sm", compact && "line-clamp-2")}>
         {event.message}
       </span>
-      <span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">
+      <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
         <RelativeTime value={event.createdAt} />
       </span>
-      <span className="col-span-2 truncate font-mono text-[11px] text-muted-foreground">
+      <span className="col-span-2 col-start-2 truncate font-mono text-[11px] text-muted-foreground">
         <span className="text-soft-foreground">{event.kind}</span>
         {event.repository ? ` · ${event.repository}` : ""}
       </span>

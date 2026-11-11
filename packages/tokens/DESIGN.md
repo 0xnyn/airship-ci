@@ -32,10 +32,13 @@ The brand is the landing page's night: a near-black ground with a faint
 green cast (`palette.ground`), white at fixed strengths for ink and
 hairlines, and seven signal colours (`signal`).
 
-The dashboard's dark theme is built *from* that palette, not beside it:
-`sidebar` is the ground, `background` (the inset panel) is the landing's
-`well`, `card` is its `card`. Light mode is the same structure on a cool paper
-ground, with every signal deepened until its text passes AA.
+The dashboard does not wear that night. It is a tool, so it is drawn from a
+pure-grey ramp (`neutral`) in the manner of a developer console: in the dark,
+a black panel beside a near-black sidebar, white hairlines at low strength,
+`#ededed` ink and `#a1a1a1` for secondary text; in daylight, white panels on
+a `#fafafa` sidebar with `#171717` ink. Colour is kept for state, and every
+signal is deepened in light mode until its text passes AA. The two surfaces
+still share the mark, the type, the radii and the curve.
 
 ## Signals mean the same thing everywhere
 
@@ -50,8 +53,8 @@ ground, with every signal deepened until its text passes AA.
 
 Each has three strengths: the bare name for a dot or bar, `-foreground` for
 text, `-surface` for a tinted banner behind that text. On the landing page
-each section wears one as its dot; in the dashboard each section does the
-same (`apps/dash/src/components/sections.ts`).
+each section wears one as its dot; the dashboard keeps its navigation
+monochrome and spends colour only on state.
 
 Clouds have their own colour (`cloud.*`, `bg-cloud-aws`) wherever one is
 named. Syntax colours (`syntax.*`) are shared by the landing's code card and
@@ -59,10 +62,12 @@ the dashboard's code blocks.
 
 ## Type
 
-Geist for prose and headings, Geist Mono for readings: labels, counts,
-durations, identifiers, buttons, breadcrumbs, table headers. Headings are
-weight 500 at `tracking-display` (-0.04em). The landing page also sets body
-copy in mono; the dashboard keeps long prose in sans.
+Geist for prose and headings, Geist Mono for readings. The landing page sets
+labels, buttons and body copy in mono. The dashboard sets its chrome
+(buttons, table headers, tabs, labels, breadcrumbs, figures) in sans with
+tabular figures, and keeps mono for identifiers a person might copy: runner
+and repository names, labels, SHAs, ARNs, regions, code. Dashboard headings
+are semibold with tight negative tracking.
 
 ## Radii
 
@@ -83,8 +88,13 @@ concentric.
 The dashboard is an inset layout: the sidebar sits on the ground, the page
 sits in a raised panel `shell.inset` (8px) in from the window, rounded at
 `xl` with a hairline and an edge of light (`shadow.inset`). The panel scrolls,
-the window does not. Measurements are in `shell` and exposed as
-`--sidebar-width`, `--shell-inset`, `--topbar-height`, `--content-width`.
+the window does not. The sidebar opens with the organization switcher and a
+"Find…" button (⌘K, the command menu); each section has a G-key shortcut
+(G J for jobs), and ⌘B folds the sidebar to a rail of icons. Settings and
+forms sit in a settings card (`SettingsCard` in `apps/dash`): a title, a
+body, and a muted footer bar holding a note and the actions. Measurements are
+in `shell` and exposed as `--sidebar-width`, `--sidebar-rail-width`,
+`--shell-inset`, `--topbar-height`, `--content-width`.
 
 ## Backdrop
 

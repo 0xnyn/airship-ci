@@ -19,7 +19,7 @@ export function AuthFrame({ children }: { children: ReactNode }) {
         <div className="relative grid flex-1 place-items-center py-12">
           <div className="grid w-full max-w-sm gap-6">{children}</div>
         </div>
-        <p className="relative font-mono text-[11px] text-muted-foreground">
+        <p className="relative text-muted-foreground text-xs">
           Run your CI in your cloud.
         </p>
       </div>
@@ -44,18 +44,18 @@ export function AuthHeading({
 }) {
   return (
     <div className="grid gap-3">
-      <p className="flex items-center gap-2 font-mono text-muted-foreground text-xs tracking-label">
+      <p className="flex items-center gap-2 font-medium text-muted-foreground text-sm">
         <span
           aria-hidden="true"
           className="h-2 w-3.5 rounded-full bg-foreground"
         />
         {eyebrow}
       </p>
-      <h1 className="text-balance font-medium text-[32px] leading-[1.08] tracking-display">
+      <h1 className="text-balance font-semibold text-[32px] leading-[1.1] tracking-[-0.035em]">
         {title}
       </h1>
       {children ? (
-        <p className="text-pretty text-[13px] text-muted-foreground leading-relaxed">
+        <p className="text-pretty text-muted-foreground text-sm leading-relaxed">
           {children}
         </p>
       ) : null}

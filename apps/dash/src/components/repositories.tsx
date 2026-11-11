@@ -42,6 +42,12 @@ import { EmptyRow, FilterTabs, TableSkeleton } from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
+import {
+  SettingsCard,
+  SettingsCardBody,
+  SettingsCardFooter,
+  SettingsCardHeader,
+} from "./panel";
 import { StatusDot } from "./status";
 import { RelativeTime } from "./time";
 
@@ -75,8 +81,10 @@ export function Repositories() {
         description="Repositories Airship may run jobs for"
         title="Repositories"
       />
-      <ConnectGitHub />
-      <Activate />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ConnectGitHub />
+        <Activate />
+      </div>
       <Section title="Activated repositories">
         <ActivatedList />
       </Section>
@@ -86,9 +94,7 @@ export function Repositories() {
       <Section title="Organization runners">
         <OrganizationConfig />
       </Section>
-      <Section title="Check a config file">
-        <Validator />
-      </Section>
+      <Validator />
     </>
   );
 }
@@ -96,48 +102,8 @@ export function Repositories() {
 function Section({ children, title }: { children: ReactNode; title: string }) {
   return (
     <section className="grid gap-3">
-      <h2 className="font-medium text-[15px] tracking-tight">{title}</h2>
+      <h2 className="font-semibold text-base tracking-tight">{title}</h2>
       {children}
-    </section>
-  );
-}
-
-function Step({
-  children,
-  description,
-  number,
-  title,
-}: {
-  children: ReactNode;
-  description: ReactNode;
-  number: number;
-  title: string;
-}) {
-  return (
-    <section
-      aria-labelledby={`step-${number}`}
-      className="grid gap-4 rounded-lg border bg-card p-5 md:grid-cols-[auto_1fr] md:gap-5"
-    >
-      <span
-        aria-hidden="true"
-        className="grid size-6 place-items-center rounded-full border bg-muted font-mono text-[11px] text-muted-foreground"
-      >
-        {number}
-      </span>
-      <div className="grid gap-3">
-        <div className="grid gap-1">
-          <h2
-            className="font-medium text-[15px] tracking-tight"
-            id={`step-${number}`}
-          >
-            {title}
-          </h2>
-          <p className="max-w-prose text-muted-foreground text-xs/relaxed">
-            {description}
-          </p>
-        </div>
-        {children}
-      </div>
     </section>
   );
 }
@@ -147,12 +113,21 @@ function ConnectGitHub() {
   const installUrl = config.data?.installUrl;
 
   return (
-    <Step
-      description="Grant the app access on GitHub"
-      number={1}
-      title="Connect GitHub"
-    >
-      <div>
+    <SettingsCard aria-labelledby="connect-github" className="flex flex-col">
+      <SettingsCardHeader
+        description="Grant the app access on GitHub"
+        icon={<StepNumber number={1} />}
+        id="connect-github"
+        title="Connect GitHub"
+      />
+      <div className="flex-1" />
+      <SettingsCardFooter
+        note={
+          installUrl
+            ? "Pick the repositories it sees"
+            : "No GitHub App is configured for this deployment"
+        }
+      >
         {installUrl ? (
           <a
             className={buttonVariants({ variant: "outline" })}
@@ -163,13 +138,20 @@ function ConnectGitHub() {
             Manage app on GitHub
             <ExternalLink aria-hidden="true" />
           </a>
-        ) : (
-          <p className="text-muted-foreground text-xs">
-            No GitHub App is configured for this deployment
-          </p>
-        )}
-      </div>
-    </Step>
+        ) : null}
+      </SettingsCardFooter>
+    </SettingsCard>
+  );
+}
+
+function StepNumber({ number }: { number: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-8 shrink-0 place-items-center rounded-full border bg-muted font-medium text-muted-foreground text-sm"
+    >
+      {number}
+    </span>
   );
 }
 
@@ -214,18 +196,17 @@ function Activate() {
   };
 
   return (
-    <Step
-      description="Runners come from its airship.yaml"
-      number={2}
-      title="Activate a repository"
-    >
-      {isAdmin ? (
-        <form className="grid gap-2" onSubmit={submit}>
-          <div className="flex gap-2">
-            <Field
-              className="flex-1"
-              data-invalid={problem !== null || undefined}
-            >
+    <SettingsCard aria-labelledby="activate-repository">
+      <form onSubmit={submit}>
+        <SettingsCardHeader
+          description="Runners come from its airship.yaml"
+          icon={<StepNumber number={2} />}
+          id="activate-repository"
+          title="Activate a repository"
+        />
+        {isAdmin ? (
+          <SettingsCardBody>
+            <Field data-invalid={problem !== null || undefined}>
               <FieldLabel className="sr-only" htmlFor="activate-repo">
                 Repository
               </FieldLabel>
@@ -243,21 +224,27 @@ function Activate() {
                 spellCheck={false}
                 value={name}
               />
+              {problem ? <FieldError>{problem}</FieldError> : null}
             </Field>
+          </SettingsCardBody>
+        ) : null}
+        <SettingsCardFooter
+          note={
+            isAdmin
+              ? "Its jobs launch machines in your cloud"
+              : "Only organization owners can activate repositories"
+          }
+        >
+          {isAdmin ? (
             <Button
               disabled={repos.isPending || name.trim() === ""}
               type="submit"
             >
               Activate
             </Button>
-          </div>
-          {problem ? <FieldError>{problem}</FieldError> : null}
-        </form>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          Only organization owners can activate repositories
-        </p>
-      )}
+          ) : null}
+        </SettingsCardFooter>
+      </form>
       <ActivateDialog
         onClose={() => {
           setActivating(null);
@@ -265,7 +252,7 @@ function Activate() {
         }}
         repo={activating}
       />
-    </Step>
+    </SettingsCard>
   );
 }
 
@@ -301,7 +288,7 @@ function ActivatedList() {
   }
 
   return (
-    <Table>
+    <Table className="text-sm">
       <TableHeader>
         <TableRow>
           <TableHead>Repository</TableHead>
@@ -333,7 +320,7 @@ function ActivatedList() {
                     <Badge variant="outline">Public</Badge>
                   )}
                 </span>
-                <span className="font-mono text-[11px] text-muted-foreground">
+                <span className="font-mono text-muted-foreground text-xs">
                   {repo.defaultBranch}
                   {repo.allowPublic ? " · runs while public" : ""}
                 </span>
@@ -382,7 +369,10 @@ function ConfigStatus({ repo }: { repo: Schemas["Repository"] }) {
   }
   if (config.error) {
     return (
-      <span className="block truncate text-destructive" title={config.error}>
+      <span
+        className="block truncate text-danger-foreground"
+        title={config.error}
+      >
         {config.error}
       </span>
     );
@@ -395,7 +385,7 @@ function ConfigStatus({ repo }: { repo: Schemas["Repository"] }) {
     );
   }
   return (
-    <span className="font-mono text-[11px]">
+    <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">
       {config.sha.slice(0, SHA_PREFIX)}
     </span>
   );
@@ -540,7 +530,7 @@ function Pools() {
     );
   }
   return (
-    <Table>
+    <Table className="text-sm">
       <TableHeader>
         <TableRow>
           <TableHead>Runner</TableHead>
@@ -555,8 +545,12 @@ function Pools() {
           <TableRow key={pool.id}>
             <TableCell>
               <div className="grid gap-0.5">
-                <span className="font-mono text-[11px]">{pool.name}</span>
-                <span className="text-muted-foreground">{pool.repository}</span>
+                <span className="font-medium font-mono text-[13px]">
+                  {pool.name}
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  {pool.repository}
+                </span>
               </div>
             </TableCell>
             <TableCell>
@@ -567,13 +561,13 @@ function Pools() {
                 </span>
               ) : null}
             </TableCell>
-            <TableCell className="text-right font-mono tabular-nums">
+            <TableCell className="text-right tabular-nums">
               {pool.desired}
             </TableCell>
-            <TableCell className="text-right font-mono tabular-nums">
+            <TableCell className="text-right tabular-nums">
               {pool.idle}
             </TableCell>
-            <TableCell className="text-right font-mono tabular-nums">
+            <TableCell className="text-right tabular-nums">
               {pool.taken}
             </TableCell>
           </TableRow>
@@ -612,8 +606,12 @@ function OrganizationConfig() {
   }
   return (
     <div className="grid gap-3">
-      {problem ? <p className="text-destructive text-xs">{problem}</p> : null}
-      <p className="text-muted-foreground text-xs">
+      {problem ? (
+        <p className="text-danger-foreground text-sm" role="alert">
+          {problem}
+        </p>
+      ) : null}
+      <p className="text-muted-foreground text-sm">
         {restricted
           ? "access.yaml decides which repositories and people can use these runners"
           : "No access.yaml, so every activated repository can use these runners"}{" "}
@@ -633,7 +631,7 @@ function RunnerSummary({
     return null;
   }
   return (
-    <Table>
+    <Table className="text-sm">
       <TableHeader>
         <TableRow>
           <TableHead>Runner</TableHead>
@@ -646,10 +644,10 @@ function RunnerSummary({
         {runners.map((runner) => (
           <TableRow key={runner.name}>
             <TableCell className="font-medium">{runner.name}</TableCell>
-            <TableCell className="font-mono text-[11px]">
+            <TableCell className="font-mono text-xs">
               {(runner.labels ?? []).join(", ")}
             </TableCell>
-            <TableCell className="font-mono text-[11px]">
+            <TableCell className="font-mono text-xs">
               {(runner.machines ?? []).join(" → ")}
             </TableCell>
             <TableCell className="text-muted-foreground">
@@ -688,53 +686,70 @@ function Validator() {
     });
   };
 
+  let note: ReactNode = "Nothing is saved; this only reads the file";
+  if (validate.isError) {
+    note = (
+      <span className="text-danger-foreground">
+        {errorMessage(validate.error, "Could not check the file")}
+      </span>
+    );
+  } else if (result?.valid) {
+    note = <StatusDot label="Valid" tone="success" />;
+  } else if (result?.problem) {
+    note = (
+      <span className="text-danger-foreground">
+        {result.problem.path ? (
+          <code className="font-mono">{result.problem.path}: </code>
+        ) : null}
+        {result.problem.detail}
+      </span>
+    );
+  }
+
   return (
-    <form className="grid gap-3" onSubmit={submit}>
-      <FilterTabs
-        label="Config file"
-        onChange={(next) => {
-          setFile(next);
-          validate.reset();
-        }}
-        options={fileOptions}
-        value={file}
-      />
-      <Field>
-        <FieldLabel className="sr-only" htmlFor="config-content">
-          File content
-        </FieldLabel>
-        <Textarea
-          className="min-h-48 font-mono text-[11px]"
-          id="config-content"
-          maxLength={MAX_CONFIG_BYTES}
-          onChange={(event) => {
-            setContent(event.target.value);
-            validate.reset();
-          }}
-          spellCheck={false}
-          value={content}
+    <SettingsCard aria-labelledby="check-config">
+      <form onSubmit={submit}>
+        <SettingsCardHeader
+          action={
+            <FilterTabs
+              label="Config file"
+              onChange={(next) => {
+                setFile(next);
+                validate.reset();
+              }}
+              options={fileOptions}
+              value={file}
+            />
+          }
+          description="Paste a file to see what Airship reads from it"
+          id="check-config"
+          title="Check a config file"
         />
-      </Field>
-      <div className="flex items-center gap-3 text-xs">
-        <Button disabled={validate.isPending} type="submit" variant="outline">
-          {validate.isPending ? "Checking…" : "Check"}
-        </Button>
-        {validate.isError ? (
-          <span className="text-destructive">
-            {errorMessage(validate.error, "Could not check the file")}
-          </span>
-        ) : null}
-        {result?.valid ? <StatusDot label="Valid" tone="success" /> : null}
-        {result?.problem ? (
-          <span className="text-destructive">
-            {result.problem.path ? (
-              <code className="font-mono">{result.problem.path}: </code>
-            ) : null}
-            {result.problem.detail}
-          </span>
-        ) : null}
-      </div>
-      {result?.valid ? <RunnerSummary runners={result.runners} /> : null}
-    </form>
+        <SettingsCardBody className="grid gap-4">
+          <Field>
+            <FieldLabel className="sr-only" htmlFor="config-content">
+              File content
+            </FieldLabel>
+            <Textarea
+              className="min-h-56 bg-background font-mono text-xs/relaxed"
+              id="config-content"
+              maxLength={MAX_CONFIG_BYTES}
+              onChange={(event) => {
+                setContent(event.target.value);
+                validate.reset();
+              }}
+              spellCheck={false}
+              value={content}
+            />
+          </Field>
+          {result?.valid ? <RunnerSummary runners={result.runners} /> : null}
+        </SettingsCardBody>
+        <SettingsCardFooter note={note}>
+          <Button disabled={validate.isPending} type="submit">
+            {validate.isPending ? "Checking…" : "Check"}
+          </Button>
+        </SettingsCardFooter>
+      </form>
+    </SettingsCard>
   );
 }

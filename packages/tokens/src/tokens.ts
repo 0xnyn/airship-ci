@@ -6,9 +6,9 @@
  * only and speaks in the palette below by its historical names (`--bg`,
  * `--white-80`, `--dot-blue`). The dashboard (`apps/dash`, through
  * `@airship/ui`) speaks in semantic roles (`background`, `muted-foreground`,
- * `success`) with a dark and a light value each, and its dark values *are*
- * the palette below, referenced rather than retyped. That is what keeps the
- * two from drifting: the dashboard cannot pick a near-black of its own.
+ * `success`) with a dark and a light value each, drawn from a pure-grey ramp
+ * (`neutral`) so the product reads as a quiet tool beside the landing's
+ * night. Both share the mark, the type, the radii and the curve.
  *
  * `scripts/generate.mjs` writes `src/generated/brand.css` and
  * `src/generated/theme.css` from this file; `--check` fails when either is
@@ -149,7 +149,7 @@ export const docs = {
 /**
  * A semantic theme: what every dashboard component names. `sidebar` is the
  * ground the navigation sits on; `background` is the inset panel the page
- * content sits in, one step up from it; `card` is a step further.
+ * content sits in, framed by a hairline; `card` is a framed surface on it.
  *
  * Signals come in three strengths: the bare name is the mark (a dot, a bar,
  * an icon), `-foreground` is the same hue tuned to pass AA as text on every
@@ -207,114 +207,145 @@ interface Theme {
   warningSurface: string;
 }
 
-/** The dashboard in the dark: the landing page's own palette. */
+/**
+ * The dashboard's neutral greys. The dashboard is a tool, not a poster: it
+ * reads best in true black and white with grey ink, so its chrome is drawn
+ * from this ramp rather than the landing's green-cast night, and colour is
+ * kept for state alone. The ramp follows the shape of a pure-grey 1000-step
+ * scale: `black` is the darkest ground, `n1000` the brightest ink.
+ */
+const neutral = {
+  black: "#000000",
+  ink: "#171717",
+  ink600: "#4d4d4d",
+  ink700: "#666666",
+  n100: "#0a0a0a",
+  n150: "#111111",
+  n200: "#1a1a1a",
+  n300: "#1f1f1f",
+  n400: "#2e2e2e",
+  n700: "#8f8f8f",
+  n800: "#a1a1a1",
+  n900: "#d4d4d4",
+  n1000: "#ededed",
+  paper: "#fafafa",
+  paper200: "#f2f2f2",
+  paper300: "#ebebeb",
+  white: "#ffffff",
+} as const;
+
+/**
+ * The dashboard in the dark: a black canvas, a near-black sidebar beside it,
+ * hairlines of white at low strength and grey ink. Signals are clear,
+ * saturated hues so state is the only colour on the page.
+ */
 const dark: Theme = {
-  accent: palette.control,
-  accentForeground: palette.white,
-  active: signal.blue,
-  activeForeground: "#8ab4ff",
-  activeSurface: "#3064ff26",
-  background: palette.well,
-  border: palette.line,
-  card: palette.card,
-  cardForeground: palette.white,
-  chart1: signal.blue,
-  chart2: "#ffffff38",
-  chart3: signal.cyan,
-  chart4: signal.green,
-  chart5: signal.gold,
-  danger: signal.red,
-  dangerForeground: "#ff8a7a",
-  dangerSurface: "#ff6e5a1f",
-  faint: palette.white30,
-  foreground: palette.white,
-  halftone: palette.halftone,
-  highlight: signal.yellow,
-  info: signal.cyan,
-  infoForeground: signal.cyan,
-  infoSurface: "#9efaff1a",
-  input: "#ffffff1a",
-  muted: palette.cardRaised,
-  mutedForeground: palette.white50,
-  popover: palette.card,
-  popoverForeground: palette.white,
-  primary: palette.white,
-  primaryForeground: palette.ink,
-  ring: signal.cyan,
-  secondary: palette.control,
-  secondaryForeground: palette.white80,
-  sidebar: palette.ground,
-  sidebarAccent: "#ffffff0f",
-  sidebarAccentForeground: palette.white,
-  sidebarBorder: palette.lineFaint,
-  sidebarForeground: palette.white70,
-  sidebarPrimary: palette.white,
-  sidebarPrimaryForeground: palette.ink,
-  sidebarRing: signal.cyan,
-  softForeground: palette.white80,
-  success: signal.green,
-  successForeground: signal.green,
-  successSurface: "#91cfb51f",
-  warning: signal.gold,
-  warningForeground: "#e2c56a",
-  warningSurface: "#d4b1441f",
+  accent: neutral.n300,
+  accentForeground: neutral.n1000,
+  active: "#0090ff",
+  activeForeground: "#52a8ff",
+  activeSurface: "#0090ff1f",
+  background: neutral.black,
+  border: "#ffffff1a",
+  card: neutral.n100,
+  cardForeground: neutral.n1000,
+  chart1: "#0090ff",
+  chart2: "#ffffff2e",
+  chart3: "#12a594",
+  chart4: "#30a46c",
+  chart5: "#ffb224",
+  danger: "#e5484d",
+  dangerForeground: "#ff6369",
+  dangerSurface: "#e5484d1f",
+  faint: "#ffffff4d",
+  foreground: neutral.n1000,
+  halftone: "#ffffff12",
+  highlight: neutral.n900,
+  info: "#12a594",
+  infoForeground: "#0bd8b6",
+  infoSurface: "#12a5941f",
+  input: "#ffffff24",
+  muted: neutral.n200,
+  mutedForeground: neutral.n800,
+  popover: neutral.n100,
+  popoverForeground: neutral.n1000,
+  primary: neutral.n1000,
+  primaryForeground: neutral.n100,
+  ring: "#0090ff",
+  secondary: neutral.n200,
+  secondaryForeground: neutral.n1000,
+  sidebar: neutral.n100,
+  sidebarAccent: "#ffffff14",
+  sidebarAccentForeground: neutral.n1000,
+  sidebarBorder: "#ffffff14",
+  sidebarForeground: neutral.n800,
+  sidebarPrimary: neutral.n1000,
+  sidebarPrimaryForeground: neutral.n100,
+  sidebarRing: "#0090ff",
+  softForeground: neutral.n900,
+  success: "#30a46c",
+  successForeground: "#3dd68c",
+  successSurface: "#30a46c1f",
+  warning: "#ffb224",
+  warningForeground: "#f1a10d",
+  warningSurface: "#ffb2241a",
 };
 
 /**
- * The dashboard in daylight. The same structure inverted: a cool paper
- * ground, a near-white panel on it, the ink as the primary fill. Signals are
- * deepened until their text passes AA on white.
+ * The dashboard in daylight: white panels on a paper sidebar, near-black
+ * ink, grey hairlines. Signals are deepened until their text passes AA on
+ * white.
  */
 const light: Theme = {
-  accent: "#e7eae9",
-  accentForeground: palette.ink,
-  active: signal.blue,
-  activeForeground: docs.dark,
-  activeSurface: "#3064ff17",
-  background: "#fbfcfb",
-  border: "#08090a17",
-  card: palette.white,
-  cardForeground: palette.ink,
-  chart1: signal.blue,
-  chart2: "#08090a26",
-  chart3: "#0aa5b8",
-  chart4: "#1f9d6c",
-  chart5: "#c08f12",
-  danger: "#e0442f",
-  dangerForeground: "#b83220",
-  dangerSurface: "#e0442f17",
-  faint: "#08090a4d",
-  foreground: palette.ink,
-  halftone: "#08090a14",
-  highlight: "#5f6b12",
-  info: "#0a98aa",
-  infoForeground: "#07707d",
-  infoSurface: "#0a98aa17",
-  input: "#08090a1f",
-  muted: "#f1f3f2",
-  mutedForeground: "#08090a99",
-  popover: palette.white,
-  popoverForeground: palette.ink,
-  primary: palette.ink,
-  primaryForeground: palette.white,
-  ring: signal.blue,
-  secondary: "#eceeed",
-  secondaryForeground: "#08090acc",
-  sidebar: "#eff1f0",
-  sidebarAccent: "#08090a0d",
-  sidebarAccentForeground: palette.ink,
-  sidebarBorder: "#08090a0f",
-  sidebarForeground: "#08090ab3",
-  sidebarPrimary: palette.ink,
-  sidebarPrimaryForeground: palette.white,
-  sidebarRing: signal.blue,
-  softForeground: "#08090acc",
-  success: "#1f9d6c",
-  successForeground: "#137049",
-  successSurface: "#1f9d6c17",
-  warning: "#b08310",
-  warningForeground: "#805d00",
-  warningSurface: "#b083101c",
+  accent: neutral.paper200,
+  accentForeground: neutral.ink,
+  active: "#0070f3",
+  activeForeground: "#005ccc",
+  activeSurface: "#0070f314",
+  background: neutral.white,
+  border: neutral.paper300,
+  card: neutral.white,
+  cardForeground: neutral.ink,
+  chart1: "#0070f3",
+  chart2: "#0000001f",
+  chart3: "#0d9488",
+  chart4: "#28a745",
+  chart5: "#d97706",
+  danger: "#e5484d",
+  dangerForeground: "#c92a2f",
+  dangerSurface: "#e5484d14",
+  faint: "#00000040",
+  foreground: neutral.ink,
+  halftone: "#00000012",
+  highlight: neutral.ink600,
+  info: "#0d9488",
+  infoForeground: "#0b7268",
+  infoSurface: "#0d948814",
+  input: "#e0e0e0",
+  muted: neutral.paper,
+  mutedForeground: neutral.ink700,
+  popover: neutral.white,
+  popoverForeground: neutral.ink,
+  primary: neutral.ink,
+  primaryForeground: neutral.white,
+  ring: "#0070f3",
+  secondary: neutral.paper200,
+  secondaryForeground: neutral.ink,
+  sidebar: neutral.paper,
+  sidebarAccent: "#0000000f",
+  sidebarAccentForeground: neutral.ink,
+  sidebarBorder: neutral.paper300,
+  sidebarForeground: neutral.ink700,
+  sidebarPrimary: neutral.ink,
+  sidebarPrimaryForeground: neutral.white,
+  sidebarRing: "#0070f3",
+  softForeground: neutral.ink600,
+  success: "#28a745",
+  successForeground: "#16742f",
+  successSurface: "#28a74514",
+  warning: "#d97706",
+  warningForeground: "#a35200",
+  warningSurface: "#d977061a",
 };
 
 export const theme = { dark, light } as const;
@@ -385,7 +416,9 @@ export const shell = {
   contentWidth: 1152,
   /** The gap between the window edge and the inset panel. */
   inset: 8,
-  sidebarWidth: 232,
+  /** The collapsed sidebar: a rail of icons. */
+  sidebarRailWidth: 56,
+  sidebarWidth: 240,
   topBarHeight: 48,
 } as const;
 

@@ -190,6 +190,7 @@ const HEIGHT = 176;
 const GAP_RATIO = 0.28;
 const TICKS = 3;
 const LABELS = 6;
+const BAR_RADIUS = 2;
 const dayFormat = { format: (date: Date) => formatUTCDay(date.toISOString()) };
 const NICE_STEPS = [1, 2, 2.5, 5, 10];
 const BASE = 10;
@@ -244,29 +245,30 @@ function BarChart({
   return (
     <Panel>
       <figure aria-labelledby={`${id}-title`} className="grid">
-        <figcaption className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3 md:px-5">
-          <div className="grid gap-1">
+        <figcaption className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4 md:px-5 md:pt-5">
+          <div className="grid gap-1.5">
             <h2
-              className="font-medium text-[15px] tracking-tight"
+              className="font-medium text-muted-foreground text-sm"
               id={`${id}-title`}
             >
               {title}
             </h2>
-            <p className="figure font-mono text-[11px] text-muted-foreground">
+            <p className="figure font-semibold text-[28px] leading-none tracking-[-0.03em]">
+              {format(reading)}
+            </p>
+            <p className="text-muted-foreground text-xs">
               {active ? dayFormat.format(new Date(active.day)) : null}
               {active || aggregate === "average" ? null : "In this window"}
               {!active && aggregate === "average" ? "Daily average" : null}
-              {" · "}
-              <span className="text-foreground">{format(reading)}</span>
             </p>
           </div>
           {legend.length > 1 ? (
-            <ul className="flex gap-4 font-mono text-[11px] text-muted-foreground">
+            <ul className="flex gap-4 text-muted-foreground text-xs">
               {legend.map((item, index) => (
                 <li className="flex items-center gap-1.5" key={item.key}>
                   <span
                     aria-hidden="true"
-                    className="h-2 w-3.5 rounded-full"
+                    className="size-2 rounded-xs"
                     style={{ background: fills[index] }}
                   />
                   {item.label}
@@ -286,7 +288,7 @@ function BarChart({
               return (
                 <span
                   aria-hidden="true"
-                  className="figure pointer-events-none absolute -left-16 w-14 -translate-y-1/2 whitespace-nowrap text-right font-mono text-[10px] text-muted-foreground"
+                  className="figure pointer-events-none absolute -left-16 w-14 -translate-y-1/2 whitespace-nowrap text-right text-[11px] text-muted-foreground"
                   key={value}
                   style={{ top: `${(y(value) / HEIGHT) * PERCENT}%` }}
                 >
@@ -308,7 +310,7 @@ function BarChart({
                   <line
                     key={value}
                     stroke="var(--border)"
-                    strokeDasharray="2 3"
+                    strokeDasharray="3 4"
                     vectorEffect="non-scaling-stroke"
                     x1={0}
                     x2={WIDTH}
@@ -338,6 +340,7 @@ function BarChart({
                       <rect
                         fill="var(--muted)"
                         height={HEIGHT}
+                        rx={2}
                         width={slot}
                         x={index * slot}
                         y={0}
@@ -351,6 +354,23 @@ function BarChart({
                         return null;
                       }
                       const top = y(stackTop);
+                      const isTop = legend
+                        .slice(layer + 1)
+                        .every((above) => day[above.key] <= 0);
+                      if (isTop) {
+                        return (
+                          <path
+                            d={roundedTop(
+                              x,
+                              top,
+                              barWidth,
+                              Math.max(y(bottom) - top, 1)
+                            )}
+                            fill={fills[layer]}
+                            key={item.key}
+                          />
+                        );
+                      }
                       return (
                         <rect
                           fill={fills[layer]}
@@ -389,7 +409,7 @@ function BarChart({
                       />
                       {item.label}
                     </span>
-                    <span className="figure font-mono">
+                    <span className="figure font-medium">
                       {format(active[item.key])}
                     </span>
                   </span>
@@ -401,7 +421,7 @@ function BarChart({
             {series.map((day, index) =>
               index % labelEvery === 0 ? (
                 <span
-                  className="absolute -translate-x-1/2 whitespace-nowrap font-mono text-[10px] text-muted-foreground first:translate-x-0"
+                  className="figure absolute -translate-x-1/2 whitespace-nowrap text-[11px] text-muted-foreground first:translate-x-0"
                   key={day.day}
                   style={{
                     left: `${((index + 0.5) / series.length) * PERCENT}%`,
@@ -414,12 +434,12 @@ function BarChart({
           </div>
         </div>
         <details className="border-t text-xs">
-          <summary className="cursor-pointer px-4 py-2.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground md:px-5">
+          <summary className="cursor-pointer px-4 py-2.5 text-muted-foreground text-xs transition-colors hover:text-foreground md:px-5">
             Show as a table
           </summary>
           <table className="w-full" id={`${id}-table`}>
             <thead>
-              <tr className="border-y bg-muted/30 text-left font-mono text-[11px] text-muted-foreground">
+              <tr className="border-y bg-muted/30 text-left font-medium text-muted-foreground text-xs">
                 <th className="px-4 py-2 font-normal md:px-5">Day</th>
                 {legend.map((item) => (
                   <th
@@ -442,7 +462,7 @@ function BarChart({
                   </td>
                   {legend.map((item) => (
                     <td
-                      className="figure px-4 py-1.5 text-right font-mono md:px-5"
+                      className="figure px-4 py-1.5 text-right md:px-5"
                       key={item.key}
                     >
                       {format(day[item.key])}
@@ -456,6 +476,13 @@ function BarChart({
       </figure>
     </Panel>
   );
+}
+
+/** A bar whose top corners are rounded, in the plot's own units. */
+function roundedTop(x: number, top: number, width: number, height: number) {
+  const r = Math.min(BAR_RADIUS, width / 2, height);
+  const bottom = top + height;
+  return `M${x},${bottom}V${top + r}Q${x},${top} ${x + r},${top}H${x + width - r}Q${x + width},${top} ${x + width},${top + r}V${bottom}Z`;
 }
 
 /** Which day's slot the pointer is over, from its position in the plot. */
@@ -482,16 +509,16 @@ function RepositoryTable({ rows }: { rows: Schemas["RepositoryUsage"][] }) {
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.repository}>
-            <TableCell className="font-medium font-mono text-[12px]">
+            <TableCell className="font-mono text-[13px]">
               {row.repository}
             </TableCell>
-            <TableCell className="figure text-right font-mono">
+            <TableCell className="figure text-right">
               {formatInteger(row.airshipJobs)}
             </TableCell>
-            <TableCell className="figure text-right font-mono">
+            <TableCell className="figure text-right">
               {formatInteger(row.jobs)}
             </TableCell>
-            <TableCell className="figure text-right font-mono">
+            <TableCell className="figure text-right">
               {formatInteger(Math.round(row.runnerMinutes))}
             </TableCell>
           </TableRow>

@@ -10,7 +10,7 @@ import { DOCS_URL, type DocsPage, docsPages } from "@/lib/docs";
 export function DocsLink({ page }: { page: DocsPage }) {
   return (
     <a
-      className="inline-flex items-baseline gap-0.5 text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors hover:text-foreground"
+      className="inline-flex items-baseline gap-0.5 text-active-foreground underline-offset-2 hover:underline"
       href={`${DOCS_URL}${docsPages[page]}`}
       rel="noopener noreferrer"
       target="_blank"

@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@airship/ui/components/button";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, FileCode, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -168,7 +168,7 @@ export function CodeBlock({
   if (!file) {
     return (
       <div className="relative">
-        <pre className="overflow-x-auto rounded-md border bg-muted/60 p-3 pr-10 font-mono text-[11px]/relaxed">
+        <pre className="overflow-x-auto rounded-md border bg-muted p-3 pr-10 font-mono text-xs/relaxed">
           {value}
         </pre>
         <div className="absolute top-1 right-1">
@@ -177,22 +177,20 @@ export function CodeBlock({
       </div>
     );
   }
+  const FileGlyph = language === "shell" ? SquareTerminal : FileCode;
   return (
     <figure className="overflow-hidden rounded-lg border bg-card">
-      <figcaption className="flex h-9 items-center gap-3 border-b pr-1 pl-3">
-        <span aria-hidden="true" className="flex gap-1">
-          <span className="size-2 rounded-full bg-faint/60" />
-          <span className="size-2 rounded-full bg-faint/60" />
-          <span className="size-2 rounded-full bg-faint/60" />
-        </span>
-        <span className="truncate font-mono text-[11px] text-muted-foreground">
-          {file}
-        </span>
+      <figcaption className="flex h-10 items-center gap-2 border-b bg-muted pr-1.5 pl-4">
+        <FileGlyph
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-muted-foreground"
+        />
+        <span className="truncate text-muted-foreground text-xs">{file}</span>
         <span className="ml-auto">
           <CopyButton label={label} value={value} />
         </span>
       </figcaption>
-      <pre className="overflow-x-auto p-4 font-mono text-[12px]/[19px] text-soft-foreground">
+      <pre className="overflow-x-auto p-4 font-mono text-[13px]/[20px] text-soft-foreground">
         <code>
           {language === "shell" ? (
             <Shell value={value} />

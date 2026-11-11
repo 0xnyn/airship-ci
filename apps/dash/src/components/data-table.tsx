@@ -21,15 +21,15 @@ export function FilterTabs<T extends string>({
   return (
     <fieldset
       aria-label={label}
-      className="flex w-fit gap-0.5 rounded-lg border bg-muted/50 p-0.5"
+      className="flex w-fit gap-0.5 rounded-lg border bg-muted p-0.5"
     >
       {options.map((option) => (
         <button
           aria-pressed={option.value === value}
           className={cn(
-            "h-7 rounded-md px-3 font-mono text-[11px] text-muted-foreground tracking-label transition-colors duration-150 hover:text-foreground",
+            "h-7 rounded-md px-3 font-medium text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground",
             option.value === value &&
-              "bg-background text-foreground shadow-xs ring-1 ring-border"
+              "bg-background text-foreground shadow-xs ring-1 ring-border dark:bg-accent dark:ring-0"
           )}
           key={option.value}
           onClick={() => onChange(option.value)}
@@ -64,7 +64,7 @@ export function EmptyRow({ children }: { children: ReactNode }) {
         aria-hidden="true"
         className="mask-[radial-gradient(ellipse_60%_80%_at_50%_50%,black,transparent)] absolute inset-0 bg-halftone"
       />
-      <p className="relative max-w-sm text-pretty text-muted-foreground text-xs/relaxed">
+      <p className="relative max-w-sm text-pretty text-muted-foreground text-sm/relaxed">
         {children}
       </p>
     </div>

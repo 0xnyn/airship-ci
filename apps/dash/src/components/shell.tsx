@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@airship/ui/components/dropdown-menu";
+import { Kbd, KbdGroup } from "@airship/ui/components/kbd";
 import { Skeleton } from "@airship/ui/components/skeleton";
 import { cn } from "@airship/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,6 +30,8 @@ import {
   Monitor,
   Moon,
   PanelLeft,
+  Plus,
+  Search,
   Sun,
   TriangleAlert,
 } from "lucide-react";
@@ -49,20 +52,24 @@ import { $api, api } from "@/lib/api";
 import { errorMessage, errorStatus } from "@/lib/api-errors";
 import { isActiveSection, nextFor } from "@/lib/navigation";
 
+import { CommandMenu } from "./command-menu";
 import { Logo } from "./logo";
 import { NotFound } from "./not-found";
 import { OrgContext, type OrgContextValue } from "./org-context";
+import { OrgMark } from "./org-mark";
 import {
-  accentDot,
   currentSection,
   type Section,
   sectionGroups,
+  sections,
 } from "./sections";
 
 const UNAUTHORIZED = 401;
 const POLL_MS = 10_000;
 const DOCS_URL = "https://docs.airshipci.com";
 const COLLAPSED_KEY = "airship.sidebar.collapsed";
+/** How long after G the second key of a shortcut still counts. */
+const SEQUENCE_MS = 1200;
 
 /** Sends signed-out visitors to sign in, then back to where they were. */
 export function useSession() {
@@ -97,8 +104,8 @@ function useDesktop(): boolean {
 }
 
 /**
- * Whether the desktop sidebar is collapsed, remembered per browser, with
- * ⌘B / Ctrl+B to toggle it from anywhere.
+ * Whether the desktop sidebar is collapsed to its rail of icons, remembered
+ * per browser, with ⌘B / Ctrl+B to toggle it from anywhere.
  */
 function useCollapsed() {
   const [collapsed, setCollapsed] = useState(false);
@@ -133,6 +140,57 @@ function useCollapsed() {
   return [collapsed, setCollapsed] as const;
 }
 
+/** Whether a key press belongs to a text field rather than to the page. */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return (
+    target.isContentEditable ||
+    ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)
+  );
+}
+
+/**
+ * The keyboard: ⌘K / Ctrl+K opens the command menu, and G followed by a
+ * section's key (G J for jobs) goes straight there.
+ */
+function useShortcuts(base: string, openCommands: () => void) {
+  const router = useRouter();
+
+  useEffect(() => {
+    let pendingSince = 0;
+    const onKey = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (key === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        openCommands();
+        return;
+      }
+      if (
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isTyping(event.target)
+      ) {
+        return;
+      }
+      if (pendingSince && Date.now() - pendingSince < SEQUENCE_MS) {
+        pendingSince = 0;
+        const section = sections.find((s) => s.shortcut === key);
+        if (section) {
+          event.preventDefault();
+          router.push(`${base}${section.href}` as Route);
+        }
+        return;
+      }
+      pendingSince = key === "g" ? Date.now() : 0;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [base, openCommands, router]);
+}
+
 export function Shell({
   children,
   org: login,
@@ -150,7 +208,11 @@ export function Shell({
   );
   const [collapsed, setCollapsed] = useCollapsed();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [commandsOpen, setCommandsOpen] = useState(false);
   const pathname = usePathname();
+  const base = `/${org?.login ?? login}`;
+  const openCommands = useMemo(() => () => setCommandsOpen(true), []);
+  useShortcuts(base, openCommands);
 
   // A navigation closes the phone drawer.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs per path.
@@ -193,21 +255,17 @@ export function Shell({
           collapsed={collapsed}
           drawerOpen={drawerOpen}
           me={me.data}
-          onCollapse={() => setCollapsed(true)}
+          onSearch={openCommands}
           org={value.org.login}
         />
-        <div
-          className={cn(
-            "flex min-w-0 flex-1 flex-col md:py-(--shell-inset) md:pr-(--shell-inset)",
-            collapsed && "md:pl-(--shell-inset)"
-          )}
-        >
+        <div className="flex min-w-0 flex-1 flex-col md:py-(--shell-inset) md:pr-(--shell-inset)">
           <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background md:rounded-xl md:border md:shadow-inset">
             <TopBar
               collapsed={collapsed}
-              onExpand={() => setCollapsed(false)}
               onOpenDrawer={() => setDrawerOpen(true)}
+              onToggle={() => setCollapsed((was) => !was)}
               org={value.org.login}
+              role={value.org.role}
             />
             <div className="min-h-0 flex-1 overflow-y-auto">
               {value.org.suspended ? (
@@ -217,13 +275,19 @@ export function Shell({
                   for {value.org.login} is suspended.
                 </p>
               ) : null}
-              <div className="mx-auto grid w-full max-w-(--content-width) gap-8 px-4 pt-8 pb-16 md:px-8 md:pt-10">
+              <div className="mx-auto grid w-full max-w-(--content-width) gap-8 px-4 pt-8 pb-16 md:px-10 md:pt-10">
                 {children}
               </div>
             </div>
           </main>
         </div>
       </div>
+      <CommandMenu
+        onOpenChange={setCommandsOpen}
+        open={commandsOpen}
+        org={value.org.login}
+        organizations={me.data.organizations ?? []}
+      />
     </OrgContext>
   );
 }
@@ -250,17 +314,20 @@ function useLiveCounts(org: string): Record<string, number> {
   };
 }
 
+/** Hidden on the desktop rail, where only icons fit. */
+const RAIL_HIDDEN = "md:group-data-[state=collapsed]/sidebar:hidden";
+
 function Sidebar({
   collapsed,
   drawerOpen,
   me,
-  onCollapse,
+  onSearch,
   org,
 }: {
   collapsed: boolean;
   drawerOpen: boolean;
   me: Me;
-  onCollapse: () => void;
+  onSearch: () => void;
   org: string;
 }) {
   const pathname = usePathname();
@@ -268,49 +335,57 @@ function Sidebar({
   const counts = useLiveCounts(org);
   const desktop = useDesktop();
   // Off screen is out of the tab order too.
-  const hidden = desktop ? collapsed : !drawerOpen;
+  const hidden = desktop ? false : !drawerOpen;
+  const rail = desktop && collapsed;
 
   return (
     <aside
       aria-label="Navigation"
       className={cn(
+        "group/sidebar",
         // Phones: a drawer over the page.
         "fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-sidebar transition-transform duration-300 ease-smooth",
         drawerOpen ? "translate-x-0" : "-translate-x-full",
-        // Desktop: a column beside the inset panel, collapsible to nothing.
+        // Desktop: a column beside the inset panel, collapsible to a rail.
         "md:static md:z-auto md:translate-x-0 md:overflow-hidden md:transition-[width] md:duration-300",
-        collapsed ? "md:w-0" : "md:w-(--sidebar-width)"
+        collapsed ? "md:w-(--sidebar-rail-width)" : "md:w-(--sidebar-width)"
       )}
-      data-state={collapsed ? "collapsed" : "expanded"}
+      data-state={rail ? "collapsed" : "expanded"}
       inert={hidden}
     >
-      <div className="flex h-full w-72 min-w-0 flex-col gap-5 px-3 pt-3 pb-3 md:w-(--sidebar-width)">
-        <div className="flex h-9 items-center justify-between pl-2">
-          <Link aria-label="Airship home" href={base as Route}>
-            <Logo />
-          </Link>
-          <Button
-            aria-label="Collapse sidebar"
-            className="hidden text-muted-foreground md:inline-flex"
-            onClick={onCollapse}
-            size="icon-sm"
-            title="Collapse sidebar (⌘B)"
-            variant="ghost"
-          >
-            <PanelLeft />
-          </Button>
-        </div>
+      <div className="flex h-full w-72 min-w-0 flex-col gap-2 px-2 py-2 md:w-full">
+        <OrgSwitcher current={org} me={me} />
+
+        <button
+          aria-keyshortcuts="Meta+K Control+K"
+          className="flex h-8 w-full items-center gap-2 rounded-md border bg-background px-2 text-muted-foreground text-sm outline-none transition-colors hover:border-input hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring md:group-data-[state=collapsed]/sidebar:justify-center md:group-data-[state=collapsed]/sidebar:border-transparent md:group-data-[state=collapsed]/sidebar:bg-transparent"
+          onClick={onSearch}
+          title="Find (⌘K)"
+          type="button"
+        >
+          <Search aria-hidden="true" className="size-4 shrink-0" />
+          <span className={cn("flex-1 text-left", RAIL_HIDDEN)}>Find…</span>
+          <KbdGroup className={RAIL_HIDDEN}>
+            <Kbd className="bg-sidebar">⌘</Kbd>
+            <Kbd className="bg-sidebar">K</Kbd>
+          </KbdGroup>
+        </button>
 
         <nav
           aria-label="Sections"
-          className="-mr-1 grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1"
+          className="-mx-2 mt-2 grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overflow-x-hidden px-2"
         >
           {sectionGroups.map((group) => (
-            <div className="grid gap-px" key={group.label}>
-              <p className="px-2 pb-1.5 font-mono text-[11px] text-muted-foreground tracking-label">
+            <div className="grid gap-0.5" key={group.label}>
+              <p
+                className={cn(
+                  "truncate px-2 pb-1 font-medium text-muted-foreground text-xs",
+                  RAIL_HIDDEN
+                )}
+              >
                 {group.label}
               </p>
-              <ul className="grid gap-px">
+              <ul className="grid gap-0.5">
                 {group.sections.map((section) => (
                   <li key={section.label}>
                     <NavItem
@@ -326,8 +401,18 @@ function Sidebar({
           ))}
         </nav>
 
-        <div className="border-sidebar-border border-t pt-3">
-          <AccountMenu current={org} me={me} />
+        <a
+          className="flex h-8 items-center gap-2.5 rounded-md px-2 text-sidebar-foreground text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:group-data-[state=collapsed]/sidebar:justify-center"
+          href={DOCS_URL}
+          rel="noopener"
+          target="_blank"
+          title="Documentation"
+        >
+          <BookOpen aria-hidden="true" className="size-4 shrink-0" />
+          <span className={cn("truncate", RAIL_HIDDEN)}>Documentation</span>
+        </a>
+        <div className="border-sidebar-border border-t pt-2">
+          <UserMenu me={me} />
         </div>
       </div>
     </aside>
@@ -345,151 +430,93 @@ function NavItem({
   count: number | undefined;
   section: Section;
 }) {
-  const { href, icon: Icon, label, accent } = section;
+  const { href, icon: Icon, label, shortcut } = section;
   return (
     <Link
       aria-current={active ? "page" : undefined}
+      aria-keyshortcuts={`g ${shortcut}`}
       className={cn(
-        "group relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-sidebar-foreground transition-colors duration-150",
+        "group/item relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sidebar-foreground text-sm transition-colors duration-150",
         "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "md:group-data-[state=collapsed]/sidebar:justify-center",
         active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
       )}
       href={`${base}${href}` as Route}
+      title={label}
     >
-      {/* The landing page marks its open feature with a short bar; the
-          current section gets the same mark, in the section's colour. */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute top-1/2 -left-3 h-4 w-[3px] -translate-y-1/2 rounded-r-full transition-opacity duration-200",
-          accentDot[accent],
-          active ? "opacity-100" : "opacity-0"
-        )}
-      />
-      <Icon
-        aria-hidden="true"
-        className={cn(
-          "size-4 shrink-0 transition-opacity",
-          active ? "opacity-100" : "opacity-60 group-hover:opacity-90"
-        )}
-      />
-      <span className="truncate">{label}</span>
-      {count ? (
-        <span className="ml-auto flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground tabular-nums">
+      <span className="relative shrink-0">
+        <Icon aria-hidden="true" className="size-4" />
+        {count ? (
           <span
             aria-hidden="true"
-            className={cn(
-              "size-1.5 animate-signal rounded-full",
-              accentDot[accent]
-            )}
+            className="absolute -top-0.5 -right-0.5 hidden size-1.5 rounded-full bg-active ring-2 ring-sidebar md:group-data-[state=collapsed]/sidebar:block"
           />
-          {count}
-          <span className="sr-only"> active</span>
-        </span>
-      ) : null}
+        ) : null}
+      </span>
+      <span className={cn("truncate", RAIL_HIDDEN)}>{label}</span>
+      <span
+        className={cn(
+          "ml-auto flex items-center gap-1.5 text-muted-foreground",
+          RAIL_HIDDEN
+        )}
+      >
+        <KbdGroup className="hidden group-hover/item:inline-flex">
+          <Kbd className="bg-transparent">G</Kbd>
+          <Kbd className="bg-transparent">{shortcut.toUpperCase()}</Kbd>
+        </KbdGroup>
+        {count ? (
+          <span className="figure flex h-5 min-w-5 items-center justify-center gap-1 rounded-full bg-active-surface px-1.5 font-medium text-[11px] text-active-foreground group-hover/item:hidden">
+            {count}
+            <span className="sr-only"> active</span>
+          </span>
+        ) : null}
+      </span>
     </Link>
   );
 }
 
-function OrgMark({ login, className }: { className?: string; login: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "grid size-6 shrink-0 place-items-center rounded-md bg-linear-to-br from-active to-info font-medium font-mono text-[11px] text-white uppercase",
-        className
-      )}
-    >
-      {login.slice(0, 1)}
-    </span>
-  );
-}
-
-/**
- * The one control at the foot of the sidebar: which organization you are
- * in and who you are, with switching organizations, the docs and signing
- * out as options inside it.
- */
 const themes = [
   { icon: Sun, label: "Light", value: "light" },
   { icon: Moon, label: "Dark", value: "dark" },
   { icon: Monitor, label: "System", value: "system" },
 ] as const;
 
-function AccountMenu({ current, me }: { current: string; me: Me }) {
-  const router = useRouter();
-  const { setTheme, theme } = useTheme();
-  const queryClient = useQueryClient();
+/** The organization you are in, and every other one you can switch to. */
+function OrgSwitcher({ current, me }: { current: string; me: Me }) {
   const organizations = me.organizations ?? [];
   const active = organizations.find(
     (org) => org.login.toLowerCase() === current.toLowerCase()
   );
-
-  const signOut = async () => {
-    const { error } = await api.POST("/v1/auth/sign-out");
-    if (error) {
-      toast.error(errorMessage(error, "Could not sign out"));
-      return;
-    }
-    queryClient.clear();
-    router.replace("/sign-in");
-  };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
           <button
-            aria-label={`${current}, signed in as ${me.login}. Open account menu`}
-            className="flex h-12 w-full min-w-0 items-center gap-2.5 rounded-lg border border-sidebar-border bg-card/60 px-2 text-left outline-none transition-colors hover:bg-card focus-visible:ring-1 focus-visible:ring-ring aria-expanded:bg-card"
+            aria-label={`${current}. Switch organization`}
+            className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-1 focus-visible:ring-ring aria-expanded:bg-sidebar-accent md:group-data-[state=collapsed]/sidebar:justify-center md:group-data-[state=collapsed]/sidebar:px-0"
             type="button"
           />
         }
       >
-        <span className="relative shrink-0">
-          <OrgMark className="size-7 text-xs" login={current} />
-          <Avatar className="absolute -right-1 -bottom-1 size-4 rounded-full ring-2 ring-sidebar">
-            {me.avatarUrl ? <AvatarImage alt="" src={me.avatarUrl} /> : null}
-            <AvatarFallback className="text-[8px]">
-              {me.login.slice(0, 1).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
+        <OrgMark className="size-6" login={current} />
+        <span className={cn("grid min-w-0 flex-1 leading-tight", RAIL_HIDDEN)}>
+          <span className="truncate font-medium text-sm">{current}</span>
         </span>
-        <span className="grid min-w-0 flex-1 leading-tight">
-          <span className="truncate font-medium text-[13px]">{current}</span>
-          <span className="truncate font-mono text-[11px] text-muted-foreground">
-            @{me.login} · {active?.role ?? "member"}
-          </span>
+        <span
+          className={cn(
+            "shrink-0 rounded-full border px-1.5 py-px text-[10px] text-muted-foreground capitalize",
+            RAIL_HIDDEN
+          )}
+        >
+          {active?.role ?? "member"}
         </span>
         <ChevronsUpDown
           aria-hidden="true"
-          className="size-3.5 shrink-0 text-muted-foreground"
+          className={cn("size-3.5 shrink-0 text-muted-foreground", RAIL_HIDDEN)}
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-(--anchor-width) min-w-60"
-        side="top"
-      >
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="flex items-center gap-2.5 py-2">
-            <Avatar className="size-7 rounded-full">
-              {me.avatarUrl ? <AvatarImage alt="" src={me.avatarUrl} /> : null}
-              <AvatarFallback>
-                {me.login.slice(0, 1).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span className="grid min-w-0 leading-tight">
-              <span className="truncate font-medium text-foreground text-xs">
-                {me.name ?? me.login}
-              </span>
-              <span className="truncate font-mono text-[11px]">
-                @{me.login}
-              </span>
-            </span>
-          </DropdownMenuLabel>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
+      <DropdownMenuContent align="start" className="w-64">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Organizations</DropdownMenuLabel>
           {organizations.map((org) => (
@@ -502,12 +529,85 @@ function AccountMenu({ current, me }: { current: string; me: Me }) {
               {org.login.toLowerCase() === current.toLowerCase() ? (
                 <Check aria-label="Current" className="ml-auto" />
               ) : (
-                <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+                <span className="ml-auto text-muted-foreground text-xs capitalize">
                   {org.role}
                 </span>
               )}
             </DropdownMenuItem>
           ))}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          render={
+            <a
+              href={`${DOCS_URL}/getting-started`}
+              rel="noopener"
+              target="_blank"
+            />
+          }
+        >
+          <Plus aria-hidden="true" />
+          Add an organization
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Who you are, the theme, and signing out. */
+function UserMenu({ me }: { me: Me }) {
+  const router = useRouter();
+  const { setTheme, theme } = useTheme();
+  const queryClient = useQueryClient();
+
+  const signOut = async () => {
+    const { error } = await api.POST("/v1/auth/sign-out");
+    if (error) {
+      toast.error(errorMessage(error, "Could not sign out"));
+      return;
+    }
+    queryClient.clear();
+    router.replace("/sign-in");
+  };
+
+  const initial = me.login.slice(0, 1).toUpperCase();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            aria-label={`Signed in as ${me.login}. Open account menu`}
+            className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-1 focus-visible:ring-ring aria-expanded:bg-sidebar-accent md:group-data-[state=collapsed]/sidebar:justify-center md:group-data-[state=collapsed]/sidebar:px-0"
+            type="button"
+          />
+        }
+      >
+        <Avatar className="size-6 shrink-0 rounded-full">
+          {me.avatarUrl ? <AvatarImage alt="" src={me.avatarUrl} /> : null}
+          <AvatarFallback className="text-[10px]">{initial}</AvatarFallback>
+        </Avatar>
+        <span className={cn("grid min-w-0 flex-1 leading-tight", RAIL_HIDDEN)}>
+          <span className="truncate font-medium text-[13px]">
+            {me.name ?? me.login}
+          </span>
+          <span className="truncate text-muted-foreground text-xs">
+            @{me.login}
+          </span>
+        </span>
+        <ChevronsUpDown
+          aria-hidden="true"
+          className={cn("size-3.5 shrink-0 text-muted-foreground", RAIL_HIDDEN)}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-60" side="top">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="grid leading-tight">
+            <span className="truncate font-medium text-foreground text-sm">
+              {me.name ?? me.login}
+            </span>
+            <span className="truncate">@{me.login}</span>
+          </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
@@ -522,12 +622,6 @@ function AccountMenu({ current, me }: { current: string; me: Me }) {
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          render={<a href={DOCS_URL} rel="noopener" target="_blank" />}
-        >
-          <BookOpen aria-hidden="true" />
-          Documentation
-        </DropdownMenuItem>
         <DropdownMenuItem onClick={signOut}>
           <LogOut aria-hidden="true" />
           Sign out
@@ -537,77 +631,123 @@ function AccountMenu({ current, me }: { current: string; me: Me }) {
   );
 }
 
+/** A breadcrumb separator, drawn as Vercel-style slanted hairline. */
+function Slash() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 shrink-0 text-faint"
+      fill="none"
+      viewBox="0 0 16 16"
+    >
+      <path
+        d="M10.5 2.5 5.5 13.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.25"
+      />
+    </svg>
+  );
+}
+
 /** The inset panel's header: where you are, and whether it is live. */
 function TopBar({
   collapsed,
-  onExpand,
   onOpenDrawer,
+  onToggle,
   org,
+  role,
 }: {
   collapsed: boolean;
-  onExpand: () => void;
   onOpenDrawer: () => void;
+  onToggle: () => void;
   org: string;
+  role: string;
 }) {
   const pathname = usePathname();
   const current = currentSection(pathname, `/${org}`);
 
   return (
-    <header className="flex h-(--topbar-height) shrink-0 items-center gap-2 border-b px-3 md:px-4">
+    <header className="flex h-(--topbar-height) shrink-0 items-center gap-1.5 border-b px-3 md:px-4">
       <Button
         aria-label="Open navigation"
-        className="md:hidden"
+        className="text-muted-foreground md:hidden"
         onClick={onOpenDrawer}
         size="icon-sm"
         variant="ghost"
       >
         <Menu />
       </Button>
-      {collapsed ? (
-        <Button
-          aria-label="Expand sidebar"
-          className="hidden md:inline-flex"
-          onClick={onExpand}
-          size="icon-sm"
-          title="Expand sidebar (⌘B)"
-          variant="ghost"
-        >
-          <PanelLeft />
-        </Button>
-      ) : null}
+      <Button
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        className="hidden text-muted-foreground md:inline-flex"
+        onClick={onToggle}
+        size="icon-sm"
+        title={collapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
+        variant="ghost"
+      >
+        <PanelLeft />
+      </Button>
+      <span
+        aria-hidden="true"
+        className="mx-1 hidden h-4 w-px bg-border md:block"
+      />
       <nav
         aria-label="Breadcrumb"
-        className="flex min-w-0 items-center gap-2 font-mono text-muted-foreground text-xs tracking-label"
+        className="flex min-w-0 items-center gap-1 text-sm"
       >
-        <Logo className="text-muted-foreground" size={12} wordmark={false} />
         <Link
-          className="truncate transition-colors hover:text-foreground"
+          aria-label="Airship"
+          className="hidden shrink-0 text-foreground sm:inline-flex"
           href={`/${org}` as Route}
         >
-          {org}
+          <Logo size={16} wordmark={false} />
+        </Link>
+        <span className="hidden sm:contents">
+          <Slash />
+        </span>
+        <Link
+          className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 font-medium transition-colors hover:bg-accent"
+          href={`/${org}` as Route}
+        >
+          <OrgMark className="size-4 text-[9px]" login={org} />
+          <span className="truncate">{org}</span>
+          <span className="hidden rounded-full border px-1.5 py-px font-normal text-[10px] text-muted-foreground capitalize sm:inline">
+            {role}
+          </span>
         </Link>
         {current ? (
           <>
-            <span aria-hidden="true" className="text-faint">
-              /
-            </span>
-            <span aria-current="page" className="truncate text-foreground">
+            <Slash />
+            <span
+              aria-current="page"
+              className="truncate px-1.5 text-muted-foreground"
+            >
               {current.section.label}
             </span>
           </>
         ) : null}
       </nav>
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-2">
         <span
-          className="hidden items-center gap-1.5 font-mono text-[11px] text-muted-foreground sm:flex"
+          className="hidden h-7 items-center gap-1.5 rounded-full border px-2.5 text-muted-foreground text-xs sm:flex"
           title="This page refreshes itself"
         >
-          <span
-            aria-hidden="true"
-            className="size-1.5 animate-signal rounded-full bg-success"
-          />
-          live
+          <span aria-hidden="true" className="relative flex size-1.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" />
+            <span className="relative inline-flex size-1.5 rounded-full bg-success" />
+          </span>
+          Live
         </span>
+        <Button
+          className="hidden text-muted-foreground sm:inline-flex"
+          nativeButton={false}
+          render={<a href={DOCS_URL} rel="noopener" target="_blank" />}
+          size="sm"
+          variant="ghost"
+        >
+          Docs
+        </Button>
       </div>
     </header>
   );
@@ -616,23 +756,24 @@ function TopBar({
 function ShellSkeleton() {
   return (
     <div className="flex h-svh bg-sidebar">
-      <div className="hidden w-(--sidebar-width) shrink-0 flex-col gap-5 p-3 md:flex">
-        <Skeleton className="h-9 w-24" />
-        <div className="grid gap-1.5">
+      <div className="hidden w-(--sidebar-width) shrink-0 flex-col gap-3 p-2 md:flex">
+        <Skeleton className="h-10" />
+        <Skeleton className="h-8" />
+        <div className="mt-3 grid gap-1.5">
           <Skeleton className="h-3 w-12" />
           <Skeleton className="h-7" />
           <Skeleton className="h-7" />
           <Skeleton className="h-7" />
           <Skeleton className="h-7" />
         </div>
-        <Skeleton className="mt-auto h-12" />
+        <Skeleton className="mt-auto h-10" />
       </div>
       <div className="flex min-w-0 flex-1 md:py-(--shell-inset) md:pr-(--shell-inset)">
         <div className="flex-1 bg-background md:rounded-xl md:border">
           <div className="h-(--topbar-height) border-b" />
-          <div className="mx-auto grid w-full max-w-(--content-width) content-start gap-6 px-4 py-10 md:px-8">
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-7 w-48" />
+          <div className="mx-auto grid w-full max-w-(--content-width) content-start gap-6 px-4 py-10 md:px-10">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-72" />
             <Skeleton className="h-28" />
           </div>
         </div>

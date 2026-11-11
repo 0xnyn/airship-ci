@@ -124,7 +124,7 @@ function JobRow({ job }: { job: Schemas["Job"] }) {
       </TableCell>
       <TableCell className="max-w-80">
         <div className="grid gap-0.5">
-          <span className="flex items-center gap-1 truncate font-medium">
+          <span className="flex items-center gap-1 truncate font-medium text-[13px]">
             {job.htmlUrl ? (
               <a
                 className="inline-flex items-center gap-1 truncate hover:underline"
@@ -152,19 +152,15 @@ function JobRow({ job }: { job: Schemas["Job"] }) {
       </TableCell>
       <TableCell className="max-w-64">
         <div className="grid gap-0.5">
-          <span className="truncate font-mono text-[11px]">
+          <span className="truncate font-mono text-xs">
             {(job.labels ?? []).join(", ") || "—"}
           </span>
           <RunsOnDetail job={job} />
         </div>
       </TableCell>
-      <TableCell className="text-right font-mono tabular-nums">
-        {wait}
-      </TableCell>
-      <TableCell className="text-right font-mono tabular-nums">
-        {duration}
-      </TableCell>
-      <TableCell className="text-right text-muted-foreground">
+      <TableCell className="text-right tabular-nums">{wait}</TableCell>
+      <TableCell className="text-right tabular-nums">{duration}</TableCell>
+      <TableCell className="text-right text-muted-foreground tabular-nums">
         <RelativeTime value={job.queuedAt} />
       </TableCell>
     </TableRow>

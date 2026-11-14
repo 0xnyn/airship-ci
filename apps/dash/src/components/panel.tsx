@@ -134,8 +134,17 @@ export function SettingsCardHeader({
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-3 p-5 md:px-6">
       {icon}
-      {/* Phones: icon and action share the first line, text gets the full width. */}
-      <div className="order-last grid w-full min-w-0 gap-1 sm:order-none sm:w-auto sm:flex-1">
+      <div
+        className={cn(
+          "grid min-w-0 gap-1",
+          // With an icon, phones put icon and action on the first line and
+          // give the text the full width; without one, the text leads and
+          // the action wraps under it.
+          icon
+            ? "order-last w-full sm:order-none sm:w-auto sm:flex-1"
+            : "flex-1 basis-64"
+        )}
+      >
         <h2 className="font-semibold text-base tracking-tight" id={id}>
           {title}
         </h2>
@@ -146,7 +155,9 @@ export function SettingsCardHeader({
         ) : null}
       </div>
       {action ? (
-        <div className="ml-auto flex shrink-0 gap-2 sm:ml-0">{action}</div>
+        <div className={cn("flex shrink-0 gap-2", icon && "ml-auto sm:ml-0")}>
+          {action}
+        </div>
       ) : null}
     </div>
   );

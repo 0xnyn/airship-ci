@@ -9,7 +9,7 @@ export const docsUrl: string =
   import.meta.env.PUBLIC_DOCS_URL ?? "https://docs.airshipci.com";
 export const apiUrl: string =
   import.meta.env.PUBLIC_API_URL ?? "https://api.airshipci.com";
-// Where "Get started" and "Talk to us" go: a call booked on Cal.
+// Where "Talk to us" goes: a call booked on Cal.
 export const calUrl: string =
   import.meta.env.PUBLIC_CAL_URL ?? "https://cal.com/airship/quick-chat";
 
@@ -33,7 +33,7 @@ export const og = {
 };
 
 export const nav = {
-  cta: { href: calUrl, label: "Get started" } satisfies Link,
+  cta: { href: appUrl, label: "Get started" } satisfies Link,
   links: [
     { href: "/#features", label: "Features" },
     { href: "/#how", label: "How it works" },

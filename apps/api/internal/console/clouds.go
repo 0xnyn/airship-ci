@@ -12,7 +12,12 @@ import (
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
 	azurecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/azure"
 	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
+	e2bcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/e2b"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
+	modalcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/modal"
+	namespacecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/namespace"
+	runloopcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/runloop"
+	tenkicloud "github.com/wizenheimer/airship/apps/api/internal/cloud/tenki"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 
@@ -25,11 +30,11 @@ const DefaultRegion = "eu-west-1"
 
 // Cloud is a connected cloud account, without its secret.
 type Cloud struct {
-	Cloud         string     `doc:"Cloud name"                                                               enum:"aws,gcp,azure,daytona" json:"cloud"`
-	Identity      string     `doc:"Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, masked Daytona API key)" json:"identity"`
+	Cloud         string     `doc:"Cloud name"                                                               enum:"aws,gcp,azure,daytona,runloop,e2b,novita,lelantos,namespace,tenki,modal" json:"cloud"`
+	Identity      string     `doc:"Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, a sandbox cloud's masked API key or token ID)" json:"identity"`
 	AccountID     *string    `doc:"Cloud account ID (AWS account, GCP project, Azure subscription, Daytona organization)" json:"accountId"`
 	Principal     *string    `doc:"Who the credential is, such as an IAM ARN or an API key's name"     json:"principal"`
-	DefaultRegion string     `doc:"Region (or GCP zone, or Daytona region) used when a config names none" json:"defaultRegion"`
+	DefaultRegion string     `doc:"Region (or GCP zone, or a sandbox cloud's region; global on the clouds without regions) used when a config names none" json:"defaultRegion"`
 	Status        string     `doc:"Whether the credential works"                  enum:"ok,invalid" json:"status"`
 	Error         *string    `doc:"Why the credential stopped working"            json:"error"`
 	VerifiedAt    *time.Time `doc:"When it was last verified with the cloud"      json:"verifiedAt"`
@@ -178,6 +183,196 @@ func (h *handlers) connectDaytona(ctx context.Context, in *connectDaytonaInput) 
 	return &cloudOutput{Body: cloudFromDB(row)}, nil
 }
 
+// ConnectRunloop is the request body for connecting a Runloop account: an
+// API key.
+type ConnectRunloop struct {
+	APIKey string `doc:"Runloop API key" json:"apiKey" maxLength:"512" minLength:"16"`
+	APIURL string `doc:"API URL; the hosted service by default" format:"uri" json:"apiUrl,omitempty" maxLength:"256"`
+}
+
+type connectRunloopInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectRunloop
+}
+
+func (h *handlers) connectRunloop(ctx context.Context, in *connectRunloopInput) (*cloudOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := auth.UserFrom(ctx)
+	secret, err := runloopcloud.EncodeSecret(runloopcloud.Secret{APIKey: in.Body.APIKey, APIURL: in.Body.APIURL})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+	row, err := h.connect(ctx, inst.ID, cloud.Runloop, secret, cloud.SandboxRegion, &user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
+// ConnectE2B is the request body for connecting an E2B team: a team API
+// key.
+type ConnectE2B struct {
+	APIKey string `doc:"E2B team API key (e2b_...)" json:"apiKey" maxLength:"512" minLength:"12" pattern:"^e2b_"`
+	Domain string `doc:"Domain of a self-hosted E2B; the hosted service (e2b.app) by default" json:"domain,omitempty" maxLength:"253"`
+}
+
+type connectE2BInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectE2B
+}
+
+func (h *handlers) connectE2B(ctx context.Context, in *connectE2BInput) (*cloudOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := auth.UserFrom(ctx)
+	secret, err := e2bcloud.EncodeSecret(e2bcloud.Secret{APIKey: in.Body.APIKey, Domain: in.Body.Domain})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+	row, err := h.connect(ctx, inst.ID, cloud.E2B, secret, cloud.SandboxRegion, &user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
+// ConnectE2BCompatible is the request body for connecting a cloud that
+// speaks E2B's protocol (Novita, Lelantos): an API key, and the domain of a
+// self-hosted service.
+type ConnectE2BCompatible struct {
+	APIKey string `doc:"API key" json:"apiKey" maxLength:"512" minLength:"12"`
+	Domain string `doc:"Domain of a self-hosted service; the hosted one by default" json:"domain,omitempty" maxLength:"253"`
+}
+
+type connectE2BCompatibleInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectE2BCompatible
+}
+
+// connectE2BFlavor connects one E2B-protocol cloud.
+func (h *handlers) connectE2BFlavor(flavor e2bcloud.Flavor) func(context.Context, *connectE2BCompatibleInput) (*cloudOutput, error) {
+	return func(ctx context.Context, in *connectE2BCompatibleInput) (*cloudOutput, error) {
+		inst, err := h.org(ctx, in.Org, true)
+		if err != nil {
+			return nil, err
+		}
+		user, _ := auth.UserFrom(ctx)
+		secret, err := flavor.EncodeSecret(e2bcloud.Secret{APIKey: in.Body.APIKey, Domain: in.Body.Domain})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity(err.Error())
+		}
+		row, err := h.connect(ctx, inst.ID, flavor.Cloud, secret, cloud.SandboxRegion, &user.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		return &cloudOutput{Body: cloudFromDB(row)}, nil
+	}
+}
+
+// ConnectNamespace is the request body for connecting a Namespace
+// workspace: a token that can create and destroy instances.
+type ConnectNamespace struct {
+	Token         string `doc:"Namespace token" json:"token" maxLength:"1000" minLength:"16"`
+	DefaultRegion string `default:"us" doc:"Region used when a config names none" enum:"us,eu" json:"defaultRegion,omitempty"`
+}
+
+type connectNamespaceInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectNamespace
+}
+
+func (h *handlers) connectNamespace(ctx context.Context, in *connectNamespaceInput) (*cloudOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := auth.UserFrom(ctx)
+	region := in.Body.DefaultRegion
+	if region == "" {
+		region = namespacecloud.DefaultRegion
+	}
+	secret, err := namespacecloud.EncodeSecret(namespacecloud.Secret{Token: in.Body.Token})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+	row, err := h.connect(ctx, inst.ID, cloud.Namespace, secret, region, &user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
+// ConnectTenki is the request body for connecting a Tenki workspace: a
+// workspace API key.
+type ConnectTenki struct {
+	APIKey      string `doc:"Workspace API key (tk_... or lx_...)" json:"apiKey" maxLength:"512" minLength:"12"`
+	APIURL      string `doc:"API URL; the hosted service by default" format:"uri" json:"apiUrl,omitempty" maxLength:"256"`
+	WorkspaceID string `doc:"Workspace, when the key is not a workspace key" json:"workspaceId,omitempty" maxLength:"128"`
+}
+
+type connectTenkiInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectTenki
+}
+
+func (h *handlers) connectTenki(ctx context.Context, in *connectTenkiInput) (*cloudOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := auth.UserFrom(ctx)
+	secret, err := tenkicloud.EncodeSecret(tenkicloud.Secret{APIKey: in.Body.APIKey, APIURL: in.Body.APIURL, WorkspaceID: in.Body.WorkspaceID})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+	row, err := h.connect(ctx, inst.ID, cloud.Tenki, secret, cloud.SandboxRegion, &user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
+// ConnectModal is the request body for connecting a Modal workspace: a
+// token pair, and the environment to run in.
+type ConnectModal struct {
+	TokenID     string `doc:"Token ID (ak-...)" json:"tokenId" maxLength:"140" minLength:"8"`
+	TokenSecret string `doc:"Token secret (as-...)" json:"tokenSecret" maxLength:"140" minLength:"8"`
+	Environment string `doc:"Environment; the workspace's default when empty" json:"environment,omitempty" maxLength:"63"`
+}
+
+type connectModalInput struct {
+	Org  string `maxLength:"100" minLength:"1" path:"org"`
+	Body ConnectModal
+}
+
+func (h *handlers) connectModal(ctx context.Context, in *connectModalInput) (*cloudOutput, error) {
+	inst, err := h.org(ctx, in.Org, true)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := auth.UserFrom(ctx)
+	secret, err := modalcloud.EncodeSecret(modalcloud.Secret{TokenID: in.Body.TokenID, TokenSecret: in.Body.TokenSecret, Environment: in.Body.Environment})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+	row, err := h.connect(ctx, inst.ID, cloud.Modal, secret, cloud.SandboxRegion, &user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudOutput{Body: cloudFromDB(row)}, nil
+}
+
 // ConnectAzure is the request body for connecting an Azure subscription: a
 // Microsoft Entra application (service principal) with the Contributor
 // role on the subscription.
@@ -226,7 +421,7 @@ func (h *handlers) connect(ctx context.Context, installationID int64, cloudName 
 		return db.CloudCredential{}, huma.Error422UnprocessableEntity(err.Error())
 	}
 	if errors.Is(err, cloud.ErrUnsupportedCloud) {
-		return db.CloudCredential{}, huma.Error422UnprocessableEntity("only aws, gcp, azure and daytona are supported")
+		return db.CloudCredential{}, huma.Error422UnprocessableEntity("only aws, gcp, azure, daytona, runloop, e2b, novita, lelantos, namespace, tenki and modal are supported")
 	}
 	if err != nil {
 		slog.WarnContext(ctx, "verify cloud credentials", slog.String("cloud", cloudName), slog.Any("error", err))
@@ -239,7 +434,7 @@ func (h *handlers) connect(ctx context.Context, installationID int64, cloudName 
 
 type cloudInput struct {
 	Org   string `maxLength:"100" minLength:"1" path:"org"`
-	Cloud string `doc:"Cloud name" enum:"aws,gcp,azure,daytona" path:"cloud"`
+	Cloud string `doc:"Cloud name" enum:"aws,gcp,azure,daytona,runloop,e2b,novita,lelantos,namespace,tenki,modal" path:"cloud"`
 }
 
 func (h *handlers) disconnectCloud(ctx context.Context, in *cloudInput) (*struct{}, error) {

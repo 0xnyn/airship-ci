@@ -60,10 +60,10 @@ const (
 )
 
 // Clouds lists the supported clouds, for messages.
-var Clouds = []string{CloudAWS, CloudGCP, CloudAzure, CloudDaytona}
+var Clouds = []string{CloudAWS, CloudGCP, CloudAzure, CloudDaytona, CloudRunloop, CloudE2B, CloudNovita, CloudLelantos, CloudNamespace, CloudTenki, CloudModal}
 
 // cloudList is the supported clouds as a message spells them.
-const cloudList = "aws, gcp, azure or daytona"
+const cloudList = "aws, gcp, azure, daytona, runloop, e2b, novita, lelantos, namespace, tenki or modal"
 
 var otherClouds = []string{"do", "digitalocean", "openstack", "oracle", "vast_ai", "on_prem"}
 
@@ -153,6 +153,9 @@ type Runner struct {
 	Azure *Azure
 	// Daytona holds sandbox settings; nil on other clouds.
 	Daytona *Daytona
+	// Sandbox holds Runloop and E2B settings; nil elsewhere and when
+	// nothing is set.
+	Sandbox *Sandbox
 	Idle    *Idle
 }
 
@@ -182,6 +185,11 @@ type Variant struct {
 	CPU      int
 	MemoryGB int
 	Snapshot string
+	// Runloop and E2B: the blueprint or template the sandbox starts from,
+	// and a named Runloop size (SMALL, X_LARGE) in place of CPU and
+	// MemoryGB.
+	Template string
+	Size     string
 }
 
 // Disk is the root volume. Zero means the cloud's default.
@@ -482,6 +490,13 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 					return Runner{}, failf(".gpu", "%q is not a Daytona GPU type; one of %s", r.GPU.Value, strings.Join(daytonaGPUTypes, ", "))
 				}
 				out.GPUType = gpu
+			case CloudModal:
+				// Modal attaches a GPU by name.
+				gpu, ok := modalGPU(name)
+				if !ok {
+					return Runner{}, failf(".gpu", "%q is not a Modal GPU; one of %s", r.GPU.Value, strings.Join(modalGPUTypes, ", "))
+				}
+				out.GPUType = gpu
 			}
 		}
 	}
@@ -507,6 +522,11 @@ func (r rawRunner) validate() (Runner, *fieldError) {
 	}
 	if out.Cloud == CloudDaytona {
 		if ferr := checkDaytona(&out, variants, r.ExtraConfig != nil && r.ExtraConfig.Disk != 0); ferr != nil {
+			return Runner{}, ferr
+		}
+	}
+	if IsSandboxCloud(out.Cloud) {
+		if ferr := checkSandbox(&out, variants, r.ExtraConfig != nil && r.ExtraConfig.Disk != 0); ferr != nil {
 			return Runner{}, ferr
 		}
 	}
@@ -560,6 +580,10 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 		disk = Disk{} // the image's size (Windows) or the provider's default (Linux), on the default managed disk kind
 	case CloudDaytona:
 		disk = Disk{SizeGB: DaytonaDefaultDiskGB} // a sandbox has one disk, of one kind
+	default:
+		if IsSandboxCloud(out.Cloud) {
+			disk = Disk{} // the size's, template's or cloud's, unless extra_config names one
+		}
 	}
 	if e == nil {
 		return disk, nil
@@ -580,6 +604,12 @@ func (e *rawExtra) apply(out *Runner) (Disk, *fieldError) {
 	case CloudDaytona:
 		if disk, ferr = e.applyDaytona(out, disk); ferr != nil {
 			return Disk{}, ferr
+		}
+	default:
+		if IsSandboxCloud(out.Cloud) {
+			if disk, ferr = e.applySandbox(out, disk); ferr != nil {
+				return Disk{}, ferr
+			}
 		}
 	}
 
@@ -769,6 +799,10 @@ func expandVariants(cloud string, r rawRunner, disk Disk) ([]Variant, *fieldErro
 			if ferr := validateDaytonaVariant(&v, index); ferr != nil {
 				return nil, ferr
 			}
+		case CloudRunloop, CloudE2B, CloudNovita, CloudLelantos, CloudNamespace, CloudTenki, CloudModal:
+			if ferr := validateSandboxVariant(cloud, &v, index); ferr != nil {
+				return nil, ferr
+			}
 		default:
 			if v.Region != "" && !regionPattern.MatchString(v.Region) {
 				return nil, failf(".region"+index, "%q is not an AWS region (such as us-east-1)", v.Region)
@@ -789,7 +823,7 @@ func expandVariants(cloud string, r rawRunner, disk Disk) ([]Variant, *fieldErro
 
 // ArchForInstanceType infers the CPU architecture of an instance type:
 // Graviton and Apple silicon families on AWS, Axion and Altra on GCP, the
-// "p" sizes (Ampere, Cobalt) on Azure. Daytona sandboxes are x64.
+// "p" sizes (Ampere, Cobalt) on Azure. Sandbox clouds' sandboxes are x64.
 func ArchForInstanceType(cloud, instanceType string) string {
 	switch cloud {
 	case CloudGCP:
@@ -800,7 +834,7 @@ func ArchForInstanceType(cloud, instanceType string) string {
 		return "x64"
 	case CloudAzure:
 		return azureArch(instanceType)
-	case CloudDaytona:
+	case CloudDaytona, CloudRunloop, CloudE2B, CloudNovita, CloudLelantos, CloudNamespace, CloudTenki, CloudModal:
 		return "x64"
 	}
 	family, _, _ := strings.Cut(instanceType, ".")
@@ -819,7 +853,7 @@ func HasGPU(cloud, instanceType string) bool {
 		return gcpGPUFamilies[gcpFamily(instanceType)]
 	case CloudAzure:
 		return azureGPUPattern.MatchString(instanceType)
-	case CloudDaytona:
+	case CloudDaytona, CloudRunloop, CloudE2B, CloudNovita, CloudLelantos, CloudNamespace, CloudTenki, CloudModal:
 		return false
 	}
 	family, _, _ := strings.Cut(instanceType, ".")

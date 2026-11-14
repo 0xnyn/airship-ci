@@ -101,7 +101,7 @@
         "additionalProperties": false,
         "properties": {
           "accountId": {
-            "description": "The cloud's own account identifier: an AWS account ID, a Google Cloud project ID or an Azure subscription ID",
+            "description": "The cloud's own account identifier: an AWS account ID, a Google Cloud project ID, an Azure subscription ID, or a sandbox cloud's organization or workspace where it reports one",
             "type": [
               "string",
               "null"
@@ -112,7 +112,15 @@
             "enum": [
               "aws",
               "gcp",
-              "azure"
+              "azure",
+              "daytona",
+              "runloop",
+              "e2b",
+              "novita",
+              "lelantos",
+              "namespace",
+              "tenki",
+              "modal"
             ],
             "type": "string"
           },
@@ -122,7 +130,7 @@
             "type": "string"
           },
           "defaultRegion": {
-            "description": "The region runners launch in when a runner definition names none; on Google Cloud, a zone or a region",
+            "description": "The region runners launch in when a runner definition names none; on Google Cloud, a zone or a region; `global` on sandbox clouds without regions",
             "type": "string"
           },
           "error": {
@@ -133,7 +141,7 @@
             ]
           },
           "identity": {
-            "description": "The public half of the credential: an AWS access key ID, a Google Cloud service account email or an Azure application ID",
+            "description": "The public half of the credential: an AWS access key ID, a Google Cloud service account email, an Azure application ID, or a sandbox cloud's masked API key or token ID",
             "type": "string"
           },
           "principal": {
@@ -187,7 +195,15 @@
             "enum": [
               "aws",
               "gcp",
-              "azure"
+              "azure",
+              "daytona",
+              "runloop",
+              "e2b",
+              "novita",
+              "lelantos",
+              "namespace",
+              "tenki",
+              "modal"
             ],
             "type": "string"
           },
@@ -195,7 +211,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "The cloud's credentials. For `aws`: `access_key`, `secret_key` and optionally `region`. For `gcp`: the fields of the service account key file, and optionally `region` (a zone or a region). For `azure`: `subscription_id`, `tenant_id`, `client_id`, `client_secret` and optionally `region`.",
+            "description": "The cloud's credentials. For `aws`: `access_key`, `secret_key` and optionally `region`. For `gcp`: the fields of the service account key file, and optionally `region` (a zone or a region). For `azure`: `subscription_id`, `tenant_id`, `client_id`, `client_secret` and optionally `region`. For `daytona`: `api_key`, and optionally `api_url` and `region`. For `runloop`: `api_key` and optionally `api_url`. For `e2b`, `novita` and `lelantos`: `api_key` and optionally `domain`. For `namespace`: `token` and optionally `region` (`us` or `eu`). For `tenki`: `api_key`, and optionally `api_url` and `workspace_id`. For `modal`: `token_id`, `token_secret` and optionally `environment`.",
             "maxProperties": 20,
             "type": "object"
           }

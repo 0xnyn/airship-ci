@@ -336,6 +336,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/clouds/e2b": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect E2B */
+        put: operations["connectE2b"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/clouds/gcp": {
         parameters: {
             query?: never;
@@ -346,6 +363,108 @@ export interface paths {
         get?: never;
         /** Connect Google Cloud */
         put: operations["connectGcp"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/clouds/lelantos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Lelantos */
+        put: operations["connectLelantos"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/clouds/modal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Modal */
+        put: operations["connectModal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/clouds/namespace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Namespace */
+        put: operations["connectNamespace"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/clouds/novita": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Novita */
+        put: operations["connectNovita"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/clouds/runloop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Runloop */
+        put: operations["connectRunloop"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/clouds/tenki": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Tenki */
+        put: operations["connectTenki"];
         post?: never;
         delete?: never;
         options?: never;
@@ -669,17 +788,17 @@ export interface components {
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws" | "gcp" | "azure" | "daytona";
+            cloud: "aws" | "gcp" | "azure" | "daytona" | "runloop" | "e2b" | "novita" | "lelantos" | "namespace" | "tenki" | "modal";
             /**
              * Format: date-time
              * @description When it was connected
              */
             connectedAt: string;
-            /** @description Region (or GCP zone, or Daytona region) used when a config names none */
+            /** @description Region (or GCP zone, or a sandbox cloud's region; global on the clouds without regions) used when a config names none */
             defaultRegion: string;
             /** @description Why the credential stopped working */
             error: string | null;
-            /** @description Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, masked Daytona API key) */
+            /** @description Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, a sandbox cloud's masked API key or token ID) */
             identity: string;
             /** @description Who the credential is, such as an IAM ARN or an API key's name */
             principal: string | null;
@@ -704,8 +823,8 @@ export interface components {
              * @description Cloud name
              * @enum {string}
              */
-            cloud: "aws" | "gcp" | "azure" | "daytona";
-            /** @description Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region */
+            cloud: "aws" | "gcp" | "azure" | "daytona" | "runloop" | "e2b" | "novita" | "lelantos" | "namespace" | "tenki" | "modal";
+            /** @description Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region; for runloop: api_key and optionally api_url; for e2b, novita and lelantos: api_key and optionally domain; for namespace: token and optionally region (us or eu); for tenki: api_key and optionally api_url and workspace_id; for modal: token_id, token_secret and optionally environment */
             credentials: {
                 [key: string]: string;
             };
@@ -802,6 +921,18 @@ export interface components {
              */
             defaultRegion: string;
         };
+        ConnectE2B: {
+            /** @description E2B team API key (e2b_...) */
+            apiKey: string;
+            /** @description Domain of a self-hosted E2B; the hosted service (e2b.app) by default */
+            domain?: string;
+        };
+        ConnectE2BCompatible: {
+            /** @description API key */
+            apiKey: string;
+            /** @description Domain of a self-hosted service; the hosted one by default */
+            domain?: string;
+        };
         ConnectGCP: {
             /**
              * @description Zone (us-central1-b) or region (us-central1) used when a config names none
@@ -810,6 +941,44 @@ export interface components {
             defaultRegion: string;
             /** @description The service account key file's JSON, as downloaded from Google Cloud */
             serviceAccountKey: string;
+        };
+        ConnectModal: {
+            /** @description Environment; the workspace's default when empty */
+            environment?: string;
+            /** @description Token ID (ak-...) */
+            tokenId: string;
+            /** @description Token secret (as-...) */
+            tokenSecret: string;
+        };
+        ConnectNamespace: {
+            /**
+             * @description Region used when a config names none
+             * @default us
+             * @enum {string}
+             */
+            defaultRegion: "us" | "eu";
+            /** @description Namespace token */
+            token: string;
+        };
+        ConnectRunloop: {
+            /** @description Runloop API key */
+            apiKey: string;
+            /**
+             * Format: uri
+             * @description API URL; the hosted service by default
+             */
+            apiUrl?: string;
+        };
+        ConnectTenki: {
+            /** @description Workspace API key (tk_... or lx_...) */
+            apiKey: string;
+            /**
+             * Format: uri
+             * @description API URL; the hosted service by default
+             */
+            apiUrl?: string;
+            /** @description Workspace, when the key is not a workspace key */
+            workspaceId?: string;
         };
         Cookie: {
             Domain: string;
@@ -1274,7 +1443,7 @@ export interface components {
              * @description Cloud it launched in
              * @enum {string}
              */
-            cloud: "aws" | "gcp" | "daytona";
+            cloud: "aws" | "gcp" | "azure" | "daytona" | "runloop" | "e2b" | "novita" | "lelantos" | "namespace" | "tenki" | "modal";
             /**
              * Format: date-time
              * @description When demand for it was created
@@ -2161,6 +2330,41 @@ export interface operations {
             };
         };
     };
+    connectE2b: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectE2B"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     connectGcp: {
         parameters: {
             query?: never;
@@ -2196,6 +2400,216 @@ export interface operations {
             };
         };
     };
+    connectLelantos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectE2BCompatible"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    connectModal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectModal"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    connectNamespace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectNamespace"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    connectNovita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectE2BCompatible"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    connectRunloop: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectRunloop"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    connectTenki: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectTenki"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cloud"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     disconnectCloud: {
         parameters: {
             query?: never;
@@ -2203,7 +2617,7 @@ export interface operations {
             path: {
                 org: string;
                 /** @description Cloud name */
-                cloud: "aws" | "gcp" | "azure" | "daytona";
+                cloud: "aws" | "gcp" | "azure" | "daytona" | "runloop" | "e2b" | "novita" | "lelantos" | "namespace" | "tenki" | "modal";
             };
             cookie?: never;
         };

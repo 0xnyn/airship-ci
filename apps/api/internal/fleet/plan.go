@@ -42,6 +42,9 @@ type Spec struct {
 	Azure *cloud.AzureOptions `json:"azure,omitempty"`
 	// Daytona carries a sandbox's shape or snapshot and its extra_config.
 	Daytona *cloud.DaytonaOptions `json:"daytona,omitempty"`
+	// Sandbox carries a Runloop or E2B sandbox's template, size and
+	// extra_config.
+	Sandbox *cloud.SandboxOptions `json:"sandbox,omitempty"`
 }
 
 func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
@@ -65,7 +68,22 @@ func specFor(r runnerconfig.Runner, v runnerconfig.Variant) Spec {
 		GCP:              gcpOptions(r.GCP),
 		Azure:            azureOptions(r.Azure),
 		Daytona:          daytonaOptions(r, v),
+		Sandbox:          sandboxOptions(r, v),
 	}
+}
+
+// sandboxOptions copies a Runloop or E2B definition's settings into the
+// provider's type.
+func sandboxOptions(r runnerconfig.Runner, v runnerconfig.Variant) *cloud.SandboxOptions {
+	if !runnerconfig.IsSandboxCloud(r.Cloud) {
+		return nil
+	}
+	out := &cloud.SandboxOptions{Template: v.Template, Size: v.Size, CPU: v.CPU, MemoryGB: v.MemoryGB}
+	if r.Sandbox != nil {
+		out.Docker = r.Sandbox.Docker
+	}
+
+	return out
 }
 
 // azureOptions copies a definition's Azure settings into the provider's
@@ -129,7 +147,7 @@ func (s Spec) machine() cloud.Machine {
 	return cloud.Machine{
 		InstanceType: s.InstanceType, Image: s.Image, Arch: s.Arch, Spot: s.Spot, Disk: s.Disk,
 		SubnetID: s.SubnetID, SecurityGroupIDs: s.SecurityGroupIDs, InstanceProfile: s.InstanceProfile,
-		Zone: s.Zone, GPUType: s.GPUType, GCP: s.GCP, Azure: s.Azure, Daytona: s.Daytona,
+		Zone: s.Zone, GPUType: s.GPUType, GCP: s.GCP, Azure: s.Azure, Daytona: s.Daytona, Sandbox: s.Sandbox,
 	}
 }
 

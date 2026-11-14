@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/wizenheimer/airship/apps/api/internal/auth"
+	e2bcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/e2b"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
@@ -101,6 +102,13 @@ func Register(api huma.API, cfg Config) {
 	huma.Register(api, op("connectGcp", http.MethodPut, "/v1/orgs/{org}/clouds/gcp", "Connect Google Cloud", "Cloud", 0), h.connectGCP)
 	huma.Register(api, op("connectAzure", http.MethodPut, "/v1/orgs/{org}/clouds/azure", "Connect Microsoft Azure", "Cloud", 0), h.connectAzure)
 	huma.Register(api, op("connectDaytona", http.MethodPut, "/v1/orgs/{org}/clouds/daytona", "Connect Daytona", "Cloud", 0), h.connectDaytona)
+	huma.Register(api, op("connectRunloop", http.MethodPut, "/v1/orgs/{org}/clouds/runloop", "Connect Runloop", "Cloud", 0), h.connectRunloop)
+	huma.Register(api, op("connectE2b", http.MethodPut, "/v1/orgs/{org}/clouds/e2b", "Connect E2B", "Cloud", 0), h.connectE2B)
+	huma.Register(api, op("connectNovita", http.MethodPut, "/v1/orgs/{org}/clouds/novita", "Connect Novita", "Cloud", 0), h.connectE2BFlavor(e2bcloud.FlavorNovita))
+	huma.Register(api, op("connectLelantos", http.MethodPut, "/v1/orgs/{org}/clouds/lelantos", "Connect Lelantos", "Cloud", 0), h.connectE2BFlavor(e2bcloud.FlavorLelantos))
+	huma.Register(api, op("connectNamespace", http.MethodPut, "/v1/orgs/{org}/clouds/namespace", "Connect Namespace", "Cloud", 0), h.connectNamespace)
+	huma.Register(api, op("connectTenki", http.MethodPut, "/v1/orgs/{org}/clouds/tenki", "Connect Tenki", "Cloud", 0), h.connectTenki)
+	huma.Register(api, op("connectModal", http.MethodPut, "/v1/orgs/{org}/clouds/modal", "Connect Modal", "Cloud", 0), h.connectModal)
 	huma.Register(api, op("disconnectCloud", http.MethodDelete, "/v1/orgs/{org}/clouds/{cloud}", "Disconnect a cloud", "Cloud", http.StatusNoContent), h.disconnectCloud)
 
 	huma.Register(api, op("listRepositories", http.MethodGet, "/v1/orgs/{org}/repositories", "List repositories and their runner config", "Repositories", 0), h.listRepositories)

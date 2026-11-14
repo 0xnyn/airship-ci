@@ -25,7 +25,19 @@ const PUBLIC_PATHS = [
 ];
 
 /** Clouds the documentation covers, in the order the pages introduce them. */
-const CLOUDS = ["aws", "gcp", "azure"];
+const CLOUDS = [
+  "aws",
+  "gcp",
+  "azure",
+  "daytona",
+  "runloop",
+  "e2b",
+  "novita",
+  "lelantos",
+  "namespace",
+  "tenki",
+  "modal",
+];
 
 /**
  * Prose the Go handlers write for their own audience, replaced with prose
@@ -49,7 +61,12 @@ const CREDENTIALS_DESCRIPTION =
   "optionally `region`. For `gcp`: the fields of the service account key " +
   "file, and optionally `region` (a zone or a region). For `azure`: " +
   "`subscription_id`, `tenant_id`, `client_id`, `client_secret` and " +
-  "optionally `region`.";
+  "optionally `region`. For `daytona`: `api_key`, and optionally `api_url` " +
+  "and `region`. For `runloop`: `api_key` and optionally `api_url`. For " +
+  "`e2b`, `novita` and `lelantos`: `api_key` and optionally `domain`. For " +
+  "`namespace`: `token` and optionally `region` (`us` or `eu`). For " +
+  "`tenki`: `api_key`, and optionally `api_url` and `workspace_id`. For " +
+  "`modal`: `token_id`, `token_secret` and optionally `environment`.";
 
 /** Rewrites applied to `description` strings, longest match first. */
 const DESCRIPTIONS = {
@@ -61,18 +78,18 @@ const DESCRIPTIONS = {
     "access policies. Create a token under **API keys** in the dashboard and " +
     "send it as `Authorization: Bearer asa_...`.",
   "Cloud account ID (AWS account, GCP project, Azure subscription, Daytona organization)":
-    "The cloud's own account identifier: an AWS account ID, a Google Cloud project ID or an Azure subscription ID",
-  "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region":
+    "The cloud's own account identifier: an AWS account ID, a Google Cloud project ID, an Azure subscription ID, or a sandbox cloud's organization or workspace where it reports one",
+  "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region; for runloop: api_key and optionally api_url; for e2b, novita and lelantos: api_key and optionally domain; for namespace: token and optionally region (us or eu); for tenki: api_key and optionally api_url and workspace_id; for modal: token_id, token_secret and optionally environment":
     CREDENTIALS_DESCRIPTION,
-  "Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, masked Daytona API key)":
-    "The public half of the credential: an AWS access key ID, a Google Cloud service account email or an Azure application ID",
-  "Region (or GCP zone, or Daytona region) used when a config names none":
-    "The region runners launch in when a runner definition names none; on Google Cloud, a zone or a region",
+  "Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, a sandbox cloud's masked API key or token ID)":
+    "The public half of the credential: an AWS access key ID, a Google Cloud service account email, an Azure application ID, or a sandbox cloud's masked API key or token ID",
+  "Region (or GCP zone, or a sandbox cloud's region; global on the clouds without regions) used when a config names none":
+    "The region runners launch in when a runner definition names none; on Google Cloud, a zone or a region; `global` on sandbox clouds without regions",
   "Who the credential is, such as an IAM ARN or an API key's name":
     "Who the credential is, such as an IAM user's ARN",
 };
 
-const FORBIDDEN = /daytona|cirun/i;
+const FORBIDDEN = /cirun/i;
 
 /** Walks every string in the document, applying the rewrites above. */
 function rewrite(node, path = "") {
@@ -87,7 +104,7 @@ function rewrite(node, path = "") {
   for (const [key, value] of Object.entries(node)) {
     const at = path ? `${path}.${key}` : key;
 
-    if (key === "enum" && Array.isArray(value) && value.includes("daytona")) {
+    if (key === "enum" && Array.isArray(value) && value.includes("aws")) {
       out[key] = value.filter((entry) => CLOUDS.includes(entry));
       continue;
     }

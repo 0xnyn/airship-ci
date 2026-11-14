@@ -125,6 +125,16 @@ func identityHint(cloudName string, secret []byte) string {
 		hint, err = azureSecret(secret)
 	case cloud.Daytona:
 		hint, err = daytonaSecret(secret)
+	case cloud.Runloop:
+		hint, err = runloopSecret(secret)
+	case cloud.E2B, cloud.Novita, cloud.Lelantos:
+		hint, err = e2bSecret(cloudName, secret)
+	case cloud.Namespace:
+		hint, err = namespaceSecret(secret)
+	case cloud.Tenki:
+		hint, err = tenkiSecret(secret)
+	case cloud.Modal:
+		hint, err = modalSecret(secret)
 	default:
 		return "connected"
 	}

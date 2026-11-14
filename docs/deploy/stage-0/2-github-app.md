@@ -52,7 +52,11 @@ the browser to `DASH_URL`.
 | Metadata | **Read** | Mandatory; GitHub selects it for you |
 
 Give Contents **Read & write** as well if the access-control API should
-commit to `.airship` rather than only propose changes.
+commit to `.airship` rather than only propose changes. The dashboard's
+**Move workflows** assistant opens its pull request only with Contents and
+Pull requests **Read & write** and Workflows **Read & write** (GitHub
+refuses an app's changes under `.github/workflows` without it); without
+them it still previews the changes for people to copy.
 
 **Organization permissions:**
 

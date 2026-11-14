@@ -44,8 +44,9 @@ Actions secrets, which GitHub does not expose to apps at all.
 | Actions | Read | Look up jobs and runs |
 | Contents | Read | Read `airship.yaml` at a job's commit |
 | Metadata | Read | Required by GitHub |
-| Contents | Write *(optional)* | Only so the access-control API can commit to `.airship` |
+| Contents | Write *(optional)* | Only so Airship can commit the changes it proposes, to `.airship` or to a branch it opens |
 | Pull requests | Write *(optional)* | Only so it can open the pull request for that change |
+| Workflows | Write *(optional)* | Only so **Move workflows** can change `runs-on` in `.github/workflows` |
 
 ### Organization permissions
 
@@ -55,10 +56,11 @@ Actions secrets, which GitHub does not expose to apps at all.
 | Self-hosted runners | Read & write | [Organization-wide idle runners](/performance/idle-runners#organization-wide-pools), which register in runner groups |
 
 <Note>
-  The two optional write permissions are used for exactly one thing: the
-  access-control API opening a pull request against your `.airship`
-  repository. Without them, everything else works and you edit `access.yaml`
-  yourself.
+  The optional write permissions are used only to open pull requests: the
+  access-control API's against your `.airship` repository, and **Move
+  workflows**' against the repository being moved. Airship never merges them.
+  Without these permissions everything else works: you edit `access.yaml`
+  yourself, and Move workflows shows the files for you to copy.
 </Note>
 
 ## Events to subscribe to

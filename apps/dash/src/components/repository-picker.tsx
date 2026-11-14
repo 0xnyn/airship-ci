@@ -78,7 +78,7 @@ export function RepositoryPicker({
                 onPick?.(firstPickable);
               }
             }}
-            placeholder="Search, or paste a name or GitHub URL"
+            placeholder="Search or paste a GitHub URL"
             spellCheck={false}
             value={query}
           />

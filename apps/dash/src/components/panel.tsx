@@ -134,7 +134,8 @@ export function SettingsCardHeader({
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-3 p-5 md:px-6">
       {icon}
-      <div className="grid min-w-0 flex-1 gap-1">
+      {/* Phones: icon and action share the first line, text gets the full width. */}
+      <div className="order-last grid w-full min-w-0 gap-1 sm:order-none sm:w-auto sm:flex-1">
         <h2 className="font-semibold text-base tracking-tight" id={id}>
           {title}
         </h2>
@@ -144,7 +145,9 @@ export function SettingsCardHeader({
           </p>
         ) : null}
       </div>
-      {action ? <div className="flex shrink-0 gap-2">{action}</div> : null}
+      {action ? (
+        <div className="ml-auto flex shrink-0 gap-2 sm:ml-0">{action}</div>
+      ) : null}
     </div>
   );
 }

@@ -8,6 +8,8 @@ where installation_id = sqlc.arg(installation_id)
     and (sqlc.narg(cursor_created_at)::timestamptz is null
         or (created_at, id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid))
     and (sqlc.narg(level)::text is null or level = sqlc.narg(level)::text)
+    and (sqlc.narg(runner_id)::uuid is null or runner_id = sqlc.narg(runner_id)::uuid)
+    and (sqlc.narg(job_id)::bigint is null or job_id = sqlc.narg(job_id)::bigint)
 order by created_at desc, id desc
 limit sqlc.arg(max_results);
 

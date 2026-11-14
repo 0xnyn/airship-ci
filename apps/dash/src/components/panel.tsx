@@ -231,3 +231,19 @@ export function Fact({
     </div>
   );
 }
+
+/** A titled block inside a detail sheet. */
+export function DetailSection({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <section className="grid gap-2">
+      <h3 className="font-medium text-muted-foreground text-xs">{title}</h3>
+      {children}
+    </section>
+  );
+}

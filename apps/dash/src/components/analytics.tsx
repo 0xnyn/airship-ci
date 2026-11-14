@@ -16,7 +16,13 @@ import { $api } from "@/lib/api";
 import { formatUTCDay, utcDayKey } from "@/lib/day-format";
 import { formatDuration, formatInteger } from "@/lib/format";
 
-import { EmptyRow, ErrorRow, FilterTabs } from "./data-table";
+import {
+  EmptyRow,
+  ErrorRow,
+  FilterTabs,
+  Pagination,
+  useClientPages,
+} from "./data-table";
 import { useOrg } from "./org-context";
 import { PageHeader, SectionHeading } from "./page-header";
 import { Panel, Stat, StatGrid } from "./panel";
@@ -492,12 +498,17 @@ function slotAt(event: PointerEvent<HTMLDivElement>, slots: number): number {
   return Math.min(slots - 1, Math.max(0, Math.floor(fraction * slots)));
 }
 
-function RepositoryTable({ rows }: { rows: Schemas["RepositoryUsage"][] }) {
-  if (rows.length === 0) {
+function RepositoryTable({
+  rows: all,
+}: {
+  rows: Schemas["RepositoryUsage"][];
+}) {
+  const { pagination, rows } = useClientPages(all);
+  if (all.length === 0) {
     return <EmptyRow>No repositories ran jobs in this window</EmptyRow>;
   }
   return (
-    <Table>
+    <Table footer={<Pagination {...pagination} />}>
       <TableHeader>
         <TableRow>
           <TableHead>Repository</TableHead>

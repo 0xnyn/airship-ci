@@ -58,8 +58,10 @@ where installation_id = $1
     and ($2::timestamptz is null
         or (created_at, id) < ($2::timestamptz, $3::uuid))
     and ($4::text is null or level = $4::text)
+    and ($5::uuid is null or runner_id = $5::uuid)
+    and ($6::bigint is null or job_id = $6::bigint)
 order by created_at desc, id desc
-limit $5
+limit $7
 `
 
 type ListEventsParams struct {
@@ -67,6 +69,8 @@ type ListEventsParams struct {
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	Level           *string
+	RunnerID        *uuid.UUID
+	JobID           *int64
 	MaxResults      int32
 }
 
@@ -76,6 +80,8 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.Level,
+		arg.RunnerID,
+		arg.JobID,
 		arg.MaxResults,
 	)
 	if err != nil {

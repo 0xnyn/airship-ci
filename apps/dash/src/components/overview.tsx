@@ -7,12 +7,15 @@ import { cn } from "@airship/ui/lib/utils";
 import { Check } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
+import { useState } from "react";
+
 import { $api } from "@/lib/api";
 import { formatDuration, formatInteger } from "@/lib/format";
 import { CodeBlock } from "./copy-button";
 import { EmptyRow, ErrorRow } from "./data-table";
+import { EventSheet, JobSheet } from "./details";
 import { DocsLink } from "./docs-link";
-import { EventRow } from "./events";
+import { EventRow } from "./event-row";
 import { useOrg } from "./org-context";
 import { PageHeader, SectionHeading } from "./page-header";
 import { MoreLink, Panel, PanelList, Stat, StatGrid } from "./panel";
@@ -330,6 +333,8 @@ function RecentJobs() {
     { refetchInterval: POLL_MS }
   );
   const items = jobs.data?.items ?? [];
+  const [openId, setOpenId] = useState<number | null>(null);
+  const open = items.find((job) => job.id === openId) ?? null;
 
   return (
     <section aria-labelledby="recent-jobs" className="grid content-start gap-3">
@@ -349,33 +354,37 @@ function RecentJobs() {
       {items.length > 0 ? (
         <PanelList>
           {items.map((job) => (
-            <li
-              className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-xs transition-colors hover:bg-muted"
-              key={job.id}
-            >
-              <div className="grid min-w-0 gap-1">
-                <span className="truncate font-medium text-sm">
-                  {job.workflowName ? (
-                    <span className="text-muted-foreground">
-                      {job.workflowName} /{" "}
-                    </span>
-                  ) : null}
-                  {job.name}
-                </span>
-                <span className="truncate font-mono text-[11px] text-muted-foreground">
-                  {job.repository}
-                </span>
-              </div>
-              <div className="grid justify-items-end gap-1">
-                <JobStatus job={job} />
-                <span className="text-muted-foreground text-xs tabular-nums">
-                  <RelativeTime value={job.queuedAt} />
-                </span>
-              </div>
+            <li key={job.id}>
+              <button
+                className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left text-xs outline-none transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+                onClick={() => setOpenId(job.id)}
+                type="button"
+              >
+                <div className="grid min-w-0 gap-1">
+                  <span className="truncate font-medium text-sm">
+                    {job.workflowName ? (
+                      <span className="text-muted-foreground">
+                        {job.workflowName} /{" "}
+                      </span>
+                    ) : null}
+                    {job.name}
+                  </span>
+                  <span className="truncate font-mono text-[11px] text-muted-foreground">
+                    {job.repository}
+                  </span>
+                </div>
+                <div className="grid justify-items-end gap-1">
+                  <JobStatus job={job} />
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    <RelativeTime value={job.queuedAt} />
+                  </span>
+                </div>
+              </button>
             </li>
           ))}
         </PanelList>
       ) : null}
+      <JobSheet job={open} onClose={() => setOpenId(null)} />
     </section>
   );
 }
@@ -389,6 +398,8 @@ function RecentEvents() {
     { refetchInterval: POLL_MS }
   );
   const items = events.data?.items ?? [];
+  const [openId, setOpenId] = useState<string | null>(null);
+  const open = items.find((event) => event.id === openId) ?? null;
 
   return (
     <section
@@ -411,10 +422,16 @@ function RecentEvents() {
       {items.length > 0 ? (
         <PanelList>
           {items.map((event) => (
-            <EventRow compact event={event} key={event.id} />
+            <EventRow
+              compact
+              event={event}
+              key={event.id}
+              onOpen={() => setOpenId(event.id)}
+            />
           ))}
         </PanelList>
       ) : null}
+      <EventSheet event={open} onClose={() => setOpenId(null)} />
     </section>
   );
 }

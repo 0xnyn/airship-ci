@@ -14,21 +14,25 @@ import { useState } from "react";
 import { $api } from "@/lib/api";
 import { formatDuration, secondsBetween } from "@/lib/format";
 import { sourceLabel } from "@/lib/labels";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "@/lib/pagination";
 import { CloudLogo } from "./cloud-logo";
 import {
+  ClickableRow,
   EmptyRow,
   ErrorRow,
   FilterTabs,
-  LoadMore,
+  Pagination,
   TableSkeleton,
+  useCursorPages,
+  useDetailParam,
 } from "./data-table";
+import { RunnerSheet } from "./details";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { RunnerState } from "./status";
 import { RelativeTime } from "./time";
 
 const POLL_MS = 5000;
-const PAGE_SIZE = 50;
 
 type Filter = "active" | "all";
 
@@ -40,22 +44,34 @@ const filters = [
 export function Runners() {
   const { org } = useOrg();
   const [filter, setFilter] = useState<Filter>("active");
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const [page, setPage] = useState(0);
+  const detail = useDetailParam();
   const runners = $api.useInfiniteQuery(
     "get",
     "/v1/orgs/{org}/runners",
     {
       params: {
         path: { org: org.login },
-        query: { active: filter === "active", limit: PAGE_SIZE },
+        query: { active: filter === "active", limit: pageSize },
       },
     },
     {
-      getNextPageParam: (page) => page.nextCursor ?? undefined,
+      getNextPageParam: (last) => last.nextCursor ?? undefined,
       initialPageParam: "",
+      pageParamName: "cursor",
       refetchInterval: POLL_MS,
     }
   );
-  const items = runners.data?.pages.flatMap((page) => page.items ?? []) ?? [];
+  const { pagination, rows } = useCursorPages(
+    runners,
+    pageSize,
+    setPageSize,
+    page,
+    setPage
+  );
+  const all = runners.data?.pages.flatMap((each) => each.items ?? []) ?? [];
+  const open = all.find((runner) => runner.id === detail.value) ?? null;
 
   return (
     <>
@@ -65,7 +81,10 @@ export function Runners() {
       />
       <FilterTabs
         label="Runner filter"
-        onChange={setFilter}
+        onChange={(next) => {
+          setFilter(next);
+          setPage(0);
+        }}
         options={filters}
         value={filter}
       />
@@ -73,45 +92,60 @@ export function Runners() {
       {runners.isError ? (
         <ErrorRow error={runners.error} fallback="Could not load runners" />
       ) : null}
-      {runners.isSuccess && items.length === 0 ? (
+      {runners.isSuccess && rows.length === 0 ? (
         <EmptyRow>
           {filter === "active"
             ? "No active runners. One launches as soon as a job is queued for an airship- label."
             : "No runners yet"}
         </EmptyRow>
       ) : null}
-      {items.length > 0 ? (
-        <Table>
+      {rows.length > 0 ? (
+        <Table footer={<Pagination {...pagination} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>State</TableHead>
+              <TableHead className="hidden sm:table-cell">State</TableHead>
               <TableHead>Runner</TableHead>
-              <TableHead>Definition</TableHead>
-              <TableHead>Machine</TableHead>
-              <TableHead className="text-right">Lifetime</TableHead>
+              <TableHead className="hidden lg:table-cell">Definition</TableHead>
+              <TableHead className="hidden md:table-cell">Machine</TableHead>
+              <TableHead className="hidden text-right lg:table-cell">
+                Lifetime
+              </TableHead>
               <TableHead className="text-right">Created</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((runner) => (
-              <RunnerRow key={runner.id} runner={runner} />
+            {rows.map((runner) => (
+              <RunnerRow
+                key={runner.id}
+                onOpen={() => detail.open(runner.id)}
+                runner={runner}
+                selected={open?.id === runner.id}
+              />
             ))}
           </TableBody>
         </Table>
       ) : null}
-      <LoadMore
-        fetchNextPage={runners.fetchNextPage}
-        hasNextPage={runners.hasNextPage}
-        isFetchingNextPage={runners.isFetchingNextPage}
-      />
+      <RunnerSheet onClose={detail.close} runner={open} />
     </>
   );
 }
 
-function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
+function RunnerRow({
+  onOpen,
+  runner,
+  selected,
+}: {
+  onOpen: () => void;
+  runner: Schemas["Runner"];
+  selected: boolean;
+}) {
   return (
-    <TableRow>
-      <TableCell className="max-w-64">
+    <ClickableRow
+      label={`${runner.name} details`}
+      onOpen={onOpen}
+      selected={selected}
+    >
+      <TableCell className="hidden max-w-64 sm:table-cell">
         <div className="grid gap-0.5">
           <RunnerState runner={runner} />
           {runner.error ? (
@@ -121,10 +155,13 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="max-w-72">
+      <TableCell className="w-full max-w-0 sm:w-auto sm:max-w-72">
         <div className="grid gap-0.5">
           <span className="truncate font-medium font-mono text-xs">
             {runner.name}
+          </span>
+          <span className="sm:hidden">
+            <RunnerState runner={runner} />
           </span>
           <span className="truncate text-muted-foreground">
             {runner.repository}
@@ -132,7 +169,7 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
           </span>
         </div>
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden lg:table-cell">
         <div className="grid gap-0.5">
           <span className="font-mono text-xs">{runner.definition}</span>
           <span className="text-muted-foreground">
@@ -141,7 +178,7 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
           </span>
         </div>
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden md:table-cell">
         <div className="grid gap-0.5">
           <span className="font-mono text-xs">
             {runner.instanceType || "—"}
@@ -157,7 +194,7 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
           </span>
         </div>
       </TableCell>
-      <TableCell className="text-right tabular-nums">
+      <TableCell className="hidden text-right tabular-nums lg:table-cell">
         {runner.runningAt
           ? formatDuration(secondsBetween(runner.runningAt, runner.finishedAt))
           : "—"}
@@ -165,6 +202,6 @@ function RunnerRow({ runner }: { runner: Schemas["Runner"] }) {
       <TableCell className="text-right text-muted-foreground tabular-nums">
         <RelativeTime value={runner.createdAt} />
       </TableCell>
-    </TableRow>
+    </ClickableRow>
   );
 }

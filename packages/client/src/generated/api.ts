@@ -2818,6 +2818,10 @@ export interface operations {
             query?: {
                 /** @description Only events of this level */
                 level?: "info" | "warning" | "error";
+                /** @description Only events about this runner */
+                runner?: string;
+                /** @description Only events about this job */
+                job?: number;
                 /** @description Cursor from a previous page */
                 cursor?: string;
                 /** @description Page size */

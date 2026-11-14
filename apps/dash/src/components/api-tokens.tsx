@@ -37,7 +37,12 @@ import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
 
 import { CodeBlock } from "./copy-button";
-import { EmptyRow, TableSkeleton } from "./data-table";
+import {
+  EmptyRow,
+  Pagination,
+  TableSkeleton,
+  useClientPages,
+} from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
@@ -127,6 +132,7 @@ export function APITokens() {
     params: { path: { org: org.login } },
   });
   const items = tokens.data?.items ?? [];
+  const { pagination, rows } = useClientPages(items);
 
   let body: ReactNode;
   if (tokens.isPending) {
@@ -151,42 +157,49 @@ export function APITokens() {
     );
   } else {
     body = (
-      <ul aria-label="API keys" className="border-t">
-        {items.map((token) => (
-          <li
-            className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-5 py-3 last:border-b-0 md:px-6"
-            key={token.id}
-          >
-            <span
-              aria-hidden="true"
-              className="grid size-8 shrink-0 place-items-center rounded-md border bg-muted text-muted-foreground"
+      <>
+        <ul aria-label="API keys" className="border-t">
+          {rows.map((token) => (
+            <li
+              className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-5 py-3 last:border-b-0 md:px-6"
+              key={token.id}
             >
-              <KeyRound className="size-4" />
-            </span>
-            <div className="grid min-w-0 flex-1 gap-0.5">
-              <span className="truncate font-medium text-sm">{token.name}</span>
-              <span className="truncate font-mono text-muted-foreground text-xs">
-                {token.tokenHint}…
+              <span
+                aria-hidden="true"
+                className="grid size-8 shrink-0 place-items-center rounded-md border bg-muted text-muted-foreground"
+              >
+                <KeyRound className="size-4" />
               </span>
-            </div>
-            <div className="grid gap-0.5 text-right text-muted-foreground text-xs">
-              <span>
-                Created <RelativeTime value={token.createdAt} />
-              </span>
-              <span>
-                {token.lastUsedAt ? (
-                  <>
-                    Used <RelativeTime value={token.lastUsedAt} />
-                  </>
-                ) : (
-                  "Never used"
-                )}
-              </span>
-            </div>
-            <RevokeToken token={token} />
-          </li>
-        ))}
-      </ul>
+              <div className="grid min-w-0 flex-1 gap-0.5">
+                <span className="truncate font-medium text-sm">
+                  {token.name}
+                </span>
+                <span className="truncate font-mono text-muted-foreground text-xs">
+                  {token.tokenHint}…
+                </span>
+              </div>
+              <div className="grid gap-0.5 text-right text-muted-foreground text-xs">
+                <span>
+                  Created <RelativeTime value={token.createdAt} />
+                </span>
+                <span>
+                  {token.lastUsedAt ? (
+                    <>
+                      Used <RelativeTime value={token.lastUsedAt} />
+                    </>
+                  ) : (
+                    "Never used"
+                  )}
+                </span>
+              </div>
+              <RevokeToken token={token} />
+            </li>
+          ))}
+        </ul>
+        <div className="border-t">
+          <Pagination {...pagination} />
+        </div>
+      </>
     );
   }
 

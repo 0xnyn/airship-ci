@@ -3,17 +3,31 @@
 import { cn } from "@airship/ui/lib/utils";
 import type * as React from "react";
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  footer,
+  ...props
+}: React.ComponentProps<"table"> & {
+  /** Sits under the rows inside the same frame, such as pagination. */
+  footer?: React.ReactNode;
+}) {
   return (
     <div
-      className="relative w-full overflow-x-auto rounded-lg border bg-card"
+      className="relative w-full overflow-hidden rounded-lg border bg-card"
       data-slot="table-container"
     >
-      <table
-        className={cn("w-full caption-bottom text-xs", className)}
-        data-slot="table"
-        {...props}
-      />
+      <div className="w-full overflow-x-auto">
+        <table
+          className={cn("w-full caption-bottom text-xs", className)}
+          data-slot="table"
+          {...props}
+        />
+      </div>
+      {footer ? (
+        <div className="border-t" data-slot="table-footer-bar">
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }

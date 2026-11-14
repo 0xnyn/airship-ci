@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -242,6 +243,28 @@ func TestJobLifecycleEndToEnd(t *testing.T) {
 	events := e.call(http.MethodGet, "/v1/orgs/acme/events", nil, http.StatusOK)["items"].([]any)
 	if len(events) < 3 {
 		t.Fatalf("events = %v", events)
+	}
+	// A runner's own events, as its detail panel lists them.
+	runnerID := runners[0].(map[string]any)["id"].(string)
+	own := e.call(http.MethodGet, "/v1/orgs/acme/events?runner="+runnerID, nil, http.StatusOK)["items"].([]any)
+	if len(own) == 0 || len(own) >= len(events)+1 {
+		t.Fatalf("runner events = %v", own)
+	}
+	for _, item := range own {
+		if item.(map[string]any)["runnerId"] != runnerID {
+			t.Fatalf("runner filter let through %v", item)
+		}
+	}
+	other := e.call(http.MethodGet, "/v1/orgs/acme/events?runner=00000000-0000-0000-0000-000000000001", nil, http.StatusOK)["items"].([]any)
+	if len(other) != 0 {
+		t.Fatalf("unknown runner events = %v", other)
+	}
+	e.call(http.MethodGet, "/v1/orgs/acme/events?runner=not-a-uuid", nil, http.StatusUnprocessableEntity)
+	jobEvents := e.call(http.MethodGet, "/v1/orgs/acme/events?job="+strconv.FormatInt(job.ID, 10), nil, http.StatusOK)["items"].([]any)
+	for _, item := range jobEvents {
+		if item.(map[string]any)["jobId"] != float64(job.ID) {
+			t.Fatalf("job filter let through %v", item)
+		}
 	}
 	analytics := e.call(http.MethodGet, "/v1/orgs/acme/analytics?days=7", nil, http.StatusOK)
 	if daily := analytics["daily"].([]any); len(daily) != 1 || daily[0].(map[string]any)["airshipJobs"].(float64) != 1 {

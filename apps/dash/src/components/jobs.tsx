@@ -15,21 +15,25 @@ import { useState } from "react";
 import { $api } from "@/lib/api";
 import { formatDuration, secondsBetween } from "@/lib/format";
 import { skipReasonLabel } from "@/lib/labels";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "@/lib/pagination";
 
 import {
+  ClickableRow,
   EmptyRow,
   ErrorRow,
   FilterTabs,
-  LoadMore,
+  Pagination,
   TableSkeleton,
+  useCursorPages,
+  useDetailParam,
 } from "./data-table";
+import { JobSheet } from "./details";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
 import { JobStatus } from "./status";
 import { RelativeTime } from "./time";
 
 const POLL_MS = 10_000;
-const PAGE_SIZE = 50;
 
 type StatusFilter = "all" | Schemas["Job"]["status"];
 
@@ -43,8 +47,11 @@ const filters = [
 export function Jobs() {
   const { org } = useOrg();
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const [page, setPage] = useState(0);
+  const detail = useDetailParam();
   const query = {
-    limit: PAGE_SIZE,
+    limit: pageSize,
     ...(status === "all" ? {} : { status }),
   };
   const jobs = $api.useInfiniteQuery(
@@ -52,12 +59,21 @@ export function Jobs() {
     "/v1/orgs/{org}/jobs",
     { params: { path: { org: org.login }, query } },
     {
-      getNextPageParam: (page) => page.nextCursor ?? undefined,
+      getNextPageParam: (last) => last.nextCursor ?? undefined,
       initialPageParam: "",
+      pageParamName: "cursor",
       refetchInterval: POLL_MS,
     }
   );
-  const items = jobs.data?.pages.flatMap((page) => page.items ?? []) ?? [];
+  const { pagination, rows } = useCursorPages(
+    jobs,
+    pageSize,
+    setPageSize,
+    page,
+    setPage
+  );
+  const all = jobs.data?.pages.flatMap((each) => each.items ?? []) ?? [];
+  const open = all.find((job) => String(job.id) === detail.value) ?? null;
 
   return (
     <>
@@ -67,7 +83,10 @@ export function Jobs() {
       />
       <FilterTabs
         label="Job status"
-        onChange={setStatus}
+        onChange={(next) => {
+          setStatus(next);
+          setPage(0);
+        }}
         options={filters}
         value={status}
       />
@@ -75,41 +94,54 @@ export function Jobs() {
       {jobs.isError ? (
         <ErrorRow error={jobs.error} fallback="Could not load jobs" />
       ) : null}
-      {jobs.isSuccess && items.length === 0 ? (
+      {jobs.isSuccess && rows.length === 0 ? (
         <EmptyRow>
           No jobs yet. They appear as soon as GitHub queues one in a repository
           the app can see.
         </EmptyRow>
       ) : null}
-      {items.length > 0 ? (
-        <Table>
+      {rows.length > 0 ? (
+        <Table footer={<Pagination {...pagination} />}>
           <TableHeader>
             <TableRow>
               <TableHead>Status</TableHead>
               <TableHead>Job</TableHead>
-              <TableHead>Runs on</TableHead>
-              <TableHead className="text-right">Queue</TableHead>
-              <TableHead className="text-right">Duration</TableHead>
+              <TableHead className="hidden md:table-cell">Runs on</TableHead>
+              <TableHead className="hidden text-right lg:table-cell">
+                Queue
+              </TableHead>
+              <TableHead className="hidden text-right lg:table-cell">
+                Duration
+              </TableHead>
               <TableHead className="text-right">Queued</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((job) => (
-              <JobRow job={job} key={job.id} />
+            {rows.map((job) => (
+              <JobRow
+                job={job}
+                key={job.id}
+                onOpen={() => detail.open(String(job.id))}
+                selected={open?.id === job.id}
+              />
             ))}
           </TableBody>
         </Table>
       ) : null}
-      <LoadMore
-        fetchNextPage={jobs.fetchNextPage}
-        hasNextPage={jobs.hasNextPage}
-        isFetchingNextPage={jobs.isFetchingNextPage}
-      />
+      <JobSheet job={open} onClose={detail.close} />
     </>
   );
 }
 
-function JobRow({ job }: { job: Schemas["Job"] }) {
+function JobRow({
+  job,
+  onOpen,
+  selected,
+}: {
+  job: Schemas["Job"];
+  onOpen: () => void;
+  selected: boolean;
+}) {
   const wait = job.startedAt
     ? formatDuration(secondsBetween(job.queuedAt, job.startedAt))
     : "—";
@@ -118,7 +150,11 @@ function JobRow({ job }: { job: Schemas["Job"] }) {
     : "—";
 
   return (
-    <TableRow>
+    <ClickableRow
+      label={`${job.name} details`}
+      onOpen={onOpen}
+      selected={selected}
+    >
       <TableCell>
         <JobStatus job={job} />
       </TableCell>
@@ -150,7 +186,7 @@ function JobRow({ job }: { job: Schemas["Job"] }) {
           </span>
         </div>
       </TableCell>
-      <TableCell className="max-w-64">
+      <TableCell className="hidden max-w-64 md:table-cell">
         <div className="grid gap-0.5">
           <span className="truncate font-mono text-xs">
             {(job.labels ?? []).join(", ") || "—"}
@@ -158,16 +194,20 @@ function JobRow({ job }: { job: Schemas["Job"] }) {
           <RunsOnDetail job={job} />
         </div>
       </TableCell>
-      <TableCell className="text-right tabular-nums">{wait}</TableCell>
-      <TableCell className="text-right tabular-nums">{duration}</TableCell>
+      <TableCell className="hidden text-right tabular-nums lg:table-cell">
+        {wait}
+      </TableCell>
+      <TableCell className="hidden text-right tabular-nums lg:table-cell">
+        {duration}
+      </TableCell>
       <TableCell className="text-right text-muted-foreground tabular-nums">
         <RelativeTime value={job.queuedAt} />
       </TableCell>
-    </TableRow>
+    </ClickableRow>
   );
 }
 
-function RunsOnDetail({ job }: { job: Schemas["Job"] }) {
+export function RunsOnDetail({ job }: { job: Schemas["Job"] }) {
   if (job.skipReason) {
     return (
       <span

@@ -270,6 +270,8 @@ type EventList struct {
 type listEventsInput struct {
 	Org    string `maxLength:"100" minLength:"1" path:"org"`
 	Level  string `doc:"Only events of this level" enum:"info,warning,error" query:"level"`
+	Runner string `doc:"Only events about this runner" format:"uuid" query:"runner"`
+	Job    int64  `doc:"Only events about this job" minimum:"0" query:"job"`
 	Cursor string `doc:"Cursor from a previous page" maxLength:"200" query:"cursor"`
 	Limit  int32  `default:"50" doc:"Page size" maximum:"200" minimum:"1" query:"limit"`
 }
@@ -286,6 +288,16 @@ func (h *handlers) listEvents(ctx context.Context, in *listEventsInput) (*eventL
 	params := db.ListEventsParams{InstallationID: inst.ID, MaxResults: in.Limit + 1}
 	if in.Level != "" {
 		params.Level = &in.Level
+	}
+	if in.Runner != "" {
+		runnerID, err := uuid.Parse(in.Runner)
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("invalid runner")
+		}
+		params.RunnerID = &runnerID
+	}
+	if in.Job != 0 {
+		params.JobID = &in.Job
 	}
 	if in.Cursor != "" {
 		at, id, err := decodeCursor(in.Cursor)

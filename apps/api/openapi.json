@@ -4169,6 +4169,29 @@
             }
           },
           {
+            "description": "Only events about this runner",
+            "explode": false,
+            "in": "query",
+            "name": "runner",
+            "schema": {
+              "description": "Only events about this runner",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events about this job",
+            "explode": false,
+            "in": "query",
+            "name": "job",
+            "schema": {
+              "description": "Only events about this job",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
             "description": "Cursor from a previous page",
             "explode": false,
             "in": "query",

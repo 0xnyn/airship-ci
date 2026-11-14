@@ -1,7 +1,6 @@
 "use client";
 
 import type { Schemas } from "@airship/client";
-import { Badge } from "@airship/ui/components/badge";
 import { Button, buttonVariants } from "@airship/ui/components/button";
 import {
   DropdownMenu,
@@ -12,7 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@airship/ui/components/dropdown-menu";
 import { Field, FieldLabel } from "@airship/ui/components/field";
-import { Switch } from "@airship/ui/components/switch";
 import {
   Table,
   TableBody,
@@ -22,11 +20,9 @@ import {
   TableRow,
 } from "@airship/ui/components/table";
 import { Textarea } from "@airship/ui/components/textarea";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   Compass,
-  ExternalLink,
   GitPullRequest,
   MoreHorizontal,
   Plus,
@@ -34,13 +30,18 @@ import {
 import type { Route } from "next";
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { toast } from "sonner";
 
-import { $api, invalidatePath } from "@/lib/api";
+import { $api } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
 import { listDrafts } from "@/lib/migration";
 import { GitHubMark } from "./auth-frame";
-import { EmptyRow, FilterTabs, TableSkeleton } from "./data-table";
+import {
+  EmptyRow,
+  FilterTabs,
+  Pagination,
+  TableSkeleton,
+  useClientPages,
+} from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
 import { PageHeader } from "./page-header";
@@ -50,14 +51,12 @@ import {
   SettingsCardFooter,
   SettingsCardHeader,
 } from "./panel";
+import { RepositoryTable } from "./repository-table";
 import { StatusDot } from "./status";
 import { RelativeTime } from "./time";
 
 const POLL_MS = 15_000;
-const REPOSITORIES = "/v1/orgs/{org}/repositories";
-const ACTIVATION = "/v1/orgs/{org}/repositories/{repo}/activation";
 const POOLS = "/v1/orgs/{org}/pools";
-const SHA_PREFIX = 7;
 
 const EXAMPLE = `runners:
   - name: build
@@ -84,9 +83,7 @@ export function Repositories() {
         description="Repositories Airship may run jobs for"
         title="Repositories"
       />
-      <Section title="Activated repositories">
-        <ActivatedList />
-      </Section>
+      <RepositoryTable />
       <Section title="Idle runner pools">
         <Pools />
       </Section>
@@ -184,188 +181,6 @@ function Section({ children, title }: { children: ReactNode; title: string }) {
 // The API refuses files over this many bytes.
 const MAX_CONFIG_BYTES = 65_536;
 
-function ActivatedList() {
-  const { isAdmin, org } = useOrg();
-  const repos = $api.useQuery(
-    "get",
-    REPOSITORIES,
-    { params: { path: { org: org.login } } },
-    { refetchInterval: POLL_MS }
-  );
-  const items = (repos.data?.items ?? []).filter((repo) => repo.activated);
-  const visible = (repos.data?.items ?? []).length;
-
-  if (repos.isPending) {
-    return <TableSkeleton />;
-  }
-  if (repos.isError) {
-    return (
-      <EmptyRow>
-        {errorMessage(repos.error, "Could not list repositories")}
-      </EmptyRow>
-    );
-  }
-  if (items.length === 0) {
-    return (
-      <EmptyRow
-        action={
-          isAdmin ? (
-            <Button
-              nativeButton={false}
-              render={<Link href={`/${org.login}/repositories/new` as Route} />}
-              size="sm"
-              variant="outline"
-            >
-              <Plus />
-              Add repository
-            </Button>
-          ) : null
-        }
-      >
-        {visible === 0
-          ? "The app cannot see any repositories yet. Grant it access on GitHub."
-          : `None of the ${visible} repositories the app can see is activated`}
-      </EmptyRow>
-    );
-  }
-
-  return (
-    <Table className="text-sm">
-      <TableHeader>
-        <TableRow>
-          <TableHead>Repository</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>airship.yaml (default branch)</TableHead>
-          <TableHead className="text-right">Checked</TableHead>
-          <TableHead className="w-0 text-right">Active</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((repo) => (
-          <TableRow key={repo.id}>
-            <TableCell className="max-w-72">
-              <div className="grid gap-0.5">
-                <span className="flex items-center gap-2">
-                  <a
-                    className="inline-flex items-center gap-1 truncate font-medium hover:underline"
-                    href={`https://github.com/${repo.fullName}`}
-                    rel="noopener noreferrer"
-                    target="_blank"
-                  >
-                    {repo.fullName}
-                    <ExternalLink
-                      aria-hidden="true"
-                      className="size-3 shrink-0 text-muted-foreground"
-                    />
-                  </a>
-                  {repo.private ? null : (
-                    <Badge variant="outline">Public</Badge>
-                  )}
-                </span>
-                <span className="font-mono text-muted-foreground text-xs">
-                  {repo.defaultBranch}
-                  {repo.allowPublic ? " · runs while public" : ""}
-                </span>
-              </div>
-            </TableCell>
-            <TableCell>
-              <RepositoryStatus repo={repo} />
-            </TableCell>
-            <TableCell className="max-w-96">
-              <ConfigStatus repo={repo} />
-            </TableCell>
-            <TableCell className="text-right text-muted-foreground">
-              {repo.config?.checkedAt ? (
-                <RelativeTime value={repo.config.checkedAt} />
-              ) : (
-                "—"
-              )}
-            </TableCell>
-            <TableCell className="text-right">
-              <ActiveSwitch disabled={!isAdmin} repo={repo} />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-function RepositoryStatus({ repo }: { repo: Schemas["Repository"] }) {
-  if (!repo.accessible) {
-    return <StatusDot label="App lost access" tone="danger" />;
-  }
-  if (!(repo.private || repo.allowPublic)) {
-    return <StatusDot label="Paused while public" tone="warning" />;
-  }
-  if (repo.config?.error) {
-    return <StatusDot label="Config problem" tone="warning" />;
-  }
-  return <StatusDot label="Active" tone="success" />;
-}
-
-function ConfigStatus({ repo }: { repo: Schemas["Repository"] }) {
-  const { config } = repo;
-  if (!config?.checkedAt) {
-    return <span className="text-muted-foreground">Not read yet</span>;
-  }
-  if (config.error) {
-    return (
-      <span
-        className="block truncate text-danger-foreground"
-        title={config.error}
-      >
-        {config.error}
-      </span>
-    );
-  }
-  if (!config.sha) {
-    return (
-      <span className="text-muted-foreground">
-        None (one-line labels still work)
-      </span>
-    );
-  }
-  return (
-    <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">
-      {config.sha.slice(0, SHA_PREFIX)}
-    </span>
-  );
-}
-
-function ActiveSwitch({
-  disabled,
-  repo,
-}: {
-  disabled: boolean;
-  repo: Schemas["Repository"];
-}) {
-  const { org } = useOrg();
-  const queryClient = useQueryClient();
-  const deactivate = $api.useMutation("delete", ACTIVATION, {
-    onError: (error) => {
-      toast.error(errorMessage(error, "Could not deactivate the repository"));
-    },
-    onSuccess: async () => {
-      toast.success(`Deactivated ${repo.fullName}`);
-      await invalidatePath(queryClient, REPOSITORIES, POOLS);
-    },
-  });
-
-  return (
-    <Switch
-      aria-label={`Deactivate ${repo.fullName}`}
-      checked
-      disabled={disabled || deactivate.isPending}
-      onCheckedChange={() =>
-        deactivate.mutate({
-          params: { path: { org: org.login, repo: repo.id } },
-        })
-      }
-    />
-  );
-}
-
 const modeLabel: Record<Schemas["Pool"]["mode"], string> = {
   fixed: "Always",
   schedule: "Scheduled",
@@ -381,6 +196,7 @@ function Pools() {
     { refetchInterval: POLL_MS }
   );
   const items = pools.data?.items ?? [];
+  const { pagination, rows } = useClientPages(items);
 
   if (pools.isPending) {
     return <TableSkeleton />;
@@ -395,7 +211,7 @@ function Pools() {
     );
   }
   return (
-    <Table className="text-sm">
+    <Table className="text-sm" footer={<Pagination {...pagination} />}>
       <TableHeader>
         <TableRow>
           <TableHead>Runner</TableHead>
@@ -406,7 +222,7 @@ function Pools() {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {items.map((pool) => (
+        {rows.map((pool) => (
           <TableRow key={pool.id}>
             <TableCell>
               <div className="grid gap-0.5">
@@ -492,11 +308,12 @@ function RunnerSummary({
 }: {
   runners: Schemas["ConfigRunner"][] | null;
 }) {
+  const { pagination, rows } = useClientPages(runners ?? []);
   if (!runners?.length) {
     return null;
   }
   return (
-    <Table className="text-sm">
+    <Table className="text-sm" footer={<Pagination {...pagination} />}>
       <TableHeader>
         <TableRow>
           <TableHead>Runner</TableHead>
@@ -506,7 +323,7 @@ function RunnerSummary({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {runners.map((runner) => (
+        {rows.map((runner) => (
           <TableRow key={runner.name}>
             <TableCell className="font-medium">{runner.name}</TableCell>
             <TableCell className="font-mono text-xs">

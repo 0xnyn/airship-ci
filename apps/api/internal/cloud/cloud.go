@@ -20,7 +20,25 @@ const (
 	GCP     = "gcp"
 	Daytona = "daytona"
 	Azure   = "azure"
+	// Runloop and E2B are sandbox clouds like Daytona: one sandbox per job,
+	// started from a template the customer chose, with no regions.
+	Runloop = "runloop"
+	E2B     = "e2b"
+	// Novita and Lelantos speak E2B's protocol; the E2B provider serves
+	// them as flavours.
+	Novita   = "novita"
+	Lelantos = "lelantos"
+	// Namespace, Tenki and Modal are microVM sandbox clouds with their own
+	// APIs. Namespace has regions (us, eu); Tenki and Modal have none.
+	Namespace = "namespace"
+	Tenki     = "tenki"
+	Modal     = "modal"
 )
+
+// SandboxRegion is the one location of a cloud that has no regions
+// (Runloop, E2B). It is what the credential's default region and a
+// config's region: field hold for those clouds.
+const SandboxRegion = "global"
 
 // Identity is who a credential authenticates as, as the cloud reports it.
 type Identity struct {
@@ -59,6 +77,27 @@ type Machine struct {
 	Daytona *DaytonaOptions
 	// Azure holds the virtual machine settings for the Azure provider.
 	Azure *AzureOptions
+	// Sandbox holds the settings of the Runloop and E2B providers.
+	Sandbox *SandboxOptions
+}
+
+// SandboxOptions shape a Runloop devbox or an E2B sandbox. The provider
+// decides what each field means for it; runnerconfig only lets through
+// what that provider takes.
+type SandboxOptions struct {
+	// Template is what the sandbox starts from: a Runloop blueprint (name
+	// or bpt_ ID) or an E2B template (name or ID). Empty is the cloud's
+	// default image.
+	Template string `json:"template,omitempty"`
+	// Size is a named Runloop size (SMALL, LARGE); empty with CPU and
+	// MemoryGB set asks for a custom size.
+	Size string `json:"size,omitempty"`
+	// CPU is the number of vCPUs and MemoryGB the memory; zero is the
+	// template's or size's own.
+	CPU      int `json:"cpu,omitempty"`
+	MemoryGB int `json:"memoryGb,omitempty"`
+	// Docker installs and starts a Docker daemon before the runner.
+	Docker bool `json:"docker,omitempty"`
 }
 
 // AzureOptions are the Azure settings a definition may set in

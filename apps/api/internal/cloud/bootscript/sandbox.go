@@ -8,24 +8,24 @@ import (
 	"github.com/wizenheimer/airship/apps/api/internal/cloud"
 )
 
-// DockerVersion is the static Docker release installed in a Daytona sandbox
-// whose definition asks for Docker and whose image has none.
+// DockerVersion is the static Docker release installed in a sandbox whose
+// definition asks for Docker and whose image has none.
 const DockerVersion = "28.3.3"
 
-// The boot script for a Daytona sandbox: a container with Daytona's daemon
-// as PID 1, no init system and no power button. Stopping the daemon stops
-// the sandbox, which Daytona then deletes (the sandbox is created with
-// autoDeleteInterval 0), so that is this machine's shutdown, and every
-// exit path ends with it. The script is written to the sandbox and started
-// by the control plane through Daytona's toolbox API; it is not run at
-// boot by the image, so it never runs twice on a reboot, but a repeated
-// launch could start it twice, which the lock directory refuses.
-var daytonaTemplate = template.Must(template.New("daytona").Parse(`#!/bin/bash
+// The boot script for a sandbox cloud (Daytona, Runloop, E2B): a
+// container or microVM with no init system the control plane controls and
+// no power button. The script is written into the sandbox and started by
+// the control plane through the cloud's API; it is not run at boot by the
+// image, so it never runs twice on a reboot, but a repeated launch could
+// start it twice, which the lock directory refuses. Every exit path runs
+// the cloud's stop step (StopDaytona and friends), which ends the sandbox
+// where the cloud lets a sandbox end itself.
+var sandboxTemplate = template.Must(template.New("sandbox").Parse(`#!/bin/bash
 set -euo pipefail
 
-# Daytona runs toolbox commands as the image's user: root on a plain
-# container image, a sudoer on Daytona's own snapshots. Everything below
-# needs root.
+# Sandbox clouds run commands as the image's user: root on a plain
+# container image, a sudoer on prepared snapshots and templates.
+# Everything below needs root.
 if [ "$(id -u)" != 0 ]; then
   exec sudo -n bash "$0" "$@"
 fi
@@ -40,18 +40,15 @@ if ! mkdir /var/lib/airship-boot 2>/dev/null; then
 fi
 
 finish() {
-  echo "airship: stopping the sandbox"
-  kill -TERM 1 2>/dev/null || true
-  sleep 60
-  kill -KILL 1 2>/dev/null || true
+{{.Stop}}
 }
 trap finish EXIT
 
 RUNNER_VERSION='{{.RunnerVersion}}'
 RUNNER_ARCH='{{.Arch}}'
 RUNNER_DIR=/opt/actions-runner
-# Hard deadline for the job, as seconds; Daytona's own TTL on the sandbox
-# is the backstop for when even this script is gone.
+# Hard deadline for the job, as seconds; the cloud's own TTL on the
+# sandbox is the backstop for when even this script is gone.
 DEADLINE_SECONDS={{.DeadlineSeconds}}
 
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
@@ -89,8 +86,8 @@ fi
 {{- end}}
 {{- if .Docker}}
 
-# The definition asked for Docker. The sandbox is a privileged container,
-# so a daemon can run inside it. If any step fails the job still runs,
+# The definition asked for Docker. The sandbox is a privileged container
+# or a microVM, so a daemon can run inside it. If any step fails the job still runs,
 # just without Docker.
 if (
   set -e
@@ -148,7 +145,8 @@ timeout --kill-after=60 "$DEADLINE_SECONDS" \
   ./run.sh || true
 `))
 
-type daytonaParams struct {
+type sandboxParams struct {
+	Stop            string
 	RunnerVersion   string
 	Arch            string
 	JITConfig       string
@@ -160,10 +158,37 @@ type daytonaParams struct {
 	DockerVersion   string
 }
 
+// Stop scripts end a sandbox when the boot script exits, one per cloud.
+const (
+	// StopDaytona stops Daytona's daemon, PID 1, which stops the sandbox;
+	// Daytona then deletes it (autoDeleteInterval 0).
+	StopDaytona = `  echo "airship: stopping the sandbox"
+  kill -TERM 1 2>/dev/null || true
+  sleep 60
+  kill -KILL 1 2>/dev/null || true`
+	// StopEntrypoint ends a sandbox whose entrypoint is this script: the
+	// script's exit is the entrypoint's, and the cloud shuts the sandbox
+	// down (Runloop's entrypoint_exit).
+	StopEntrypoint = `  echo "airship: the runner is done; the sandbox ends with this script"`
+	// StopByControlPlane leaves the sandbox to the control plane, which
+	// deletes it once the job completes, and to the sandbox's own timeout
+	// (E2B, where nothing inside a sandbox can end it).
+	StopByControlPlane = `  echo "airship: the runner is done; the control plane deletes this sandbox"`
+)
+
 // Daytona renders the boot script for a Linux Daytona sandbox. docker asks
 // for a Docker daemon in the sandbox. Cache acceleration is not available
 // on Daytona (it has no object storage), so boot.Cache is ignored.
 func Daytona(boot cloud.Boot, arch string, docker bool) (string, error) {
+	return Sandbox(boot, arch, docker, StopDaytona)
+}
+
+// Sandbox renders the boot script for a Linux sandbox cloud: a container
+// or microVM that runs nothing at boot, into which the control plane
+// writes this script. stop is the shell that ends the sandbox when the
+// script exits (StopDaytona, StopEntrypoint, StopByControlPlane). The
+// sandbox clouds have no object storage, so boot.Cache is ignored.
+func Sandbox(boot cloud.Boot, arch string, docker bool, stop string) (string, error) {
 	if err := check(boot, arch); err != nil {
 		return "", err
 	}
@@ -171,7 +196,8 @@ func Daytona(boot cloud.Boot, arch string, docker bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	params := daytonaParams{
+	params := sandboxParams{
+		Stop:            stop,
 		RunnerVersion:   boot.RunnerVersion,
 		Arch:            arch,
 		JITConfig:       boot.JITConfig,
@@ -186,7 +212,7 @@ func Daytona(boot cloud.Boot, arch string, docker bool) (string, error) {
 		params.DockerArch = "aarch64"
 	}
 	var out bytes.Buffer
-	if err := daytonaTemplate.Execute(&out, params); err != nil {
+	if err := sandboxTemplate.Execute(&out, params); err != nil {
 		return "", fmt.Errorf("render boot script: %w", err)
 	}
 

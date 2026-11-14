@@ -193,6 +193,13 @@ func (e *rawExtra) checkCloud(cloud string) *fieldError {
 		{CloudGCP, "a GCP", gcpOnlyKeys},
 		{CloudAzure, "an Azure", append(slices.Clone(azureOnlyKeys), "enable_public_ip")},
 		{CloudDaytona, "a Daytona", daytonaOnlyKeys},
+		{CloudRunloop, "a Runloop", runloopOnlyKeys},
+		{CloudE2B, "an E2B", dockerOnlyKeys},
+		{CloudNovita, "a Novita", dockerOnlyKeys},
+		{CloudLelantos, "a Lelantos", dockerOnlyKeys},
+		{CloudNamespace, "a Namespace", dockerOnlyKeys},
+		{CloudTenki, "a Tenki", tenkiOnlyKeys},
+		{CloudModal, "a Modal", dockerOnlyKeys},
 	}
 	for _, key := range e.keysSet() {
 		foreign := ""

@@ -194,10 +194,11 @@ func withAliases(labels []string) []string {
 // withOSAliases adds the OS label the runner adds itself. A known Ubuntu
 // image (an alias, none, which means the default, or a Compute Engine
 // ubuntu-* family) is Linux and a windows-* image is Windows; a custom
-// AMI could be either until it boots. Every Daytona sandbox is Linux.
+// AMI could be either until it boots. Every Daytona, Runloop and E2B
+// sandbox is Linux.
 func withOSAliases(labels []string, cloud, image string) []string {
 	switch {
-	case cloud == CloudDaytona, image == "" || imageAliasPattern.MatchString(image) || strings.HasPrefix(image, "ubuntu-"):
+	case cloud == CloudDaytona, IsSandboxCloud(cloud), image == "" || imageAliasPattern.MatchString(image) || strings.HasPrefix(image, "ubuntu-"):
 		return append(slices.Clone(labels), "linux")
 	case isWindowsImageName(image):
 		return append(slices.Clone(labels), "windows")

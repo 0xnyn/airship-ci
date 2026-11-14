@@ -46,6 +46,13 @@ type Config struct {
 	// DaytonaEndpoint points the Daytona provider at a stand-in API, in
 	// place of the URL each credential carries.
 	DaytonaEndpoint string `env:"DAYTONA_ENDPOINT"`
+	// RunloopEndpoint and E2BEndpoint point those providers at stand-in
+	// APIs, in place of the URL or domain each credential carries.
+	RunloopEndpoint string `env:"RUNLOOP_ENDPOINT"`
+	E2BEndpoint     string `env:"E2B_ENDPOINT"`
+	// NamespaceEndpoint points the Namespace provider at a stand-in
+	// Compute API in place of <region>.compute.namespaceapis.com.
+	NamespaceEndpoint string `env:"NAMESPACE_ENDPOINT"`
 	// AzureEndpoint points the Azure provider at a stand-in Resource
 	// Manager API.
 	AzureEndpoint string `env:"AZURE_ENDPOINT"`

@@ -1,0 +1,62 @@
+---
+title: "Modal"
+description: "Run each job in a Modal Sandbox from any registry image, with a GPU when the definition asks, for up to 24 hours."
+icon: "/images/clouds/modal.svg"
+---
+
+Airship launches one Modal Sandbox per job with your token, in an App named
+`airship-runners` that it creates on first use. The Sandbox ends when the
+runner exits.
+
+## Connect
+
+<Steps>
+  <Step title="Create a token">
+    In Modal, **Settings → API Tokens → New token**. The token ID (`ak-...`)
+    and secret (`as-...`) are shown once.
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → Modal**: paste both, and an environment
+    if runners should not use the workspace's default one.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "modal", "credentials": {"token_id": "ak-...", "token_secret": "as-..."}}'
+```
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: gpu
+    cloud: modal
+    instance_type: 8vcpu-32gb
+    machine_image: "nvidia/cuda:12.4.1-runtime-ubuntu22.04"
+    gpu: H100
+    labels: [airship-gpu]
+```
+
+| Field | On Modal |
+| --- | --- |
+| `instance_type` | A shape `<n>vcpu-<m>gb` |
+| `machine_image` | A registry image with a tag or digest, or `ubuntu2204` / `ubuntu2404`. Default `ubuntu:22.04` |
+| `gpu` | One of `T4`, `L4`, `A10G`, `A100`, `A100-80GB`, `L40S`, `H100`, `H200`, `B200`, one per Sandbox |
+| `region` | None; leave it out |
+| `extra_config.docker` | Runs the Sandbox on Modal's VM runtime and starts a Docker daemon before the runner |
+
+## What Airship creates
+
+A Sandbox named after the runner (names are unique among the App's running
+Sandboxes, so a repeated launch finds it), tagged `airship-installation`,
+`airship-runner-id` and `airship-repository`, with a timeout past the
+runner's lifetime, at most 24 hours. Its command waits for the boot script
+Airship writes into it and becomes it, so the Sandbox ends with the runner.
+
+<Note>
+  Early access: built on Modal's official Go SDK and tested against a model
+  of it on every build, not yet run against the live service. Docker in
+  Sandboxes is itself a recent Modal feature.
+</Note>

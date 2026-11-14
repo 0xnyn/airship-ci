@@ -59,7 +59,11 @@ func newEnv(t *testing.T) *env {
 	aws := fake.New(cloud.AWS)
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "http://api.test"
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: fake.New(cloud.GCP), cloud.Azure: fake.New(cloud.Azure), cloud.Daytona: fake.New(cloud.Daytona)}, keyring, cfg, logger)
+	clouds := cloud.Registry{cloud.AWS: aws}
+	for _, name := range []string{cloud.GCP, cloud.Azure, cloud.Daytona, cloud.Runloop, cloud.E2B, cloud.Novita, cloud.Lelantos, cloud.Namespace, cloud.Tenki, cloud.Modal} {
+		clouds[name] = fake.New(name)
+	}
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, clouds, keyring, cfg, logger)
 
 	app := gh.App(t)
 	oauth := github.NewOAuth(github.OAuthConfig{ClientID: fakegithub.ClientID, ClientSecret: "secret", WebURL: gh.URL, APIURL: gh.URL})
@@ -425,6 +429,83 @@ func TestConnectDaytona(t *testing.T) {
 	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/daytona", nil, http.StatusNotFound)
 	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 1 {
 		t.Fatalf("clouds after disconnecting daytona = %v", items)
+	}
+}
+
+// Runloop and E2B connect with an API key alone, in their one region.
+func TestConnectSandboxClouds(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	const runloopKey = "ak_8f3a9c2e7b1d4f6a8c0e2b4d6f8a1c3e"
+	const e2bKey = "e2b_8f3a9c2e7b1d4f6a8c0e2b4d6f8a1c3e"
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/runloop", map[string]any{"apiKey": "short"}, http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/runloop", map[string]any{"apiKey": runloopKey, "apiUrl": "ftp://runloop.local"}, http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/e2b", map[string]any{"apiKey": "sk_notane2bkey123"}, http.StatusUnprocessableEntity)
+	e.call(http.MethodPut, "/v1/orgs/acme/clouds/e2b", map[string]any{"apiKey": e2bKey, "domain": "not a domain"}, http.StatusUnprocessableEntity)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("rejected credentials were stored: %v", items)
+	}
+
+	got := e.call(http.MethodPut, "/v1/orgs/acme/clouds/runloop", map[string]any{"apiKey": runloopKey}, http.StatusOK)
+	if got["cloud"] != "runloop" || got["identity"] != "ak_***c3e" || got["defaultRegion"] != "global" || got["status"] != "ok" {
+		t.Fatalf("connect runloop = %v", got)
+	}
+	got = e.call(http.MethodPut, "/v1/orgs/acme/clouds/e2b", map[string]any{"apiKey": e2bKey}, http.StatusOK)
+	if got["cloud"] != "e2b" || got["identity"] != "e2b_***1c3e" || got["defaultRegion"] != "global" {
+		t.Fatalf("connect e2b = %v", got)
+	}
+	raw := fmt.Sprint(e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK))
+	if bytes.Contains([]byte(raw), []byte(runloopKey)) || bytes.Contains([]byte(raw), []byte(e2bKey)) {
+		t.Fatal("an API key was echoed")
+	}
+	rows, err := e.pool.Query(context.Background(), "select secret from cloud_credentials where cloud in ('runloop', 'e2b')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var stored []byte
+		_ = rows.Scan(&stored)
+		if bytes.Contains(stored, []byte(runloopKey)) || bytes.Contains(stored, []byte(e2bKey)) {
+			t.Fatal("a key is stored in the clear")
+		}
+	}
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/runloop", nil, http.StatusNoContent)
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/e2b", nil, http.StatusNoContent)
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("clouds after disconnecting = %v", items)
+	}
+}
+
+// Novita, Lelantos, Namespace, Tenki and Modal connect with their own
+// credentials; Namespace keeps its region, the rest are global.
+func TestConnectPhaseTwoClouds(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.call(http.MethodPost, "/v1/auth/dev-sign-in", nil, http.StatusNoContent)
+	for _, tc := range []struct {
+		path     string
+		bad, ok  map[string]any
+		identity string
+		region   string
+	}{
+		{"novita", map[string]any{"apiKey": "short key!"}, map[string]any{"apiKey": "sk_8f3a9c2e7b1d4f6a8c0e2b4d"}, "sk_8***2b4d", "global"},
+		{"lelantos", map[string]any{"apiKey": "e2c_8f3a9c2e7b1d4f6a"}, map[string]any{"apiKey": "lel_8f3a9c2e7b1d4f6a8c0e"}, "lel_***8c0e", "global"},
+		{"namespace", map[string]any{"token": "nsct_8f3a9c2e7b1d4f6a", "defaultRegion": "ap"}, map[string]any{"token": "nsct_8f3a9c2e7b1d4f6a8c0e", "defaultRegion": "eu"}, "nsct***8c0e", "eu"},
+		{"tenki", map[string]any{"apiKey": "sk_8f3a9c2e7b1d4f6a"}, map[string]any{"apiKey": "tk_8f3a9c2e7b1d4f6a8c0e"}, "tk_***8c0e", "global"},
+		{"modal", map[string]any{"tokenId": "ak-8f3a9c2e", "tokenSecret": "nope-nope"}, map[string]any{"tokenId": "ak-8f3a9c2e7b1d", "tokenSecret": "as-8f3a9c2e7b1d"}, "ak-8f3a9c2e7b1d", "global"},
+	} {
+		e.call(http.MethodPut, "/v1/orgs/acme/clouds/"+tc.path, tc.bad, http.StatusUnprocessableEntity)
+		got := e.call(http.MethodPut, "/v1/orgs/acme/clouds/"+tc.path, tc.ok, http.StatusOK)
+		if got["cloud"] != tc.path || got["identity"] != tc.identity || got["defaultRegion"] != tc.region || got["status"] != "ok" {
+			t.Errorf("connect %s = %v", tc.path, got)
+		}
+	}
+	if items := e.call(http.MethodGet, "/v1/orgs/acme/clouds", nil, http.StatusOK)["items"].([]any); len(items) != 5 {
+		t.Fatalf("clouds = %v", items)
+	}
+	for _, name := range []string{"novita", "lelantos", "namespace", "tenki", "modal"} {
+		e.call(http.MethodDelete, "/v1/orgs/acme/clouds/"+name, nil, http.StatusNoContent)
 	}
 }
 

@@ -64,7 +64,14 @@
   --cloud-aws: #a35200;
   --cloud-azure: #08709c;
   --cloud-daytona: #6446c2;
+  --cloud-e2b: #7f5f00;
   --cloud-gcp: #2a5bd7;
+  --cloud-lelantos: #0b6b5e;
+  --cloud-modal: #14783a;
+  --cloud-namespace: #46516a;
+  --cloud-novita: #4f6a00;
+  --cloud-runloop: #b0306f;
+  --cloud-tenki: #8a2aa0;
   --radius: 8px;
   --shell-inset: 8px;
   --sidebar-width: 240px;
@@ -136,7 +143,14 @@
   --cloud-aws: #ffb36b;
   --cloud-azure: #6fd3ff;
   --cloud-daytona: #c7b3ff;
+  --cloud-e2b: #f5d36b;
   --cloud-gcp: #8ab4ff;
+  --cloud-lelantos: #7fd6c7;
+  --cloud-modal: #7ef0a0;
+  --cloud-namespace: #b8c2d6;
+  --cloud-novita: #c6e86a;
+  --cloud-runloop: #ff9ecf;
+  --cloud-tenki: #f0a8ff;
 }
 
 @theme inline {
@@ -192,7 +206,14 @@
   --color-cloud-aws: var(--cloud-aws);
   --color-cloud-azure: var(--cloud-azure);
   --color-cloud-daytona: var(--cloud-daytona);
+  --color-cloud-e2b: var(--cloud-e2b);
   --color-cloud-gcp: var(--cloud-gcp);
+  --color-cloud-lelantos: var(--cloud-lelantos);
+  --color-cloud-modal: var(--cloud-modal);
+  --color-cloud-namespace: var(--cloud-namespace);
+  --color-cloud-novita: var(--cloud-novita);
+  --color-cloud-runloop: var(--cloud-runloop);
+  --color-cloud-tenki: var(--cloud-tenki);
   --color-syntax-comment: var(--syntax-comment);
   --color-syntax-expression: var(--syntax-expression);
   --color-syntax-key: var(--syntax-key);

@@ -32,7 +32,14 @@
   --cloud-aws: #ffb36b;
   --cloud-azure: #6fd3ff;
   --cloud-daytona: #c7b3ff;
+  --cloud-e2b: #f5d36b;
   --cloud-gcp: #8ab4ff;
+  --cloud-lelantos: #7fd6c7;
+  --cloud-modal: #7ef0a0;
+  --cloud-namespace: #b8c2d6;
+  --cloud-novita: #c6e86a;
+  --cloud-runloop: #ff9ecf;
+  --cloud-tenki: #f0a8ff;
   --syntax-comment: #ffffff80;
   --syntax-expression: #c7b3ff;
   --syntax-key: #9efaff;

@@ -163,6 +163,35 @@ func TestCompatibleDeveloperAPI(t *testing.T) {
 	if daytona["cloud"] != "daytona" || daytona["defaultRegion"] != "us" || daytona["identity"] != "dtn***def" {
 		t.Fatalf("daytona cloud-connect = %v", daytona)
 	}
+	// Runloop and E2B: api_key, in their one region.
+	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "runloop", "credentials": map[string]string{"api_key": "ak_0123456789abcdef0123456789", "region": "us"}}, http.StatusUnprocessableEntity)
+	runloop := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "runloop", "credentials": map[string]string{"api_key": "ak_0123456789abcdef0123456789"}}, http.StatusOK)
+	e2b := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "e2b", "credentials": map[string]string{"api_key": "e2b_0123456789abcdef0123456789"}}, http.StatusOK)
+	if runloop["defaultRegion"] != "global" || runloop["identity"] != "ak_***789" || e2b["defaultRegion"] != "global" || e2b["identity"] != "e2b_***6789" {
+		t.Fatalf("sandbox cloud-connect = %v / %v", runloop, e2b)
+	}
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/runloop", nil, http.StatusNoContent)
+	e.call(http.MethodDelete, "/v1/orgs/acme/clouds/e2b", nil, http.StatusNoContent)
+	// Novita and Lelantos as E2B; Namespace with its region; Tenki; Modal's
+	// token pair.
+	for _, tc := range []struct {
+		cloud  string
+		creds  map[string]string
+		region string
+	}{
+		{"novita", map[string]string{"api_key": "sk_0123456789abcdef0123456789"}, "global"},
+		{"lelantos", map[string]string{"api_key": "lel_0123456789abcdef0123456789"}, "global"},
+		{"namespace", map[string]string{"token": "nsct_0123456789abcdef0123456789", "region": "eu"}, "eu"},
+		{"tenki", map[string]string{"api_key": "tk_0123456789abcdef0123456789"}, "global"},
+		{"modal", map[string]string{"token_id": "ak-0123456789abcdef", "token_secret": "as-0123456789abcdef"}, "global"},
+	} {
+		got := e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": tc.cloud, "credentials": tc.creds}, http.StatusOK)
+		if got["cloud"] != tc.cloud || got["defaultRegion"] != tc.region {
+			t.Errorf("%s cloud-connect = %v", tc.cloud, got)
+		}
+		e.call(http.MethodDelete, "/v1/orgs/acme/clouds/"+tc.cloud, nil, http.StatusNoContent)
+	}
+	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "namespace", "credentials": map[string]string{"token": "nsct_0123456789abcdef0123456789", "region": "ap"}}, http.StatusUnprocessableEntity)
 	// Connecting Azure: the subscription, tenant, client
 	// ID and secret.
 	e.script(token, http.MethodPost, "/api/v1/cloud-connect", map[string]any{"cloud": "azure", "credentials": map[string]string{"subscription_id": "x"}}, http.StatusUnprocessableEntity)

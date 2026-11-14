@@ -63,6 +63,9 @@ type harness struct {
 	gcp     *fake.Provider
 	azure   *fake.Provider
 	daytona *fake.Provider
+	runloop *fake.Provider
+	e2b     *fake.Provider
+	others  map[string]*fake.Provider
 	nextJob int64
 	lastJob github.WorkflowJob
 }
@@ -93,14 +96,27 @@ func newHarnessWith(t *testing.T, adjust func(*fleet.Config)) *harness {
 	gcp := fake.New(cloud.GCP)
 	azure := fake.New(cloud.Azure)
 	daytona := fake.New(cloud.Daytona)
+	runloop := fake.New(cloud.Runloop)
+	e2b := fake.New(cloud.E2B)
+	others := map[string]*fake.Provider{}
+	for _, name := range []string{cloud.Novita, cloud.Lelantos, cloud.Namespace, cloud.Tenki, cloud.Modal} {
+		others[name] = fake.New(name)
+	}
 	cfg := fleet.DefaultConfig()
 	cfg.PublicURL = "https://api.test"
 	adjust(&cfg)
-	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, cloud.Registry{cloud.AWS: aws, cloud.GCP: gcp, cloud.Azure: fake.WithoutCache(azure), cloud.Daytona: fake.WithoutCache(daytona)}, keyring, cfg, slog.New(slog.DiscardHandler))
+	clouds := cloud.Registry{
+		cloud.AWS: aws, cloud.GCP: gcp, cloud.Azure: fake.WithoutCache(azure), cloud.Daytona: fake.WithoutCache(daytona),
+		cloud.Runloop: fake.WithoutCache(runloop), cloud.E2B: fake.WithoutCache(e2b),
+	}
+	for name, p := range others {
+		clouds[name] = fake.WithoutCache(p)
+	}
+	svc := fleet.New(pool, fleet.AppGitHub{App: gh.App(t)}, clouds, keyring, cfg, slog.New(slog.DiscardHandler))
 	if _, err := svc.SaveInstallation(ctx, inst); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, gcp: gcp, azure: azure, daytona: daytona, nextJob: 100}
+	h := &harness{t: t, ctx: ctx, pool: pool, q: q, gh: gh, svc: svc, aws: aws, gcp: gcp, azure: azure, daytona: daytona, runloop: runloop, e2b: e2b, others: others, nextJob: 100}
 	h.connect()
 	h.activate(false)
 	h.setRun("push", repoID, "alice")

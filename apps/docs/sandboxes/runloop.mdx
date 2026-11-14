@@ -1,0 +1,62 @@
+---
+title: "Runloop"
+description: "Run each job in a Runloop devbox from a blueprint, in a named size or a custom shape, shut down when the job ends."
+icon: "/images/clouds/runloop.svg"
+---
+
+Airship launches one Runloop devbox per job with your API key. The devbox
+shuts itself down when the runner exits.
+
+## Connect
+
+<Steps>
+  <Step title="Create an API key">
+    In the Runloop dashboard, create an API key.
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → Runloop**: paste the key. Runloop has no
+    regions, so there is nothing else to choose.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "runloop", "credentials": {"api_key": "ak_..."}}'
+```
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: devbox
+    cloud: runloop
+    instance_type: 4vcpu-16gb   # or x-small, small, medium, large, x-large, xx-large
+    machine_image: ci-ubuntu    # a blueprint name or ID; empty for Runloop's default
+    labels: [airship-devbox]
+    extra_config:
+      docker: true
+      disk: 32
+```
+
+| Field | On Runloop |
+| --- | --- |
+| `instance_type` | A size: `x-small` (0.5 vCPU, 1 GB), `small`, `medium`, `large`, `x-large`, `xx-large` (8 vCPU, 32 GB); or a shape `<n>vcpu-<m>gb` with 1 or an even number of vCPUs up to 16, memory 1 or an even number of GB up to 64, between 2 and 8 GB per vCPU |
+| `machine_image` | A blueprint's name (its latest successful build) or ID (`bpt_...`). Empty for Runloop's default image. Build a blueprint from a Dockerfile in Runloop to preinstall tools |
+| `region` | None; leave it out |
+| `extra_config.disk` | An even number of GB from 2 to 64, for shapes only (default 16). Named sizes fix their own |
+| `extra_config.docker` | Starts a Docker daemon before the runner |
+
+## What Airship creates
+
+A devbox named after the runner, with metadata `airship-installation`,
+`airship-runner-id` and `airship-repository`, running as root. Its
+entrypoint waits for the boot script Airship writes into it and then
+becomes it, so when the runner exits the devbox shuts down. A devbox whose
+script never arrives shuts itself down after ten minutes. Its keep-alive is
+set past the runner's deadline, at most 48 hours.
+
+<Note>
+  Early access: tested against a model of Runloop's API on every build, not
+  yet run against the live service.
+</Note>

@@ -1,0 +1,55 @@
+---
+title: "Lelantos"
+description: "Run each job in an EU Firecracker sandbox on Lelantos, started from a template."
+icon: "/images/clouds/lelantos.svg"
+---
+
+Lelantos runs E2B-compatible Firecracker sandboxes on bare metal in the EU.
+Airship runs them the way it runs [E2B](/sandboxes/e2b): one sandbox per
+job from a template, deleted when the job completes.
+
+## Connect
+
+<Steps>
+  <Step title="Create an API key">
+    In the Lelantos console, create an API key. Keys are `lel_...`; the same
+    key written `e2b_...` works too.
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → Lelantos**: paste the key. The hosted
+    service is `lelantos.ai`; another domain can be given instead.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "lelantos", "credentials": {"api_key": "lel_..."}}'
+```
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: eu
+    cloud: lelantos
+    instance_type: base
+    labels: [airship-eu]
+    extra_config:
+      docker: true
+```
+
+| Field | On Lelantos |
+| --- | --- |
+| `instance_type` | A template's name or ID, optionally `:<n>vcpu` |
+| `machine_image` | Leave it empty: the template is the image |
+| `region` | None; every sandbox runs in the EU |
+| `extra_config.docker` | Installs and starts a Docker daemon before the runner |
+
+Each sandbox's timeout is the runner's lifetime plus 15 minutes, at most 24
+hours.
+
+<Note>
+  Early access: tested against a model of the API on every build, not yet
+  run against the live service.
+</Note>

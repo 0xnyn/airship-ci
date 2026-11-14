@@ -19,6 +19,7 @@ pnpm --filter @airship/docs links   # Mintlify's own checker (also hits the web)
 | `docs.json` | Navigation, theme, navbar, footer, API playground |
 | `index.mdx`, `quickstart.mdx`, `how-it-works.mdx`, `concepts.mdx` | Getting started |
 | `clouds/` | Connecting AWS, Google Cloud and Azure: credentials, policies, quotas |
+| `sandboxes/` | The sandbox clouds (Daytona, Runloop, E2B, Novita, Lelantos, Namespace, Tenki, Modal): an overview and a page each |
 | `configuration/` | The `airship.yaml` reference, a page per concern |
 | `performance/` | Caching, idle runners, custom images |
 | `organization/` | Organization-wide runners, access control, capacity |
@@ -50,8 +51,9 @@ site.
   against `docs.json`, so a renamed page fails the build rather than 404ing.
 - A page that is not listed in `docs.json` is a failure too — nothing should
   be unreachable.
-- The checker also refuses vendor and product names the documentation does not
-  cover, so prose stays Airship's own.
+- The checker also refuses Cirun's names, so prose stays Airship's own. Name
+  only the clouds the docs cover; a new sandbox cloud gets its page under
+  `sandboxes/` and a row in the overview's table.
 - Components in use: `Columns`/`Card`, `Steps`/`Step`, `Tabs`/`Tab`,
   `Accordion`/`AccordionGroup`, `CodeGroup`, `ParamField`/`ResponseField`,
   `Note`/`Tip`/`Warning`, and `mermaid` code blocks.

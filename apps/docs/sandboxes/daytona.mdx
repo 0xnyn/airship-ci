@@ -1,0 +1,77 @@
+---
+title: "Daytona"
+description: "Run each job in a Daytona sandbox built from a container image or a snapshot, with Docker, volumes, egress allow lists and GPUs."
+icon: "/images/clouds/daytona.svg"
+---
+
+Airship launches one Daytona sandbox per job in your organization, with an
+organization API key. The sandbox is deleted when the runner exits.
+
+## Connect
+
+<Steps>
+  <Step title="Create an organization API key">
+    In the Daytona dashboard, create a key in the organization (not a
+    personal key) with **write:sandboxes** and **delete:sandboxes**. Add
+    **read:volumes** if definitions mount volumes. A key with an expiry stops
+    working on that date.
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → Daytona**: paste the key, and pick the
+    default region (`us` or `eu`, or a dedicated region of your
+    organization). Airship checks the key's permissions and that the region
+    hosts Linux sandboxes before saving it.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "daytona", "credentials": {"api_key": "dtn_...", "region": "us"}}'
+```
+
+A self-hosted Daytona takes `api_url` as well.
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: sandbox
+    cloud: daytona
+    instance_type: 4vcpu-8gb                # a shape, or the name of a snapshot
+    machine_image: "ghcr.io/acme/ci:2026.10" # a container image with a tag or digest
+    region: eu
+    labels: [airship-sandbox]
+    extra_config:
+      disk: 20
+      docker: true
+      domain_allow_list: "github.com, *.githubusercontent.com"
+```
+
+| Field | On Daytona |
+| --- | --- |
+| `instance_type` | `<n>vcpu-<m>gb`, built from `machine_image`; or a snapshot's name, which fixes image and resources |
+| `machine_image` | A container image with a tag or digest (`latest` is refused), or `ubuntu2204` / `ubuntu2404`. Default `ubuntu:22.04`. Empty with a snapshot |
+| `region` | `us`, `eu`, or a dedicated region of your organization |
+| `gpu` | One of `H100`, `H200`, `B200`, `B300`, `RTX-PRO-6000`, `RTX-4090`, `RTX-5090`, `MI355X` |
+| `preemptible` | For GPU sandboxes only |
+| `extra_config.disk` | GB, for sandboxes built from an image (default 10) |
+| `extra_config.docker` | Starts a Docker daemon in the sandbox before the runner |
+| `extra_config.volumes` | Up to 10 of `volume`, `mount_path`, `subpath`: Daytona volumes mounted into the sandbox |
+| `extra_config.network_allow_list` | Up to 10 IPv4 CIDRs the sandbox may reach |
+| `extra_config.domain_allow_list` | Up to 100 domains the sandbox may reach. One of the two allow lists, not both |
+
+<Warning>
+  An allow list is enforced strictly: list everything the runner and the job
+  fetch, including `github.com`, `api.github.com`,
+  `*.actions.githubusercontent.com`, `objects.githubusercontent.com` and, with
+  `docker: true`, `download.docker.com`. Lower tiers refuse sandbox-level
+  allow lists altogether.
+</Warning>
+
+## What Airship creates
+
+A sandbox named after the runner, labelled `airship-installation`,
+`airship-runner-id` and `airship-repository`, with auto-stop off and a TTL
+past the runner's deadline. The boot script stops the sandbox when the
+runner exits, and Daytona deletes it.

@@ -21,7 +21,12 @@ import (
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
 	azurecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/azure"
 	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
+	e2bcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/e2b"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
+	modalcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/modal"
+	namespacecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/namespace"
+	runloopcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/runloop"
+	tenkicloud "github.com/wizenheimer/airship/apps/api/internal/cloud/tenki"
 	"github.com/wizenheimer/airship/apps/api/internal/config"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
@@ -105,6 +110,14 @@ func run(ctx context.Context) error {
 		cloud.GCP:     gcpcloud.New(gcpcloud.Options{Endpoint: cfg.GCPEndpoint}),
 		cloud.Daytona: daytonacloud.New(daytonacloud.Options{Endpoint: cfg.DaytonaEndpoint}),
 		cloud.Azure:   azurecloud.New(azurecloud.Options{Endpoint: cfg.AzureEndpoint, Logger: logger}),
+		cloud.Runloop: runloopcloud.New(runloopcloud.Options{Endpoint: cfg.RunloopEndpoint}),
+		cloud.E2B:     e2bcloud.New(e2bcloud.Options{Endpoint: cfg.E2BEndpoint}),
+		// Novita and Lelantos speak E2B's protocol: the same provider, flavoured.
+		cloud.Novita:    e2bcloud.New(e2bcloud.Options{Flavor: e2bcloud.FlavorNovita}),
+		cloud.Lelantos:  e2bcloud.New(e2bcloud.Options{Flavor: e2bcloud.FlavorLelantos}),
+		cloud.Namespace: namespacecloud.New(namespacecloud.Options{Endpoint: cfg.NamespaceEndpoint}),
+		cloud.Tenki:     tenkicloud.New(tenkicloud.Options{}),
+		cloud.Modal:     modalcloud.New(modalcloud.Options{}),
 	}
 	scheduler := fleet.New(pool, gh, clouds, keyring, fleetCfg, logger)
 

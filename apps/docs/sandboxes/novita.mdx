@@ -1,0 +1,57 @@
+---
+title: "Novita"
+description: "Run each job in a Novita sandbox started from a template, marked long-running so it outlives the plan's session cap."
+icon: "/images/clouds/novita.svg"
+---
+
+Novita's sandboxes speak E2B's protocol, so Airship runs them the way it
+runs [E2B](/sandboxes/e2b): one sandbox per job from a template, deleted
+when the job completes.
+
+## Connect
+
+<Steps>
+  <Step title="Create an API key">
+    In the Novita dashboard, under the **Team** tab, create an API key.
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → Novita**: paste the key. The hosted
+    service is `us-phx-1.sandbox.novita.ai`; another Novita domain can be
+    given instead.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "novita", "credentials": {"api_key": "sk_..."}}'
+```
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: novita
+    cloud: novita
+    instance_type: base:4vcpu   # a template, optionally with more vCPUs
+    labels: [airship-novita]
+```
+
+| Field | On Novita |
+| --- | --- |
+| `instance_type` | A template's name or ID, optionally `:<n>vcpu` |
+| `machine_image` | Leave it empty: the template is the image |
+| `region` | None; leave it out |
+| `extra_config.docker` | Installs and starts a Docker daemon before the runner |
+
+## Long-running sandboxes
+
+Novita caps a sandbox's timeout at the plan's session length (one hour on
+Free, three on Paid, four on Enterprise) unless the sandbox is marked
+long-running. Airship marks every runner's sandbox long-running and sets its
+timeout to the runner's lifetime plus 15 minutes, at most 24 hours.
+
+<Note>
+  Early access: tested against a model of the API on every build, not yet
+  run against the live service.
+</Note>

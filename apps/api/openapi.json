@@ -263,7 +263,14 @@
               "aws",
               "gcp",
               "azure",
-              "daytona"
+              "daytona",
+              "runloop",
+              "e2b",
+              "novita",
+              "lelantos",
+              "namespace",
+              "tenki",
+              "modal"
             ],
             "type": "string"
           },
@@ -273,7 +280,7 @@
             "type": "string"
           },
           "defaultRegion": {
-            "description": "Region (or GCP zone, or Daytona region) used when a config names none",
+            "description": "Region (or GCP zone, or a sandbox cloud's region; global on the clouds without regions) used when a config names none",
             "type": "string"
           },
           "error": {
@@ -284,7 +291,7 @@
             ]
           },
           "identity": {
-            "description": "Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, masked Daytona API key)",
+            "description": "Public half of the credential (AWS access key ID, GCP service account email, Azure application ID, a sandbox cloud's masked API key or token ID)",
             "type": "string"
           },
           "principal": {
@@ -339,7 +346,14 @@
               "aws",
               "gcp",
               "azure",
-              "daytona"
+              "daytona",
+              "runloop",
+              "e2b",
+              "novita",
+              "lelantos",
+              "namespace",
+              "tenki",
+              "modal"
             ],
             "type": "string"
           },
@@ -347,7 +361,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region",
+            "description": "Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region; for runloop: api_key and optionally api_url; for e2b, novita and lelantos: api_key and optionally domain; for namespace: token and optionally region (us or eu); for tenki: api_key and optionally api_url and workspace_id; for modal: token_id, token_secret and optionally environment",
             "maxProperties": 20,
             "type": "object"
           }
@@ -601,6 +615,47 @@
         ],
         "type": "object"
       },
+      "ConnectE2B": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "E2B team API key (e2b_...)",
+            "maxLength": 512,
+            "minLength": 12,
+            "pattern": "^e2b_",
+            "type": "string"
+          },
+          "domain": {
+            "description": "Domain of a self-hosted E2B; the hosted service (e2b.app) by default",
+            "maxLength": 253,
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiKey"
+        ],
+        "type": "object"
+      },
+      "ConnectE2BCompatible": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "API key",
+            "maxLength": 512,
+            "minLength": 12,
+            "type": "string"
+          },
+          "domain": {
+            "description": "Domain of a self-hosted service; the hosted one by default",
+            "maxLength": 253,
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiKey"
+        ],
+        "type": "object"
+      },
       "ConnectGCP": {
         "additionalProperties": false,
         "properties": {
@@ -620,6 +675,104 @@
         },
         "required": [
           "serviceAccountKey"
+        ],
+        "type": "object"
+      },
+      "ConnectModal": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "description": "Environment; the workspace's default when empty",
+            "maxLength": 63,
+            "type": "string"
+          },
+          "tokenId": {
+            "description": "Token ID (ak-...)",
+            "maxLength": 140,
+            "minLength": 8,
+            "type": "string"
+          },
+          "tokenSecret": {
+            "description": "Token secret (as-...)",
+            "maxLength": 140,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "tokenId",
+          "tokenSecret"
+        ],
+        "type": "object"
+      },
+      "ConnectNamespace": {
+        "additionalProperties": false,
+        "properties": {
+          "defaultRegion": {
+            "default": "us",
+            "description": "Region used when a config names none",
+            "enum": [
+              "us",
+              "eu"
+            ],
+            "type": "string"
+          },
+          "token": {
+            "description": "Namespace token",
+            "maxLength": 1000,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "ConnectRunloop": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "Runloop API key",
+            "maxLength": 512,
+            "minLength": 16,
+            "type": "string"
+          },
+          "apiUrl": {
+            "description": "API URL; the hosted service by default",
+            "format": "uri",
+            "maxLength": 256,
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiKey"
+        ],
+        "type": "object"
+      },
+      "ConnectTenki": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "Workspace API key (tk_... or lx_...)",
+            "maxLength": 512,
+            "minLength": 12,
+            "type": "string"
+          },
+          "apiUrl": {
+            "description": "API URL; the hosted service by default",
+            "format": "uri",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Workspace, when the key is not a workspace key",
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiKey"
         ],
         "type": "object"
       },
@@ -1744,7 +1897,15 @@
             "enum": [
               "aws",
               "gcp",
-              "daytona"
+              "azure",
+              "daytona",
+              "runloop",
+              "e2b",
+              "novita",
+              "lelantos",
+              "namespace",
+              "tenki",
+              "modal"
             ],
             "type": "string"
           },
@@ -3121,6 +3282,59 @@
         ]
       }
     },
+    "/v1/orgs/{org}/clouds/e2b": {
+      "put": {
+        "operationId": "connectE2b",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectE2B"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect E2B",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
     "/v1/orgs/{org}/clouds/gcp": {
       "put": {
         "operationId": "connectGcp",
@@ -3174,6 +3388,324 @@
         ]
       }
     },
+    "/v1/orgs/{org}/clouds/lelantos": {
+      "put": {
+        "operationId": "connectLelantos",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectE2BCompatible"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Lelantos",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/clouds/modal": {
+      "put": {
+        "operationId": "connectModal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectModal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Modal",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/clouds/namespace": {
+      "put": {
+        "operationId": "connectNamespace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectNamespace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Namespace",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/clouds/novita": {
+      "put": {
+        "operationId": "connectNovita",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectE2BCompatible"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Novita",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/clouds/runloop": {
+      "put": {
+        "operationId": "connectRunloop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectRunloop"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Runloop",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/clouds/tenki": {
+      "put": {
+        "operationId": "connectTenki",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectTenki"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cloud"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connect Tenki",
+        "tags": [
+          "Cloud"
+        ]
+      }
+    },
     "/v1/orgs/{org}/clouds/{cloud}": {
       "delete": {
         "operationId": "disconnectCloud",
@@ -3199,7 +3731,14 @@
                 "aws",
                 "gcp",
                 "azure",
-                "daytona"
+                "daytona",
+                "runloop",
+                "e2b",
+                "novita",
+                "lelantos",
+                "namespace",
+                "tenki",
+                "modal"
               ],
               "type": "string"
             }

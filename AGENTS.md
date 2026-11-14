@@ -1,7 +1,8 @@
 # Airship
 
 Self-hosted GitHub Actions runners on the customer's AWS, Google Cloud,
-Microsoft Azure or Daytona account, built to Cirun's model under Airship's own names
+Microsoft Azure account, or a sandbox cloud (Daytona, Runloop, E2B, Novita,
+Lelantos, Namespace, Tenki, Modal), built to Cirun's model under Airship's own names
 (`airship.yaml`, `airship-` labels, the `.airship` organization repository;
 Cirun's names are not read) plus a developer API cirun-py can drive: a Go
 control plane that holds
@@ -106,6 +107,14 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   `internal/cloud/daytona/daytonatest`, a fake of Daytona's API and toolbox
   driven through Daytona's generated Go clients, and opt-in against a real
   organization (`TestAgainstLiveDaytona`, needs `AIRSHIP_LIVE_DAYTONA_API_KEY`).
+  The Runloop, E2B and Namespace providers (plain REST or Connect JSON
+  through `internal/cloud/restapi`) run against `runloop/runlooptest`,
+  `e2b/e2btest` (which also fakes each sandbox's envd daemon; Novita and
+  Lelantos are E2B flavours) and `namespace/namespacetest`; Tenki and Modal
+  use their official Go SDKs behind a narrow `API` interface, tested against
+  `tenki/tenkitest` and `modal/modaltest`.
+  `docs/architecture/sandbox-providers.md` assesses every provider and says
+  what is still unverified live.
 - Every state change to `runners` is a conditional UPDATE on the expected
   state; never read-then-write. Capacity (`installations.max_runners`) is
   enforced under a row lock on the installation.
@@ -118,7 +127,7 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   cloud SDKs. A new cloud is a new `cloud.Provider` (and `cloud.Cacher` if
   it has object storage, `cloud.Sweeper` if a failed launch can leave
   resources behind that the inventory scan should sweep). Azure and
-  Daytona have no object storage the proxy speaks, so `cache: true` on
+  the sandbox clouds have no object storage the proxy speaks, so `cache: true` on
   them launches without the proxy and records a `cache.unavailable` warning;
   the fleet tests register their fakes through `fake.WithoutCache` for that.
 - Errors: return `huma.Error404NotFound(...)` and friends for client errors;
@@ -142,8 +151,11 @@ Filter to one package with `pnpm turbo run <task> --filter=@airship/api`.
   `apps/api/openapi.json`, `packages/client/src/generated/`,
   `apps/docs/api-reference/openapi.json`, `packages/tokens/src/generated/`, or the icons and social images made from the tokens (`favicon.*`, `icon*`, `apple-*`, `opengraph-image.jpg`, `public/og`, `apps/docs/logo`, `apps/docs/og`).
 - `apps/docs` is the product's public voice: it covers AWS, Google Cloud and
-  Azure, and names no other vendor or product. `pnpm lint` in that package
-  fails if one appears, including in the generated spec.
+  Azure under **Your cloud**, and every supported sandbox cloud under
+  **Sandbox clouds** (`apps/docs/sandboxes/`, a page each). It names no
+  other vendor or product; a new cloud gets its page there in the same
+  change. `pnpm lint` in that package fails on Cirun's names, including in
+  the generated spec.
 - Go tools (sqlc, goose, golangci-lint, air) are pinned in
   `apps/api/tools/go.mod` and run with `go tool -modfile=tools/go.mod <tool>`;
   nothing needs a global install besides Go, Node, pnpm and Docker.

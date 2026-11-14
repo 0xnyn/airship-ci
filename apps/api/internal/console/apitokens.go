@@ -16,7 +16,12 @@ import (
 	awscloud "github.com/wizenheimer/airship/apps/api/internal/cloud/aws"
 	azurecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/azure"
 	daytonacloud "github.com/wizenheimer/airship/apps/api/internal/cloud/daytona"
+	e2bcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/e2b"
 	gcpcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/gcp"
+	modalcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/modal"
+	namespacecloud "github.com/wizenheimer/airship/apps/api/internal/cloud/namespace"
+	runloopcloud "github.com/wizenheimer/airship/apps/api/internal/cloud/runloop"
+	tenkicloud "github.com/wizenheimer/airship/apps/api/internal/cloud/tenki"
 	"github.com/wizenheimer/airship/apps/api/internal/db"
 	"github.com/wizenheimer/airship/apps/api/internal/fleet"
 	"github.com/wizenheimer/airship/apps/api/internal/github"
@@ -232,11 +237,12 @@ func (h *handlers) apiListClouds(ctx context.Context, _ *struct{}) (*cloudListOu
 // CloudConnect is the cloud-connect request: a cloud name and that
 // cloud's credentials. For aws the
 // access key, for gcp the service account key file's fields, for azure the
-// subscription, tenant, client ID and client secret. Daytona, which the
-// does not have, takes api_key (and api_url, region).
+// subscription, tenant, client ID and client secret. Daytona takes
+// api_key (and api_url, region), Runloop api_key (and api_url), E2B
+// api_key (and domain).
 type CloudConnect struct {
-	Cloud       string            `doc:"Cloud name" enum:"aws,gcp,azure,daytona" json:"cloud"`
-	Credentials map[string]string `doc:"Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region" json:"credentials" maxProperties:"20"`
+	Cloud       string            `doc:"Cloud name" enum:"aws,gcp,azure,daytona,runloop,e2b,novita,lelantos,namespace,tenki,modal" json:"cloud"`
+	Credentials map[string]string `doc:"Credentials; for aws: access_key, secret_key and optionally region; for gcp: the service account key JSON's fields and optionally region (a zone or region); for azure: subscription_id, tenant_id, client_id, client_secret and optionally region; for daytona: api_key and optionally api_url and region; for runloop: api_key and optionally api_url; for e2b, novita and lelantos: api_key and optionally domain; for namespace: token and optionally region (us or eu); for tenki: api_key and optionally api_url and workspace_id; for modal: token_id, token_secret and optionally environment" json:"credentials" maxProperties:"20"`
 }
 
 type cloudConnectInput struct {
@@ -284,6 +290,54 @@ func (h *handlers) compatCloudConnect(ctx context.Context, in *cloudConnectInput
 		if !daytonacloud.RegionPattern.MatchString(region) {
 			return nil, huma.Error422UnprocessableEntity("region is not a Daytona region")
 		}
+	case cloud.Runloop:
+		secret, err = runloopcloud.EncodeSecret(runloopcloud.Secret{APIKey: creds["api_key"], APIURL: creds["api_url"]})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials need api_key (and optionally api_url): " + err.Error())
+		}
+		if region != "" && region != cloud.SandboxRegion {
+			return nil, huma.Error422UnprocessableEntity("runloop has no regions")
+		}
+		region = cloud.SandboxRegion
+	case cloud.E2B, cloud.Novita, cloud.Lelantos:
+		flavor, _ := e2bcloud.FlavorFor(in.Body.Cloud)
+		secret, err = flavor.EncodeSecret(e2bcloud.Secret{APIKey: creds["api_key"], Domain: creds["domain"]})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials need api_key (and optionally domain): " + err.Error())
+		}
+		if region != "" && region != cloud.SandboxRegion {
+			return nil, huma.Error422UnprocessableEntity(in.Body.Cloud + " has no regions")
+		}
+		region = cloud.SandboxRegion
+	case cloud.Namespace:
+		secret, err = namespacecloud.EncodeSecret(namespacecloud.Secret{Token: creds["token"]})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials need token: " + err.Error())
+		}
+		if region == "" {
+			region = namespacecloud.DefaultRegion
+		}
+		if !namespacecloud.IsRegion(region) {
+			return nil, huma.Error422UnprocessableEntity("region is not a Namespace region (us or eu)")
+		}
+	case cloud.Tenki:
+		secret, err = tenkicloud.EncodeSecret(tenkicloud.Secret{APIKey: creds["api_key"], APIURL: creds["api_url"], WorkspaceID: creds["workspace_id"]})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials need api_key (and optionally api_url, workspace_id): " + err.Error())
+		}
+		if region != "" && region != cloud.SandboxRegion {
+			return nil, huma.Error422UnprocessableEntity("tenki has no regions")
+		}
+		region = cloud.SandboxRegion
+	case cloud.Modal:
+		secret, err = modalcloud.EncodeSecret(modalcloud.Secret{TokenID: creds["token_id"], TokenSecret: creds["token_secret"], Environment: creds["environment"]})
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("credentials need token_id and token_secret (and optionally environment): " + err.Error())
+		}
+		if region != "" && region != cloud.SandboxRegion {
+			return nil, huma.Error422UnprocessableEntity("modal has no regions here")
+		}
+		region = cloud.SandboxRegion
 	default:
 		secret, err = awscloud.EncodeSecret(awscloud.Secret{AccessKeyID: creds["access_key"], SecretAccessKey: creds["secret_key"]})
 		if err != nil {

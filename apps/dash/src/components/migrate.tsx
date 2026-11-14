@@ -159,6 +159,8 @@ function Flow({
     { enabled: repoId !== null, staleTime: 60_000 }
   );
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Once the pull request is open the saved draft is gone; nothing to resume.
+  const [shipped, setShipped] = useState(false);
 
   // Start from the saved draft when there is one, so a person can leave
   // and come back where they were.
@@ -194,7 +196,7 @@ function Flow({
   const currentIndex = STEPS.indexOf(step);
   const steps = STEPS.map((id, index) => ({
     disabled: id !== "repository" && (repoId === null || draft === null),
-    done: index < currentIndex,
+    done: shipped || index < currentIndex,
     hint: id === "repository" && repo ? repo.fullName : stepHint[id],
     id,
     title: stepTitle[id],
@@ -203,7 +205,7 @@ function Flow({
   return (
     <OnboardingLayout
       aside={
-        draft ? (
+        draft && !shipped ? (
           <>
             Your choices are saved in this browser.{" "}
             <button
@@ -245,6 +247,7 @@ function Flow({
         <StepBody
           draft={draft}
           go={go}
+          onShipped={() => setShipped(true)}
           repo={repo}
           repoId={repoId}
           scan={scan.data}
@@ -259,6 +262,7 @@ function Flow({
 function StepBody({
   draft,
   go,
+  onShipped,
   repo,
   repoId,
   scan,
@@ -267,6 +271,7 @@ function StepBody({
 }: {
   draft: Draft;
   go: (step: Step) => void;
+  onShipped: () => void;
   repo: Schemas["Repository"] | undefined;
   repoId: number;
   scan: WorkflowScan;
@@ -302,6 +307,7 @@ function StepBody({
     <Review
       draft={draft}
       onBack={() => go("runners")}
+      onShipped={onShipped}
       repo={repo}
       repoId={repoId}
       scan={scan}
@@ -953,12 +959,14 @@ function Assignments({
 function Review({
   draft,
   onBack,
+  onShipped,
   repo,
   repoId,
   scan,
 }: {
   draft: Draft;
   onBack: () => void;
+  onShipped: () => void;
   repo: Schemas["Repository"] | undefined;
   repoId: number;
   scan: WorkflowScan;
@@ -980,7 +988,10 @@ function Review({
       onError: (error) => {
         toast.error(errorMessage(error, "Could not open the pull request"));
       },
-      onSuccess: () => clearDraft(org.login, repoId),
+      onSuccess: () => {
+        clearDraft(org.login, repoId);
+        onShipped();
+      },
     }
   );
   const activateHref =

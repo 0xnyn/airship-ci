@@ -33,6 +33,7 @@ import {
   azureRegions,
   daytonaRegions,
   gcpLocations,
+  namespaceRegions,
 } from "@/lib/labels";
 import { CloudLogo } from "./cloud-logo";
 import { CodeBlock } from "./copy-button";
@@ -56,6 +57,7 @@ const DEFAULT_AWS_REGION = "eu-west-1";
 const DEFAULT_GCP_LOCATION = "us-central1-b";
 const DEFAULT_DAYTONA_REGION = "us";
 const DEFAULT_AZURE_REGION = "eastus";
+const DEFAULT_NAMESPACE_REGION = "us";
 
 type CloudName = Schemas["Cloud"]["cloud"];
 
@@ -106,6 +108,15 @@ const cloudCopy: Record<
     noCache: true,
     title: "Daytona",
   },
+  e2b: {
+    account: "Team",
+    identity: "API key",
+    intro:
+      "A team API key. Each runner is a sandbox started from the template its definition names.",
+    location: "Region",
+    noCache: true,
+    title: "E2B",
+  },
   gcp: {
     account: "Project",
     identity: "Service account",
@@ -118,9 +129,73 @@ const cloudCopy: Record<
     location: "Default zone",
     title: "Google Cloud",
   },
+  lelantos: {
+    account: "Team",
+    identity: "API key",
+    intro:
+      "An API key. Each runner is an EU Firecracker sandbox from the template its definition names.",
+    location: "Region",
+    noCache: true,
+    title: "Lelantos",
+  },
+  modal: {
+    account: "Environment",
+    identity: "Token ID",
+    intro:
+      "A token pair. Each runner is a Modal Sandbox, with a GPU when its definition asks.",
+    location: "Region",
+    noCache: true,
+    title: "Modal",
+  },
+  namespace: {
+    account: "Workspace",
+    identity: "Token",
+    intro:
+      "A workspace token. Each runner is a Namespace instance, ended when its job ends.",
+    location: "Default region",
+    noCache: true,
+    title: "Namespace",
+  },
+  novita: {
+    account: "Team",
+    identity: "API key",
+    intro:
+      "An API key. Each runner is a sandbox from the template its definition names.",
+    location: "Region",
+    noCache: true,
+    title: "Novita",
+  },
+  runloop: {
+    account: "Account",
+    identity: "API key",
+    intro: "An API key. Each runner is a devbox, shut down when its job ends.",
+    location: "Region",
+    noCache: true,
+    title: "Runloop",
+  },
+  tenki: {
+    account: "Workspace",
+    identity: "API key",
+    intro: "A workspace API key. Each runner is a Tenki microVM.",
+    location: "Region",
+    noCache: true,
+    title: "Tenki",
+  },
 };
 
-const ORDER: readonly CloudName[] = ["aws", "gcp", "azure", "daytona"];
+const ORDER: readonly CloudName[] = [
+  "aws",
+  "gcp",
+  "azure",
+  "daytona",
+  "runloop",
+  "e2b",
+  "novita",
+  "lelantos",
+  "namespace",
+  "tenki",
+  "modal",
+];
 
 function CloudTile({
   name,
@@ -168,7 +243,18 @@ export function CloudPage() {
     aws: (existing) => <ConnectAWSForm existing={existing} />,
     azure: (existing) => <ConnectAzureForm existing={existing} />,
     daytona: (existing) => <ConnectDaytonaForm existing={existing} />,
+    e2b: (existing) => <ConnectE2BForm existing={existing} />,
     gcp: (existing) => <ConnectGCPForm existing={existing} />,
+    lelantos: (existing) => (
+      <ConnectE2BCompatibleForm cloud="lelantos" existing={existing} />
+    ),
+    modal: (existing) => <ConnectModalForm existing={existing} />,
+    namespace: (existing) => <ConnectNamespaceForm existing={existing} />,
+    novita: (existing) => (
+      <ConnectE2BCompatibleForm cloud="novita" existing={existing} />
+    ),
+    runloop: (existing) => <ConnectRunloopForm existing={existing} />,
+    tenki: (existing) => <ConnectTenkiForm existing={existing} />,
   };
 
   return (
@@ -869,6 +955,508 @@ function ConnectDaytonaForm({
   );
 }
 
+function ConnectRunloopForm({
+  existing,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const connect = $api.useMutation("put", "/v1/orgs/{org}/clouds/runloop", {
+    onSuccess: async () => {
+      setApiKey("");
+      toast.success("Connected Runloop");
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title="Runloop" />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    connect.mutate({
+      body: { apiKey: apiKey.trim() },
+      params: { path: { org: org.login } },
+    });
+  };
+
+  return (
+    <CredentialsForm
+      cloud="runloop"
+      existing={existing}
+      label={existing ? "Replace Runloop credentials" : "Connect Runloop"}
+      onSubmit={submit}
+      pending={connect.isPending}
+    >
+      <Field data-invalid={connect.isError || undefined}>
+        <FieldLabel htmlFor="runloop-api-key">API key</FieldLabel>
+        <Input
+          aria-invalid={connect.isError || undefined}
+          autoComplete="off"
+          className="font-mono md:max-w-md"
+          id="runloop-api-key"
+          minLength={16}
+          onChange={(event) => setApiKey(event.target.value)}
+          required
+          spellCheck={false}
+          type="password"
+          value={apiKey}
+        />
+        <FieldDescription>Runloop has no regions</FieldDescription>
+      </Field>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, "Could not connect Runloop")}
+        </FieldError>
+      ) : null}
+    </CredentialsForm>
+  );
+}
+
+function ConnectE2BForm({
+  existing,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [domain, setDomain] = useState("");
+  const connect = $api.useMutation("put", "/v1/orgs/{org}/clouds/e2b", {
+    onSuccess: async () => {
+      setApiKey("");
+      toast.success("Connected E2B");
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title="E2B" />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedDomain = domain.trim();
+    connect.mutate({
+      body: {
+        apiKey: apiKey.trim(),
+        ...(trimmedDomain ? { domain: trimmedDomain } : {}),
+      },
+      params: { path: { org: org.login } },
+    });
+  };
+
+  return (
+    <CredentialsForm
+      cloud="e2b"
+      existing={existing}
+      label={existing ? "Replace E2B credentials" : "Connect E2B"}
+      onSubmit={submit}
+      pending={connect.isPending}
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor="e2b-api-key">API key</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id="e2b-api-key"
+            minLength={12}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder="e2b_…"
+            required
+            spellCheck={false}
+            type="password"
+            value={apiKey}
+          />
+          <FieldDescription>A team API key</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="e2b-domain">Domain</FieldLabel>
+          <Input
+            autoComplete="off"
+            className="font-mono"
+            id="e2b-domain"
+            onChange={(event) => setDomain(event.target.value)}
+            placeholder="e2b.app"
+            spellCheck={false}
+            value={domain}
+          />
+          <FieldDescription>
+            Leave empty for the hosted service
+          </FieldDescription>
+        </Field>
+      </div>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, "Could not connect E2B")}
+        </FieldError>
+      ) : null}
+    </CredentialsForm>
+  );
+}
+
+const E2B_COMPATIBLE = {
+  lelantos: { domain: "lelantos.ai", key: "lel_…", title: "Lelantos" },
+  novita: {
+    domain: "us-phx-1.sandbox.novita.ai",
+    key: "sk_…",
+    title: "Novita",
+  },
+} as const;
+
+function ConnectE2BCompatibleForm({
+  cloud,
+  existing,
+}: {
+  cloud: keyof typeof E2B_COMPATIBLE;
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [domain, setDomain] = useState("");
+  const { domain: hostedDomain, key, title } = E2B_COMPATIBLE[cloud];
+  const connect = $api.useMutation("put", `/v1/orgs/{org}/clouds/${cloud}`, {
+    onSuccess: async () => {
+      setApiKey("");
+      toast.success(`Connected ${title}`);
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title={title} />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedDomain = domain.trim();
+    connect.mutate({
+      body: {
+        apiKey: apiKey.trim(),
+        ...(trimmedDomain ? { domain: trimmedDomain } : {}),
+      },
+      params: { path: { org: org.login } },
+    });
+  };
+
+  return (
+    <CredentialsForm
+      cloud={cloud}
+      existing={existing}
+      label={existing ? `Replace ${title} credentials` : `Connect ${title}`}
+      onSubmit={submit}
+      pending={connect.isPending}
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor={`${cloud}-api-key`}>API key</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id={`${cloud}-api-key`}
+            minLength={12}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={key}
+            required
+            spellCheck={false}
+            type="password"
+            value={apiKey}
+          />
+          <FieldDescription>{title} has no regions</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${cloud}-domain`}>Domain</FieldLabel>
+          <Input
+            autoComplete="off"
+            className="font-mono"
+            id={`${cloud}-domain`}
+            onChange={(event) => setDomain(event.target.value)}
+            placeholder={hostedDomain}
+            spellCheck={false}
+            value={domain}
+          />
+          <FieldDescription>
+            Leave empty for the hosted service
+          </FieldDescription>
+        </Field>
+      </div>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, `Could not connect ${title}`)}
+        </FieldError>
+      ) : null}
+    </CredentialsForm>
+  );
+}
+
+function ConnectNamespaceForm({
+  existing,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [token, setToken] = useState("");
+  const [region, setRegion] = useState(
+    existing?.defaultRegion ?? DEFAULT_NAMESPACE_REGION
+  );
+  const connect = $api.useMutation("put", "/v1/orgs/{org}/clouds/namespace", {
+    onSuccess: async () => {
+      setToken("");
+      toast.success("Connected Namespace");
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title="Namespace" />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    connect.mutate({
+      body: {
+        defaultRegion: region === "eu" ? "eu" : "us",
+        token: token.trim(),
+      },
+      params: { path: { org: org.login } },
+    });
+  };
+
+  return (
+    <CredentialsForm
+      cloud="namespace"
+      existing={existing}
+      label={existing ? "Replace Namespace credentials" : "Connect Namespace"}
+      onSubmit={submit}
+      pending={connect.isPending}
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor="namespace-token">Token</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id="namespace-token"
+            minLength={16}
+            onChange={(event) => setToken(event.target.value)}
+            required
+            spellCheck={false}
+            type="password"
+            value={token}
+          />
+          <FieldDescription>Can create and destroy instances</FieldDescription>
+        </Field>
+        <LocationSelect
+          id="namespace-region"
+          label="Default region"
+          onChange={setRegion}
+          options={namespaceRegions}
+          value={region}
+        />
+      </div>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, "Could not connect Namespace")}
+        </FieldError>
+      ) : null}
+    </CredentialsForm>
+  );
+}
+
+function ConnectTenkiForm({
+  existing,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [workspaceId, setWorkspaceId] = useState("");
+  const connect = $api.useMutation("put", "/v1/orgs/{org}/clouds/tenki", {
+    onSuccess: async () => {
+      setApiKey("");
+      toast.success("Connected Tenki");
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title="Tenki" />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedWorkspace = workspaceId.trim();
+    connect.mutate({
+      body: {
+        apiKey: apiKey.trim(),
+        ...(trimmedWorkspace ? { workspaceId: trimmedWorkspace } : {}),
+      },
+      params: { path: { org: org.login } },
+    });
+  };
+
+  return (
+    <CredentialsForm
+      cloud="tenki"
+      existing={existing}
+      label={existing ? "Replace Tenki credentials" : "Connect Tenki"}
+      onSubmit={submit}
+      pending={connect.isPending}
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor="tenki-api-key">API key</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id="tenki-api-key"
+            minLength={12}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder="tk_…"
+            required
+            spellCheck={false}
+            type="password"
+            value={apiKey}
+          />
+          <FieldDescription>Tenki has no regions</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="tenki-workspace">Workspace ID</FieldLabel>
+          <Input
+            autoComplete="off"
+            className="font-mono"
+            id="tenki-workspace"
+            onChange={(event) => setWorkspaceId(event.target.value)}
+            spellCheck={false}
+            value={workspaceId}
+          />
+          <FieldDescription>
+            Only for a key that is not a workspace key
+          </FieldDescription>
+        </Field>
+      </div>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, "Could not connect Tenki")}
+        </FieldError>
+      ) : null}
+    </CredentialsForm>
+  );
+}
+
+function ConnectModalForm({
+  existing,
+}: {
+  existing: Schemas["Cloud"] | undefined;
+}) {
+  const { isAdmin, org } = useOrg();
+  const queryClient = useQueryClient();
+  const [tokenId, setTokenId] = useState("");
+  const [tokenSecret, setTokenSecret] = useState("");
+  const [environment, setEnvironment] = useState("");
+  const connect = $api.useMutation("put", "/v1/orgs/{org}/clouds/modal", {
+    onSuccess: async () => {
+      setTokenSecret("");
+      toast.success("Connected Modal");
+      await invalidatePath(queryClient, CLOUDS);
+    },
+  });
+  useForgetKey(connect);
+
+  if (!isAdmin) {
+    return existing ? null : <NotConnected title="Modal" />;
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedEnvironment = environment.trim();
+    connect.mutate({
+      body: {
+        tokenId: tokenId.trim(),
+        tokenSecret: tokenSecret.trim(),
+        ...(trimmedEnvironment ? { environment: trimmedEnvironment } : {}),
+      },
+      params: { path: { org: org.login } },
+    });
+  };
+
+  return (
+    <CredentialsForm
+      cloud="modal"
+      existing={existing}
+      label={existing ? "Replace Modal credentials" : "Connect Modal"}
+      onSubmit={submit}
+      pending={connect.isPending}
+    >
+      <div className="grid gap-4 md:grid-cols-3">
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor="modal-token-id">Token ID</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id="modal-token-id"
+            onChange={(event) => setTokenId(event.target.value)}
+            placeholder="ak-…"
+            required
+            spellCheck={false}
+            value={tokenId}
+          />
+        </Field>
+        <Field data-invalid={connect.isError || undefined}>
+          <FieldLabel htmlFor="modal-token-secret">Token secret</FieldLabel>
+          <Input
+            aria-invalid={connect.isError || undefined}
+            autoComplete="off"
+            className="font-mono"
+            id="modal-token-secret"
+            onChange={(event) => setTokenSecret(event.target.value)}
+            placeholder="as-…"
+            required
+            spellCheck={false}
+            type="password"
+            value={tokenSecret}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="modal-environment">Environment</FieldLabel>
+          <Input
+            autoComplete="off"
+            className="font-mono"
+            id="modal-environment"
+            onChange={(event) => setEnvironment(event.target.value)}
+            placeholder="main"
+            spellCheck={false}
+            value={environment}
+          />
+          <FieldDescription>Leave empty for the default</FieldDescription>
+        </Field>
+      </div>
+      {connect.isError ? (
+        <FieldError>
+          {errorMessage(connect.error, "Could not connect Modal")}
+        </FieldError>
+      ) : null}
+    </CredentialsForm>
+  );
+}
+
 function Disconnect({ cloud }: { cloud: Schemas["Cloud"] }) {
   const { org } = useOrg();
   const queryClient = useQueryClient();
@@ -998,6 +1586,15 @@ const guides: Record<CloudName, { body: ReactNode; title: string }> = {
     ),
     title: "Creating the Daytona API key",
   },
+  e2b: {
+    body: (
+      <p className="text-muted-foreground text-sm">
+        Create a team API key in the E2B dashboard. Sandbox timeouts are capped
+        by plan: one hour on Hobby, 24 hours on Pro.
+      </p>
+    ),
+    title: "Creating the E2B API key",
+  },
   gcp: {
     body: (
       <>
@@ -1015,5 +1612,59 @@ const guides: Record<CloudName, { body: ReactNode; title: string }> = {
       </>
     ),
     title: "Creating the service account",
+  },
+  lelantos: {
+    body: (
+      <p className="text-muted-foreground text-sm">
+        Create an API key in the Lelantos console. Sandboxes run in the EU.
+      </p>
+    ),
+    title: "Creating the Lelantos API key",
+  },
+  modal: {
+    body: (
+      <p className="text-muted-foreground text-sm">
+        Create a token under Settings, API Tokens; its ID and secret are shown
+        once. Sandboxes run at most 24 hours.
+      </p>
+    ),
+    title: "Creating the Modal token",
+  },
+  namespace: {
+    body: (
+      <p className="text-muted-foreground text-sm">
+        Create a token that can manage instances in the Namespace dashboard. The
+        workspace's maximum deadline caps how long a runner can live.
+      </p>
+    ),
+    title: "Creating the Namespace token",
+  },
+  novita: {
+    body: (
+      <p className="text-muted-foreground text-sm">
+        Create an API key under the Team tab of the Novita dashboard. Airship
+        marks each sandbox long-running, so it can outlive the plan's session
+        cap.
+      </p>
+    ),
+    title: "Creating the Novita API key",
+  },
+  runloop: {
+    body: (
+      <p className="text-muted-foreground text-sm">
+        Create an API key in the Runloop dashboard. Devboxes run at most 48
+        hours, past any runner's deadline.
+      </p>
+    ),
+    title: "Creating the Runloop API key",
+  },
+  tenki: {
+    body: (
+      <p className="text-muted-foreground text-sm">
+        Create a workspace API key under the workspace's settings in the Tenki
+        app.
+      </p>
+    ),
+    title: "Creating the Tenki API key",
   },
 };

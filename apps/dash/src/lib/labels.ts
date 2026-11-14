@@ -80,3 +80,6 @@ export const azureRegions = [
 
 /** Daytona regions offered as a default; any region of the organization works in `airship.yaml`. */
 export const daytonaRegions = ["us", "eu"] as const;
+
+/** Namespace's regional Compute API endpoints. */
+export const namespaceRegions = ["us", "eu"] as const;

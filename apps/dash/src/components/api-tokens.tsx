@@ -340,6 +340,7 @@ function TokenSecretDialog({
           language="shell"
           value={example}
         />
+        <DialogFooter showCloseButton />
       </DialogContent>
     </Dialog>
   );

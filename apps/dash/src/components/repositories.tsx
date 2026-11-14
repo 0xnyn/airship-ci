@@ -3,6 +3,13 @@
 import type { Schemas } from "@airship/client";
 import { Badge } from "@airship/ui/components/badge";
 import { Button, buttonVariants } from "@airship/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@airship/ui/components/dropdown-menu";
 import { Field, FieldError, FieldLabel } from "@airship/ui/components/field";
 import { Input } from "@airship/ui/components/input";
 import { Switch } from "@airship/ui/components/switch";
@@ -16,7 +23,7 @@ import {
 } from "@airship/ui/components/table";
 import { Textarea } from "@airship/ui/components/textarea";
 import { useQueryClient } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, MoreHorizontal } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
@@ -67,14 +74,10 @@ export function Repositories() {
   return (
     <>
       <PageHeader
+        action={<Actions />}
         description="Repositories Airship may run jobs for"
         title="Repositories"
       />
-      <div className="grid gap-6 lg:grid-cols-3">
-        <ConnectGitHub />
-        <Activate />
-        <MoveWorkflows />
-      </div>
       <Section title="Activated repositories">
         <ActivatedList />
       </Section>
@@ -89,114 +92,23 @@ export function Repositories() {
   );
 }
 
-function Section({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <section className="grid gap-3">
-      <h2 className="font-semibold text-base tracking-tight">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function ConnectGitHub() {
+function Actions() {
+  const { isAdmin, org } = useOrg();
   const config = $api.useQuery("get", "/v1/auth/config");
   const installUrl = config.data?.installUrl;
-
-  return (
-    <SettingsCard aria-labelledby="connect-github" className="flex flex-col">
-      <SettingsCardHeader
-        description="Grant the app access on GitHub"
-        icon={<StepNumber number={1} />}
-        id="connect-github"
-        title="Connect GitHub"
-      />
-      <div className="flex-1" />
-      <SettingsCardFooter
-        note={
-          installUrl
-            ? "Pick the repositories it sees"
-            : "No GitHub App is configured for this deployment"
-        }
-      >
-        {installUrl ? (
-          <a
-            className={buttonVariants({ variant: "outline" })}
-            href={installUrl}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Manage app on GitHub
-            <ExternalLink aria-hidden="true" />
-          </a>
-        ) : null}
-      </SettingsCardFooter>
-    </SettingsCard>
-  );
-}
-
-function MoveWorkflows() {
-  const { isAdmin, org } = useOrg();
-  const [drafts, setDrafts] = useState(0);
-  // Drafts live in this browser only, so read them after mounting.
-  useEffect(() => {
-    setDrafts(listDrafts(org.login).length);
-  }, [org.login]);
-
-  let note = "Only organization owners can move workflows";
-  if (isAdmin) {
-    note =
-      drafts > 0 ? `${drafts} in progress` : "Opens a pull request to review";
-  }
-
-  return (
-    <SettingsCard aria-labelledby="move-workflows" className="flex flex-col">
-      <SettingsCardHeader
-        description="Airship rewrites runs-on and drafts airship.yaml"
-        icon={<StepNumber number={3} />}
-        id="move-workflows"
-        title="Move workflows"
-      />
-      <div className="flex-1" />
-      <SettingsCardFooter note={note}>
-        {isAdmin ? (
-          <Link
-            className={buttonVariants({
-              variant: drafts > 0 ? "outline" : "default",
-            })}
-            href={`/${org.login}/repositories/migrate` as Route}
-          >
-            {drafts > 0 ? "Resume" : "Start"}
-          </Link>
-        ) : null}
-      </SettingsCardFooter>
-    </SettingsCard>
-  );
-}
-
-function StepNumber({ number }: { number: number }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="grid size-8 shrink-0 place-items-center rounded-full border bg-muted font-medium text-muted-foreground text-sm"
-    >
-      {number}
-    </span>
-  );
-}
-
-// The API refuses files over this many bytes.
-const MAX_CONFIG_BYTES = 65_536;
-
-function Activate() {
-  const { isAdmin, org } = useOrg();
+  const repos = $api.useQuery("get", REPOSITORIES, {
+    params: { path: { org: org.login } },
+  });
   const [name, setName] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [activating, setActivating] = useState<Schemas["Repository"] | null>(
     null
   );
-  const repos = $api.useQuery("get", REPOSITORIES, {
-    params: { path: { org: org.login } },
-  });
+  const [drafts, setDrafts] = useState(0);
+
+  useEffect(() => {
+    setDrafts(listDrafts(org.login).length);
+  }, [org.login]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -225,55 +137,92 @@ function Activate() {
   };
 
   return (
-    <SettingsCard aria-labelledby="activate-repository">
-      <form onSubmit={submit}>
-        <SettingsCardHeader
-          description="Runners come from its airship.yaml"
-          icon={<StepNumber number={2} />}
-          id="activate-repository"
-          title="Activate a repository"
-        />
-        {isAdmin ? (
-          <SettingsCardBody>
-            <Field data-invalid={problem !== null || undefined}>
-              <FieldLabel className="sr-only" htmlFor="activate-repo">
-                Repository
-              </FieldLabel>
-              <Input
-                aria-invalid={problem !== null || undefined}
-                autoComplete="off"
-                className="font-mono"
-                id="activate-repo"
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setProblem(null);
-                }}
-                placeholder={`${org.login}/repo`}
-                required
-                spellCheck={false}
-                value={name}
-              />
-              {problem ? <FieldError>{problem}</FieldError> : null}
-            </Field>
-          </SettingsCardBody>
-        ) : null}
-        <SettingsCardFooter
-          note={
-            isAdmin
-              ? "Its jobs launch machines in your cloud"
-              : "Only organization owners can activate repositories"
-          }
+    <div className="flex items-center gap-2">
+      {isAdmin ? (
+        <form className="flex items-center gap-2" onSubmit={submit}>
+          <Field data-invalid={problem !== null || undefined}>
+            <FieldLabel className="sr-only" htmlFor="activate-repo">
+              Repository
+            </FieldLabel>
+            <Input
+              aria-invalid={problem !== null || undefined}
+              autoComplete="off"
+              className="h-9 w-56 font-mono text-sm"
+              id="activate-repo"
+              onChange={(event) => {
+                setName(event.target.value);
+                setProblem(null);
+              }}
+              placeholder={`${org.login}/repo`}
+              required
+              spellCheck={false}
+              value={name}
+            />
+            {problem ? (
+              <FieldError className="absolute top-full mt-1 whitespace-nowrap">
+                {problem}
+              </FieldError>
+            ) : null}
+          </Field>
+          <Button
+            disabled={repos.isPending || name.trim() === ""}
+            size="sm"
+            type="submit"
+          >
+            Activate
+          </Button>
+        </form>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className={buttonVariants({ size: "icon", variant: "outline" })}
         >
+          <MoreHorizontal className="size-4" />
+          <span className="sr-only">More actions</span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
           {isAdmin ? (
-            <Button
-              disabled={repos.isPending || name.trim() === ""}
-              type="submit"
+            <DropdownMenuItem
+              onSelect={() => null}
+              render={
+                <Link href={`/${org.login}/repositories/migrate` as Route} />
+              }
             >
-              Activate
-            </Button>
+              Move workflows
+              {drafts > 0 ? (
+                <Badge className="ml-auto" variant="secondary">
+                  {drafts} in progress
+                </Badge>
+              ) : null}
+            </DropdownMenuItem>
           ) : null}
-        </SettingsCardFooter>
-      </form>
+          {installUrl ? (
+            <DropdownMenuItem
+              onSelect={() => null}
+              render={
+                <a
+                  href={installUrl}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                />
+              }
+            >
+              Manage app on GitHub
+              <ExternalLink
+                aria-hidden="true"
+                className="ml-auto size-3.5 text-muted-foreground"
+              />
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => null}
+            render={<Link href={`/${org.login}/setup` as Route} />}
+          >
+            Guided setup
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <ActivateDialog
         onClose={() => {
           setActivating(null);
@@ -281,9 +230,21 @@ function Activate() {
         }}
         repo={activating}
       />
-    </SettingsCard>
+    </div>
   );
 }
+
+function Section({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="grid gap-3">
+      <h2 className="font-semibold text-base tracking-tight">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+// The API refuses files over this many bytes.
+const MAX_CONFIG_BYTES = 65_536;
 
 function ActivatedList() {
   const { isAdmin, org } = useOrg();

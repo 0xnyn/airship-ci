@@ -246,7 +246,7 @@ func (h *handlers) migrationSource(ctx context.Context, inst db.Installation, re
 	case err != nil:
 		slog.WarnContext(ctx, "read workflows", slog.Any("error", err))
 
-		return src, huma.Error502BadGateway("could not read the repository's workflows from GitHub; try again in a moment")
+		return src, huma.Error502BadGateway("could not read the repository's workflows from GitHub: " + err.Error())
 	}
 
 	return src, nil

@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@airship/tokens": "workspace:*",
-    "astro": "^7.4.2"
+    "astro": "^7.4.11"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",

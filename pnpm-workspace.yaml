@@ -14,12 +14,11 @@ allowBuilds:
 # Varlock replaces Next's env loader so .env.schema validates and types env.
 overrides:
   "@next/env": npm:@varlock/nextjs-integration@1.2.5
-  # Security fixes the Mintlify CLI has not picked up yet (Dependabot):
-  # js-yaml GHSA-2883-xcg3-v3hh, sharp GHSA-f88m-g3jw-g9cj,
-  # GHSA-rgj7-g3m4-5g8c and GHSA-wq5f-xc86-pv6w. Drop each once `mint`
-  # depends on a patched version itself.
+  # Security fixes transitive dependencies have not picked up yet
+  # (Dependabot). Drop each once the parent depends on a patched version.
   "js-yaml@>=4.0.0 <4.3.2": ^4.3.2
   "sharp@<0.35.5": ^0.35.5
+  "minimatch@>=7.0.0 <11.0.1": ^11.0.1
 
 # Versions shared by more than one package. Reference with "catalog:".
 catalog:

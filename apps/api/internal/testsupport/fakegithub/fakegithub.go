@@ -559,6 +559,13 @@ func (s *Server) serveWrite(w http.ResponseWriter, r *http.Request, parts []stri
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"ref": body.Ref, "object": map[string]string{"sha": body.SHA}})
 	case r.Method == http.MethodPut && len(parts) >= 5 && parts[3] == "contents":
+		s.calls["PUT contents"]++
+		if queue := s.failures["PUT contents"]; len(queue) > 0 {
+			s.failures["PUT contents"] = queue[1:]
+			writeJSON(w, queue[0], map[string]string{"message": "scripted failure"})
+
+			return true
+		}
 		var body struct {
 			Message string `json:"message"`
 			Content string `json:"content"`
@@ -687,6 +694,11 @@ func (s *Server) serveContent(w http.ResponseWriter, r *http.Request, parts []st
 		}
 		content, ok := s.files[fileKey(repo, ref, strings.Join(parts[4:], "/"))]
 		if !ok {
+			if listing := s.listDirectory(repo, ref, strings.Join(parts[4:], "/")); len(listing) > 0 {
+				writeJSON(w, http.StatusOK, listing)
+
+				return true
+			}
 			notFound()
 
 			return true
@@ -941,4 +953,34 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// listDirectory lists the files and directories directly under dir, as
+// GitHub's contents API does for a directory. Callers hold s.mu.
+func (s *Server) listDirectory(repo, ref, dir string) []map[string]any {
+	prefix := fileKey(repo, ref, dir+"/")
+	seen := map[string]bool{}
+	var out []map[string]any
+	for key, content := range s.files {
+		rest, ok := strings.CutPrefix(key, prefix)
+		if !ok {
+			continue
+		}
+		name, _, nested := strings.Cut(rest, "/")
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		entry := map[string]any{"name": name, "path": dir + "/" + name, "type": "file", "size": len(content)}
+		if nested {
+			entry["type"] = "dir"
+			entry["size"] = 0
+		} else {
+			sum := sha256.Sum256(content)
+			entry["sha"] = hex.EncodeToString(sum[:20])
+		}
+		out = append(out, entry)
+	}
+
+	return out
 }

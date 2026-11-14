@@ -609,6 +609,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/repositories/{repo}/migration/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview the files a migration plan writes */
+        post: operations["previewMigration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/repositories/{repo}/migration/pull-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open a pull request that moves workflows onto Airship */
+        post: operations["openMigrationPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/repositories/{repo}/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a repository's workflows for moving them onto Airship */
+        get: operations["scanRepositoryWorkflows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/orgs/{org}/runner-config": {
         parameters: {
             query?: never;
@@ -1114,6 +1165,14 @@ export interface components {
             /** @description Pass as cursor to get the next page */
             nextCursor: string | null;
         };
+        ExistingRunnerConfig: {
+            /** @description Why the file cannot be used */
+            problem: string | null;
+            /** @description Its runner definitions */
+            runners: components["schemas"]["ConfigRunner"][];
+            /** @description Blob SHA */
+            sha: string;
+        };
         Grant: {
             accessKeyId: string;
             accountId?: string;
@@ -1227,6 +1286,62 @@ export interface components {
         };
         MemberList: {
             items: components["schemas"]["Member"][] | null;
+        };
+        MigrationFileChange: {
+            /** @description Content after the change */
+            after: string;
+            /** @description Content today; empty for a new file */
+            before: string;
+            /** @description Whether the file is new */
+            created: boolean;
+            /** @description Path in the repository */
+            path: string;
+        };
+        MigrationMove: {
+            /** @description Job ID */
+            job: string;
+            /** @description Label the job runs on, such as airship-linux */
+            label: string;
+            /** @description Workflow path, such as .github/workflows/ci.yml */
+            workflow: string;
+        };
+        MigrationPlan: {
+            /** @description Jobs to move; may be empty when the plan only adds runners */
+            moves: components["schemas"]["MigrationMove"][];
+            /** @description Definitions to add to airship.yaml */
+            runners: components["schemas"]["MigrationRunner"][];
+        };
+        MigrationPreview: {
+            files: components["schemas"]["MigrationFileChange"][];
+        };
+        MigrationPullRequest: {
+            /**
+             * Format: int64
+             * @description Pull request number
+             */
+            number: number;
+            /**
+             * Format: uri
+             * @description Where to review it
+             */
+            url: string;
+        };
+        MigrationRunner: {
+            /**
+             * @description Where it launches
+             * @enum {string}
+             */
+            cloud: "aws" | "gcp" | "azure" | "daytona" | "runloop" | "e2b" | "novita" | "lelantos" | "namespace" | "tenki" | "modal";
+            /** @description Machine shape, as airship.yaml spells it for the cloud */
+            instanceType: string;
+            /** @description Image; empty for the cloud's default */
+            machineImage?: string;
+            /** @description Definition name; its label is airship-<name> */
+            name: string;
+            /** @description Use spot capacity */
+            preemptible?: boolean;
+            /** @description Region; empty for the connected cloud's default */
+            region?: string;
         };
         Organization: {
             /**
@@ -1542,6 +1657,10 @@ export interface components {
              */
             maxRunners: number;
         };
+        SkippedWorkflow: {
+            path: string;
+            reason: string;
+        };
         UpdateAccessControl: {
             /** @description Organization; must match the token's */
             org?: string;
@@ -1556,6 +1675,59 @@ export interface components {
              * @enum {string}
              */
             file: "airship.yaml" | "airship.global.yaml" | "access.yaml";
+        };
+        WorkflowFile: {
+            /** @description Jobs in file order */
+            jobs: components["schemas"]["WorkflowJob"][];
+            /** @description The workflow's name: field */
+            name: string;
+            /** @description Path in the repository */
+            path: string;
+            /** @description Why the file could not be read */
+            problem: string | null;
+        };
+        WorkflowJob: {
+            /** @description Whether runs-on can be rewritten automatically */
+            editable: boolean;
+            /** @description Job ID, the key under jobs: */
+            id: string;
+            /** @description The closest machine_image alias to the hosted image */
+            image: string;
+            /**
+             * @description What runs-on asks for today
+             * @enum {string}
+             */
+            kind: "hosted" | "airship" | "self-hosted" | "expression" | "group" | "reusable" | "other";
+            /**
+             * Format: int64
+             * @description Line of runs-on in the file
+             */
+            line: number;
+            /** @description Whether the job has a strategy matrix */
+            matrix: boolean;
+            /** @description The job's name: field, if it has one */
+            name: string;
+            /**
+             * @description The GitHub-hosted machine's platform, when known
+             * @enum {string}
+             */
+            platform: "linux-x64" | "linux-arm64" | "windows" | "macos" | "";
+            /** @description Why it cannot be moved automatically */
+            reason: string;
+            /** @description runs-on labels as written; empty for a runner group or a reusable workflow call */
+            runsOn: string[];
+        };
+        WorkflowScan: {
+            /** @description The repository's airship.yaml; absent when there is none */
+            config?: components["schemas"]["ExistingRunnerConfig"];
+            /** @description Branch the files were read from */
+            defaultBranch: string;
+            /** @description owner/name */
+            repository: string;
+            /** @description Labels the organization's airship.global.yaml serves */
+            sharedLabels: string[];
+            skipped: components["schemas"]["SkippedWorkflow"][];
+            workflows: components["schemas"]["WorkflowFile"][];
         };
     };
     responses: never;
@@ -2901,6 +3073,112 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    previewMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+                repo: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MigrationPlan"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationPreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    openMigrationPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org: string;
+                repo: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MigrationPlan"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationPullRequest"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    scanRepositoryWorkflows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub organization login */
+                org: string;
+                /** @description GitHub repository ID */
+                repo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowScan"];
+                };
             };
             /** @description Error */
             default: {

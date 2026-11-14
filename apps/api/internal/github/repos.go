@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -200,4 +201,40 @@ func (c *Client) RepoRoles(ctx context.Context, repo Repo, user string) ([]strin
 	}
 
 	return []string{strings.ToLower(out.RoleName), strings.ToLower(out.Permission)}, nil
+}
+
+// Entry is one item of a directory listing.
+type Entry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	// Type is file, dir, symlink or submodule.
+	Type string `json:"type"`
+	Size int    `json:"size"`
+	SHA  string `json:"sha"`
+}
+
+// ListDirectory lists a directory at ref (empty means the default branch).
+// A missing directory, or a path that is a file, lists as empty.
+func (c *Client) ListDirectory(ctx context.Context, repo Repo, path, ref string) ([]Entry, error) {
+	endpoint := repo.path() + "/contents/" + escapePath(path)
+	if ref != "" {
+		endpoint += "?" + url.Values{"ref": {ref}}.Encode()
+	}
+	var raw json.RawMessage
+	err := c.do(ctx, http.MethodGet, endpoint, nil, &raw)
+	if IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil, nil
+	}
+	var entries []Entry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, fmt.Errorf("decode %s listing: %w", path, err)
+	}
+
+	return entries, nil
 }

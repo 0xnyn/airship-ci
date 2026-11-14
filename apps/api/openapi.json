@@ -1069,6 +1069,35 @@
         ],
         "type": "object"
       },
+      "ExistingRunnerConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "problem": {
+            "description": "Why the file cannot be used",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runners": {
+            "description": "Its runner definitions",
+            "items": {
+              "$ref": "#/components/schemas/ConfigRunner"
+            },
+            "type": "array"
+          },
+          "sha": {
+            "description": "Blob SHA",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha",
+          "problem",
+          "runners"
+        ],
+        "type": "object"
+      },
       "Grant": {
         "additionalProperties": false,
         "properties": {
@@ -1408,6 +1437,179 @@
         },
         "required": [
           "items"
+        ],
+        "type": "object"
+      },
+      "MigrationFileChange": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Content after the change",
+            "type": "string"
+          },
+          "before": {
+            "description": "Content today; empty for a new file",
+            "type": "string"
+          },
+          "created": {
+            "description": "Whether the file is new",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Path in the repository",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "before",
+          "after",
+          "created"
+        ],
+        "type": "object"
+      },
+      "MigrationMove": {
+        "additionalProperties": false,
+        "properties": {
+          "job": {
+            "description": "Job ID",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "label": {
+            "description": "Label the job runs on, such as airship-linux",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workflow": {
+            "description": "Workflow path, such as .github/workflows/ci.yml",
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "job",
+          "label"
+        ],
+        "type": "object"
+      },
+      "MigrationPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "moves": {
+            "description": "Jobs to move; may be empty when the plan only adds runners",
+            "items": {
+              "$ref": "#/components/schemas/MigrationMove"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "runners": {
+            "description": "Definitions to add to airship.yaml",
+            "items": {
+              "$ref": "#/components/schemas/MigrationRunner"
+            },
+            "maxItems": 20,
+            "type": "array"
+          }
+        },
+        "required": [
+          "runners",
+          "moves"
+        ],
+        "type": "object"
+      },
+      "MigrationPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationFileChange"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "type": "object"
+      },
+      "MigrationPullRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "number": {
+            "description": "Pull request number",
+            "format": "int64",
+            "type": "integer"
+          },
+          "url": {
+            "description": "Where to review it",
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "url"
+        ],
+        "type": "object"
+      },
+      "MigrationRunner": {
+        "additionalProperties": false,
+        "properties": {
+          "cloud": {
+            "description": "Where it launches",
+            "enum": [
+              "aws",
+              "gcp",
+              "azure",
+              "daytona",
+              "runloop",
+              "e2b",
+              "novita",
+              "lelantos",
+              "namespace",
+              "tenki",
+              "modal"
+            ],
+            "type": "string"
+          },
+          "instanceType": {
+            "description": "Machine shape, as airship.yaml spells it for the cloud",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "machineImage": {
+            "description": "Image; empty for the cloud's default",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "name": {
+            "description": "Definition name; its label is airship-\u003cname\u003e",
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "type": "string"
+          },
+          "preemptible": {
+            "description": "Use spot capacity",
+            "type": "boolean"
+          },
+          "region": {
+            "description": "Region; empty for the connected cloud's default",
+            "maxLength": 100,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "cloud",
+          "instanceType"
         ],
         "type": "object"
       },
@@ -2140,6 +2342,22 @@
         ],
         "type": "object"
       },
+      "SkippedWorkflow": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "reason"
+        ],
+        "type": "object"
+      },
       "UpdateAccessControl": {
         "additionalProperties": false,
         "properties": {
@@ -2187,6 +2405,162 @@
         "required": [
           "file",
           "content"
+        ],
+        "type": "object"
+      },
+      "WorkflowFile": {
+        "additionalProperties": false,
+        "properties": {
+          "jobs": {
+            "description": "Jobs in file order",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowJob"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "The workflow's name: field",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path in the repository",
+            "type": "string"
+          },
+          "problem": {
+            "description": "Why the file could not be read",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "problem",
+          "jobs"
+        ],
+        "type": "object"
+      },
+      "WorkflowJob": {
+        "additionalProperties": false,
+        "properties": {
+          "editable": {
+            "description": "Whether runs-on can be rewritten automatically",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Job ID, the key under jobs:",
+            "type": "string"
+          },
+          "image": {
+            "description": "The closest machine_image alias to the hosted image",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What runs-on asks for today",
+            "enum": [
+              "hosted",
+              "airship",
+              "self-hosted",
+              "expression",
+              "group",
+              "reusable",
+              "other"
+            ],
+            "type": "string"
+          },
+          "line": {
+            "description": "Line of runs-on in the file",
+            "format": "int64",
+            "type": "integer"
+          },
+          "matrix": {
+            "description": "Whether the job has a strategy matrix",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The job's name: field, if it has one",
+            "type": "string"
+          },
+          "platform": {
+            "description": "The GitHub-hosted machine's platform, when known",
+            "enum": [
+              "linux-x64",
+              "linux-arm64",
+              "windows",
+              "macos",
+              ""
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it cannot be moved automatically",
+            "type": "string"
+          },
+          "runsOn": {
+            "description": "runs-on labels as written; empty for a runner group or a reusable workflow call",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "runsOn",
+          "line",
+          "kind",
+          "platform",
+          "image",
+          "matrix",
+          "editable",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "WorkflowScan": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/ExistingRunnerConfig",
+            "description": "The repository's airship.yaml; absent when there is none"
+          },
+          "defaultBranch": {
+            "description": "Branch the files were read from",
+            "type": "string"
+          },
+          "repository": {
+            "description": "owner/name",
+            "type": "string"
+          },
+          "sharedLabels": {
+            "description": "Labels the organization's airship.global.yaml serves",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedWorkflow"
+            },
+            "type": "array"
+          },
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowFile"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "repository",
+          "defaultBranch",
+          "workflows",
+          "skipped",
+          "sharedLabels"
         ],
         "type": "object"
       }
@@ -4217,6 +4591,189 @@
           }
         },
         "summary": "Activate a repository",
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/repositories/{repo}/migration/preview": {
+      "post": {
+        "operationId": "previewMigration",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationPlan"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationPreview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Preview the files a migration plan writes",
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/repositories/{repo}/migration/pull-request": {
+      "post": {
+        "operationId": "openMigrationPullRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationPlan"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationPullRequest"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open a pull request that moves workflows onto Airship",
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/v1/orgs/{org}/repositories/{repo}/workflows": {
+      "get": {
+        "operationId": "scanRepositoryWorkflows",
+        "parameters": [
+          {
+            "description": "GitHub organization login",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "GitHub organization login",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "GitHub repository ID",
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "description": "GitHub repository ID",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowScan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Read a repository's workflows for moving them onto Airship",
         "tags": [
           "Repositories"
         ]

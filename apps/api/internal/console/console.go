@@ -64,6 +64,8 @@ type Fleet interface {
 	ProvisionScript(ctx context.Context, runnerID uuid.UUID, sealed []byte) (string, error)
 	ReadAccessControl(ctx context.Context, installation db.Installation) (fleet.AccessControl, error)
 	UpdateAccessControl(ctx context.Context, installation db.Installation, changes []runnerconfig.AccessChange) (fleet.AccessControlUpdate, error)
+	ReadMigrationSource(ctx context.Context, installation db.Installation, repoID int64) (fleet.MigrationSource, error)
+	OpenMigrationPullRequest(ctx context.Context, installation db.Installation, repo github.Repository, changes []fleet.MigrationChange, summary string) (github.PullRequest, error)
 }
 
 // Config wires the dashboard API.
@@ -116,6 +118,9 @@ func Register(api huma.API, cfg Config) {
 	huma.Register(api, op("deactivateRepository", http.MethodDelete, "/v1/orgs/{org}/repositories/{repo}/activation", "Deactivate a repository", "Repositories", http.StatusNoContent), h.deactivateRepository)
 	huma.Register(api, op("getOrganizationConfig", http.MethodGet, "/v1/orgs/{org}/runner-config", "Get the organization's runner config", "Repositories", 0), h.organizationConfig)
 	huma.Register(api, op("validateRunnerConfig", http.MethodPost, "/v1/orgs/{org}/runner-config/validate", "Check a runner config file", "Repositories", 0), h.validateConfig)
+	huma.Register(api, op("scanRepositoryWorkflows", http.MethodGet, "/v1/orgs/{org}/repositories/{repo}/workflows", "Read a repository's workflows for moving them onto Airship", "Repositories", 0), h.scanWorkflows)
+	huma.Register(api, op("previewMigration", http.MethodPost, "/v1/orgs/{org}/repositories/{repo}/migration/preview", "Preview the files a migration plan writes", "Repositories", 0), h.previewMigration)
+	huma.Register(api, op("openMigrationPullRequest", http.MethodPost, "/v1/orgs/{org}/repositories/{repo}/migration/pull-request", "Open a pull request that moves workflows onto Airship", "Repositories", http.StatusCreated), h.openMigrationPullRequest)
 	huma.Register(api, op("listPools", http.MethodGet, "/v1/orgs/{org}/pools", "List idle runner pools", "Repositories", 0), h.listPools)
 
 	huma.Register(api, op("listMembers", http.MethodGet, "/v1/orgs/{org}/members", "List organization members with dashboard access", "Organization", 0), h.listMembers)

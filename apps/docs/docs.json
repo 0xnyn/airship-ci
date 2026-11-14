@@ -56,6 +56,21 @@
             ]
           },
           {
+            "group": "Sandbox clouds",
+            "icon": "box",
+            "pages": [
+              "sandboxes/overview",
+              "sandboxes/daytona",
+              "sandboxes/runloop",
+              "sandboxes/e2b",
+              "sandboxes/novita",
+              "sandboxes/lelantos",
+              "sandboxes/namespace",
+              "sandboxes/tenki",
+              "sandboxes/modal"
+            ]
+          },
+          {
             "group": "Runner configuration",
             "icon": "file-code",
             "pages": [

@@ -9,16 +9,20 @@ all three at once — each runner definition names its own `cloud:`. Nothing is
 installed in your account: no stack, no agent, no peering, no bootstrap
 script.
 
+To run each job in a managed sandbox instead of a virtual machine, see
+[Sandbox clouds](/sandboxes/overview): Daytona, Runloop, E2B, Novita,
+Lelantos, Namespace, Tenki and Modal.
+
 <Columns cols={3}>
-  <Card title="Amazon Web Services" icon="cloud" href="/clouds/aws" arrow>
+  <Card title="Amazon Web Services" icon="/images/clouds/aws.svg" href="/clouds/aws" arrow>
     An IAM user's access key. EC2 instances, spot, Graviton, bare metal, GPUs,
     and cache acceleration backed by S3.
   </Card>
-  <Card title="Google Cloud" icon="cloud" href="/clouds/google-cloud" arrow>
+  <Card title="Google Cloud" icon="/images/clouds/gcp.svg" href="/clouds/google-cloud" arrow>
     A service account key. Compute Engine instances, spot, Arm machine
     families, attached GPUs, extra and existing disks.
   </Card>
-  <Card title="Microsoft Azure" icon="cloud" href="/clouds/azure" arrow>
+  <Card title="Microsoft Azure" icon="/images/clouds/azure.svg" href="/clouds/azure" arrow>
     An Entra application's client secret. Virtual machines, spot, Arm sizes,
     GPU families, marketplace and gallery images.
   </Card>

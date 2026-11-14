@@ -23,10 +23,6 @@ const fail = (where, message) => problems.push(`${where}: ${message}`);
  */
 const FORBIDDEN = [
   { instead: "write Airship's own name", pattern: /\bcirun\b/i },
-  {
-    instead: "the docs cover AWS, Google Cloud and Azure",
-    pattern: /\bdaytona\b/i,
-  },
   { instead: "airship.yaml", pattern: /\.cirun\.ya?ml/i },
   { instead: "the developer API", pattern: /\bcirun-py\b/i },
   { instead: "AIRSHIP_API_KEY", pattern: /\bCIRUN_API/i },

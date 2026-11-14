@@ -1,0 +1,66 @@
+---
+title: "E2B"
+description: "Run each job in an E2B Firecracker sandbox started from a template, for up to 24 hours on the Pro plan."
+icon: "/images/clouds/e2b.svg"
+---
+
+Airship launches one E2B sandbox per job in your team, with a team API key.
+Airship deletes the sandbox when the job completes; its timeout is the
+backstop.
+
+## Connect
+
+<Steps>
+  <Step title="Create a team API key">
+    In the E2B dashboard, create an API key (`e2b_...`).
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → E2B**: paste the key. A self-hosted E2B
+    takes its domain as well.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "e2b", "credentials": {"api_key": "e2b_..."}}'
+```
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: micro
+    cloud: e2b
+    instance_type: ci-runner:4vcpu   # a template, optionally with more vCPUs
+    labels: [airship-micro]
+    extra_config:
+      docker: true
+```
+
+| Field | On E2B |
+| --- | --- |
+| `instance_type` | A template's name or ID (`base`, or one you built), optionally `:<n>vcpu` for more vCPUs, up to the template's maximum. The template fixes memory and disk |
+| `machine_image` | Leave it empty: the template is the image. Build a template from a Dockerfile in E2B to preinstall tools |
+| `region` | None; leave it out |
+| `extra_config.docker` | Installs and starts a Docker daemon before the runner |
+
+## Plan limits
+
+E2B caps a sandbox's timeout by plan: **one hour on Hobby, 24 hours on
+Pro**. Airship asks for the runner's lifetime plus 15 minutes, so a Hobby
+team refuses every launch with a permanent error naming the limit. Use Pro,
+or shorten your runner lifetime.
+
+## What Airship creates
+
+A sandbox with metadata `airship-installation`, `airship-runner-id` and
+`airship-repository`. Creation carries the runner's ID as its idempotency
+key, so a retried launch returns the same sandbox. Airship uploads the boot
+script through the sandbox's daemon and starts it as a tagged process.
+Auto-pause is off, so a timed-out sandbox is gone rather than paused.
+
+<Note>
+  Early access: tested against a model of E2B's API on every build, not yet
+  run against the live service.
+</Note>

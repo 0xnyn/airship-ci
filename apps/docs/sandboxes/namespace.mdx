@@ -1,0 +1,65 @@
+---
+title: "Namespace"
+description: "Run each job in a Namespace instance, a microVM built for CI, in the US or EU, with the VM's own Docker."
+icon: "/images/clouds/namespace.svg"
+---
+
+Airship launches one Namespace instance per job in your workspace, with a
+workspace token. The instance ends when the runner exits.
+
+## Connect
+
+<Steps>
+  <Step title="Create a token">
+    In the Namespace dashboard, create a token that can create and destroy
+    instances in the workspace.
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → Namespace**: paste the token and pick
+    the default region, `us` or `eu`. Airship lists instances in that region
+    to check the token.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "namespace", "credentials": {"token": "...", "region": "us"}}'
+```
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: ns
+    cloud: namespace
+    instance_type: 8vcpu-16gb
+    machine_image: "ghcr.io/acme/ci:2026.11"   # default ubuntu:22.04
+    region: eu
+    labels: [airship-ns]
+    extra_config:
+      docker: true
+```
+
+| Field | On Namespace |
+| --- | --- |
+| `instance_type` | A shape `<n>vcpu-<m>gb`. Namespace shapes are typically powers of two, about 2 GB per vCPU |
+| `machine_image` | A container image with a tag or digest, or `ubuntu2204` / `ubuntu2404`. Default `ubuntu:22.04`. The image needs `bash` |
+| `region` | `us` or `eu`. Default: the region you connected with |
+| `extra_config.docker` | Mounts the instance's own Docker daemon into the runner's container, so jobs build and run containers on the VM |
+
+## What Airship creates
+
+An instance labelled `airship-installation` and `airship-runner-id`, with a
+deadline set past the runner's lifetime, and one container, `runner`, from
+your image. The container's entrypoint waits for the boot script Airship
+writes into it and becomes it; when the runner exits, the container exits
+and the instance terminates with it.
+
+Your workspace's maximum deadline policy can shorten the deadline Airship
+asks for; a runner then stops at that deadline.
+
+<Note>
+  Early access: tested against a model of Namespace's Compute API on every
+  build, not yet run against the live service.
+</Note>

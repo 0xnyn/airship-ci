@@ -7,8 +7,9 @@
 
 ### Self-hosted GitHub Actions runners in your own cloud, configured as code.
 
-Every job gets a fresh machine in your AWS, Google Cloud, Azure or Daytona
-account, and the machine is destroyed when the job ends.
+Every job gets a fresh machine in your AWS, Google Cloud or Azure account,
+or a fresh sandbox on Daytona, Runloop, E2B, Novita, Lelantos, Namespace,
+Tenki or Modal, and it is destroyed when the job ends.
 
 [Quickstart](#quickstart) ·
 [`airship.yaml`](docs/airship-yaml.md) ·
@@ -173,7 +174,7 @@ Teams, API keys and Settings, in dark and light themes.
   <tr>
     <td width="50%" valign="top">
       <b>Cloud</b><br>
-      Connect AWS, Google Cloud, Azure or Daytona. Credentials are sealed and never shown again.<br><br>
+      Connect AWS, Google Cloud, Azure or a sandbox cloud. Credentials are sealed and never shown again.<br><br>
       <img alt="Cloud page with AWS and Google Cloud connected and verified" src="docs/images/cloud.png">
     </td>
     <td width="50%" valign="top">
@@ -188,12 +189,96 @@ Teams, API keys and Settings, in dark and light themes.
 
 ## Supported clouds
 
-| Cloud | Runs jobs on | Cache proxy | Setup guide |
-| --- | --- | --- | --- |
-| AWS | EC2 instances | S3 | [Console](docs/architecture/aws-setup-console.md) · [CLI](docs/architecture/aws-setup-cli.md) |
-| Google Cloud | Compute Engine instances | — | [Console](docs/architecture/gcp-setup-console.md) · [CLI](docs/architecture/gcp-setup-cli.md) |
-| Microsoft Azure | Virtual machines | — | [Portal](docs/architecture/azure-setup-console.md) · [CLI](docs/architecture/azure-setup-cli.md) |
-| Daytona | Sandboxes | — | [Guide](docs/architecture/daytona-setup.md) |
+| | Cloud | Runs jobs on | Cache proxy | Guides |
+| --- | --- | --- | --- | --- |
+| <img src="apps/docs/images/clouds/aws.svg" width="20" height="20" alt=""> | AWS | EC2 instances | S3 | [Console](docs/architecture/aws-setup-console.md) · [CLI](docs/architecture/aws-setup-cli.md) · [Docs](apps/docs/clouds/aws.mdx) |
+| <img src="apps/docs/images/clouds/gcp.svg" width="20" height="20" alt=""> | Google Cloud | Compute Engine instances | — | [Console](docs/architecture/gcp-setup-console.md) · [CLI](docs/architecture/gcp-setup-cli.md) · [Docs](apps/docs/clouds/google-cloud.mdx) |
+| <img src="apps/docs/images/clouds/azure.svg" width="20" height="20" alt=""> | Microsoft Azure | Virtual machines | — | [Portal](docs/architecture/azure-setup-console.md) · [CLI](docs/architecture/azure-setup-cli.md) · [Docs](apps/docs/clouds/azure.mdx) |
+| <img src="apps/docs/images/clouds/daytona.svg" width="20" height="20" alt=""> | Daytona | Sandboxes from any image or a snapshot | — | [Guide](docs/architecture/daytona-setup.md) · [Docs](apps/docs/sandboxes/daytona.mdx) |
+| <img src="apps/docs/images/clouds/runloop.svg" width="20" height="20" alt=""> | Runloop | Devboxes from blueprints | — | [Docs](apps/docs/sandboxes/runloop.mdx) |
+| <img src="apps/docs/images/clouds/e2b.svg" width="20" height="20" alt=""> | E2B | Firecracker sandboxes from templates | — | [Docs](apps/docs/sandboxes/e2b.mdx) |
+| <img src="apps/docs/images/clouds/novita.svg" width="20" height="20" alt=""> | Novita | Sandboxes (E2B protocol), long-running | — | [Docs](apps/docs/sandboxes/novita.mdx) |
+| <img src="apps/docs/images/clouds/lelantos.svg" width="20" height="20" alt=""> | Lelantos | Sandboxes (E2B protocol) in the EU | — | [Docs](apps/docs/sandboxes/lelantos.mdx) |
+| <img src="apps/docs/images/clouds/namespace.svg" width="20" height="20" alt=""> | Namespace | CI microVMs, `us` and `eu` | — | [Docs](apps/docs/sandboxes/namespace.mdx) |
+| <img src="apps/docs/images/clouds/tenki.svg" width="20" height="20" alt=""> | Tenki | Firecracker microVMs | — | [Docs](apps/docs/sandboxes/tenki.mdx) |
+| <img src="apps/docs/images/clouds/modal.svg" width="20" height="20" alt=""> | Modal | Sandboxes, with GPUs | — | [Docs](apps/docs/sandboxes/modal.mdx) |
+
+The sandbox clouds are chosen and sequenced in
+[docs/architecture/sandbox-providers.md](docs/architecture/sandbox-providers.md),
+which also says what each still has to prove against the live service:
+Daytona has run real jobs; the other seven are tested against fakes of
+their APIs.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/clouds/overview-light.png">
+  <img alt="Cloud page with AWS, Google Cloud, Azure and eight sandbox clouds connected" src="docs/images/clouds/overview.png">
+</picture>
+
+<details>
+<summary><b>Each cloud on the Cloud page</b></summary>
+<br>
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/aws.svg" width="20" height="20" alt=""> <b>AWS</b><br><br>
+      <img alt="AWS card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/aws.png">
+    </td>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/gcp.svg" width="20" height="20" alt=""> <b>Google Cloud</b><br><br>
+      <img alt="Google Cloud card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/gcp.png">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/azure.svg" width="20" height="20" alt=""> <b>Microsoft Azure</b><br><br>
+      <img alt="Microsoft Azure card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/azure.png">
+    </td>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/daytona.svg" width="20" height="20" alt=""> <b>Daytona</b><br><br>
+      <img alt="Daytona card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/daytona.png">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/runloop.svg" width="20" height="20" alt=""> <b>Runloop</b><br><br>
+      <img alt="Runloop card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/runloop.png">
+    </td>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/e2b.svg" width="20" height="20" alt=""> <b>E2B</b><br><br>
+      <img alt="E2B card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/e2b.png">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/novita.svg" width="20" height="20" alt=""> <b>Novita</b><br><br>
+      <img alt="Novita card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/novita.png">
+    </td>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/lelantos.svg" width="20" height="20" alt=""> <b>Lelantos</b><br><br>
+      <img alt="Lelantos card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/lelantos.png">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/namespace.svg" width="20" height="20" alt=""> <b>Namespace</b><br><br>
+      <img alt="Namespace card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/namespace.png">
+    </td>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/tenki.svg" width="20" height="20" alt=""> <b>Tenki</b><br><br>
+      <img alt="Tenki card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/tenki.png">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="apps/docs/images/clouds/modal.svg" width="20" height="20" alt=""> <b>Modal</b><br><br>
+      <img alt="Modal card on the Cloud page: the connected credential, its account and region" src="docs/images/clouds/modal.png">
+    </td>
+    <td width="50%"></td>
+  </tr>
+</table>
+
+<sub>Screenshots show sample data.</sub>
+</details>
 
 Each guide assumes no prior experience with that cloud. The cache proxy
 uses S3, so on the other clouds `cache: true` launches without it and
@@ -326,6 +411,10 @@ also has its own harness:
 - **Compute Engine** and **Azure**: fakes of their REST APIs, driven
   through the real SDKs.
 - **Daytona**: a fake of its API, or a real organization.
+- **Runloop, E2B (with Novita and Lelantos) and Namespace**: fakes of their
+  APIs built from the vendors' published specs and protos.
+- **Tenki and Modal**: the vendors' Go SDKs behind an interface, driven
+  against fakes of it.
 
 ```bash
 uvx --from 'moto[server]' moto_server -p 5055 &

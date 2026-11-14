@@ -2,7 +2,8 @@
 
 Airship runs GitHub Actions jobs on ephemeral machines in the customer's
 cloud account: EC2 instances on AWS, Compute Engine instances on Google
-Cloud, sandboxes in a Daytona organization. It holds the customer's
+Cloud, virtual machines on Azure, or sandboxes on a sandbox cloud
+(Daytona, Runloop, E2B, Novita, Lelantos, Namespace, Tenki, Modal). It holds the customer's
 credentials (sealed), reads `airship.yaml`
 from activated repositories, and launches, watches and terminates
 instances itself. The first version of this project ran an agent in the
@@ -40,8 +41,14 @@ All Go code lives in `apps/api`.
   the real SDK is pointed at in tests); `cloud/daytona` is Daytona
   sandboxes, driven through Daytona's generated Go clients (with
   `daytona/daytonatest`, a fake of its API and of the toolbox API inside a
-  sandbox); `cloud/bootscript` renders the Linux, Windows and Daytona boot
-  scripts; `cloud/fake` is what fleet tests launch on.
+  sandbox); `cloud/runloop`, `cloud/e2b` (with Novita and Lelantos as
+  flavours) and `cloud/namespace` speak REST or Connect JSON through
+  `cloud/restapi`, each with a fake of its API; `cloud/tenki` and
+  `cloud/modal` wrap the vendors' Go SDKs behind an interface faked in
+  tests; `cloud/bootscript` renders the Linux,
+  Windows and sandbox boot scripts; `cloud/fake` is what fleet tests
+  launch on. [architecture/sandbox-providers.md](architecture/sandbox-providers.md)
+  assesses the other sandbox providers.
 - `internal/runnerconfig` parses `airship.yaml`, `airship.global.yaml` and
   `access.yaml` (pure, no I/O).
 - `internal/secrets` seals cloud credentials under `CREDENTIALS_KEY`, each
@@ -497,7 +504,11 @@ the developer API, the Windows fields and S3-backed caching with one
 namespace per account bucket are all as documented in
 [airship-yaml.md](airship-yaml.md). The choices worth explaining:
 
-- **Clouds.** AWS, GCP, Azure and Daytona. `do`, `openstack`, `oracle`,
+- **Clouds.** AWS, GCP, Azure, and the sandbox clouds Daytona, Runloop,
+  E2B, Novita, Lelantos, Namespace, Tenki and Modal, chosen and sequenced as
+  [architecture/sandbox-providers.md](architecture/sandbox-providers.md)
+  explains. Those without regions have the one region `global`; Namespace
+  has `us` and `eu`. `do`, `openstack`, `oracle`,
   `vast_ai` and `on_prem` are refused with "not supported yet" rather than
   ignored. Each is a provider implementation; none can be trusted unrun.
 - **Azure gets a public address by default.** `enable_public_ip: false`
@@ -531,7 +542,8 @@ namespace per account bucket are all as documented in
   network in the same region gets a NAT of its own rather than an error,
   and a router with Airship's name that is on another network is reported,
   never reused.
-- **GCP and Daytona caching.** `cache: true` on a GCP or Daytona runner
+- **GCP and sandbox caching.** `cache: true` on a GCP, Daytona, Runloop
+  or E2B runner
   launches without the cache proxy (and records a warning). Cache
   acceleration is Linux runners on AWS only today; a Cloud Storage backing
   would be an addition behind the `cloud.Cacher` seam.
@@ -548,6 +560,12 @@ namespace per account bucket are all as documented in
   rather than by forwarding arbitrary unknown keys to the API.
 
 ## What has run, and what has not
+
+- **Runloop, E2B, Novita, Lelantos, Namespace, Tenki, Modal: fakes only.**
+  Each provider runs on every `make test` against a fake of its API (built
+  from the vendor's published spec, protos or SDK), and through the fleet
+  and HTTP tests; none has launched a real sandbox yet. What a first live run must confirm is listed in
+  [architecture/sandbox-providers.md](architecture/sandbox-providers.md).
 
 - **The Linux boot script, unmodified, on a real runner with a real
   GitHub job.** The script `ProvisionScript` renders (JIT config inline,

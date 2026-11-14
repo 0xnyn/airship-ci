@@ -1,0 +1,61 @@
+---
+title: "Tenki"
+description: "Run each job in a Tenki Firecracker microVM from any image, in any shape."
+icon: "/images/clouds/tenki.svg"
+---
+
+Airship launches one Tenki sandbox per job in your workspace, with a
+workspace API key. Airship closes the sandbox when the job completes; its
+maximum duration is the backstop.
+
+## Connect
+
+<Steps>
+  <Step title="Create a workspace API key">
+    In the Tenki app, under the workspace's settings, create an API key
+    (`tk_...`).
+  </Step>
+  <Step title="Connect it">
+    In Airship's dashboard, **Cloud → Tenki**: paste the key. Give the
+    workspace ID only if the key is not a workspace key.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST "$AIRSHIP_API/cloud-connect" -H "Authorization: Bearer $AIRSHIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cloud": "tenki", "credentials": {"api_key": "tk_..."}}'
+```
+
+## Configure
+
+```yaml airship.yaml
+runners:
+  - name: vm
+    cloud: tenki
+    instance_type: 4vcpu-8gb
+    labels: [airship-vm]
+    extra_config:
+      disk: 40
+      docker: true
+```
+
+| Field | On Tenki |
+| --- | --- |
+| `instance_type` | A shape `<n>vcpu-<m>gb` |
+| `machine_image` | A container image with a tag or digest, or empty for Tenki's default image |
+| `region` | None; leave it out |
+| `extra_config.disk` | Root disk, 5 to 100 GB |
+| `extra_config.docker` | Installs and starts a Docker daemon before the runner |
+
+## What Airship creates
+
+A sandbox named after the runner, tagged `airship-installation-<id>` and
+`airship-runner-<runner ID>`, with the same values in its metadata, outbound
+access on, and a maximum duration past the runner's deadline. Airship starts
+the boot script detached once the sandbox is ready.
+
+<Note>
+  Early access: built on Tenki's official Go SDK and tested against a model
+  of it on every build, not yet run against the live service.
+</Note>

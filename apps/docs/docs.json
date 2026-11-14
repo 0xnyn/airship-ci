@@ -43,7 +43,13 @@
           {
             "group": "Getting started",
             "icon": "rocket",
-            "pages": ["index", "quickstart", "how-it-works", "concepts"]
+            "pages": [
+              "index",
+              "quickstart",
+              "move-workflows",
+              "how-it-works",
+              "concepts"
+            ]
           },
           {
             "group": "Your cloud",

@@ -17,7 +17,8 @@ pnpm --filter @airship/docs links   # Mintlify's own checker (also hits the web)
 | Path | What it is |
 | --- | --- |
 | `docs.json` | Navigation, theme, navbar, footer, API playground |
-| `index.mdx`, `quickstart.mdx`, `how-it-works.mdx`, `concepts.mdx` | Getting started |
+| `index.mdx`, `quickstart.mdx`, `move-workflows.mdx`, `how-it-works.mdx`, `concepts.mdx` | Getting started |
+| `images/dashboard/` | Dashboard screenshots as WebP, a `-light` and a `-dark` of each, shown in a `<Frame>` with `dark:` classes. Retake them when the screens they show change |
 | `clouds/` | Connecting AWS, Google Cloud and Azure: credentials, policies, quotas |
 | `sandboxes/` | The sandbox clouds (Daytona, Runloop, E2B, Novita, Lelantos, Namespace, Tenki, Modal): an overview and a page each |
 | `configuration/` | The `airship.yaml` reference, a page per concern |

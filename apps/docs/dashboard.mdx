@@ -14,6 +14,11 @@ read.
   Jobs and runners at a glance: queued, in progress, succeeded, failed, runner
   minutes, and the p50 and p90 time jobs spent waiting for a machine. Those
   last two are the health metric worth watching.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/overview-light.webp" alt="The dashboard overview: runners by state, the last day's jobs, success rate, queue time and runner minutes, recent jobs and events" />
+    <img className="hidden dark:block" src="/images/dashboard/overview-dark.webp" alt="The dashboard overview: runners by state, the last day's jobs, success rate, queue time and runner minutes, recent jobs and events" />
+  </Frame>
 </ResponseField>
 
 <ResponseField name="Repositories" type="what is switched on">
@@ -23,6 +28,30 @@ read.
 
   This page also has the **config checker**: paste a file, see whether it
   parses and what machines it would plan. Cheaper than a push.
+
+  **Move workflows** reads a repository's `.github/workflows`, picks out the
+  jobs on GitHub-hosted runners, suggests a runner for each kind of machine
+  they use, and shows the `airship.yaml` and `runs-on` changes as a diff. It
+  then opens a pull request, or you copy the files. Nothing changes until the
+  pull request is merged, and your choices are kept in the browser so you can
+  stop and come back. Organization owners only.
+  [Move your workflows](/move-workflows) walks through it.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/repositories-light.webp" alt="The Repositories page: cards to connect GitHub, activate a repository and move workflows, then the activated repositories and idle pools" />
+    <img className="hidden dark:block" src="/images/dashboard/repositories-dark.webp" alt="The Repositories page: cards to connect GitHub, activate a repository and move workflows, then the activated repositories and idle pools" />
+  </Frame>
+</ResponseField>
+
+<ResponseField name="Set up" type="from install to the first job">
+  The guided path for a new organization: install the GitHub App, connect a
+  cloud, activate a repository, move workflows. Every step can be skipped and
+  revisited; the **Get started** panel on the overview links into it.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/setup-github-light.webp" alt="The Set up page's first step: the four steps on the left and the GitHub App's installation on the right" />
+    <img className="hidden dark:block" src="/images/dashboard/setup-github-dark.webp" alt="The Set up page's first step: the four steps on the left and the GitHub App's installation on the right" />
+  </Frame>
 </ResponseField>
 
 <ResponseField name="Cloud" type="credentials and their state">
@@ -30,18 +59,33 @@ read.
   principal, when it was last verified, and whether it still works. A
   credential your cloud has started refusing shows here before you notice it
   in failed launches.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/cloud-light.webp" alt="The Cloud page: a tile per provider with its state, and each provider's connection details and credential form" />
+    <img className="hidden dark:block" src="/images/dashboard/cloud-dark.webp" alt="The Cloud page: a tile per provider with its state, and each provider's connection details and credential form" />
+  </Frame>
 </ResponseField>
 
 <ResponseField name="Runners" type="machines, live and historical">
   Every runner with its state, cloud, region, instance type, whether it is
   spot, whether it came from a pool, its instance ID and the job it took. The
   first place to look when a job is running but you want to know *where*.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/runners-light.webp" alt="The Runners page: live runners with their state, definition, machine, region and instance ID, including an idle pool runner" />
+    <img className="hidden dark:block" src="/images/dashboard/runners-dark.webp" alt="The Runners page: live runners with their state, definition, machine, region and instance ID, including an idle pool runner" />
+  </Frame>
 </ResponseField>
 
 <ResponseField name="Jobs" type="what GitHub asked for, and what happened">
   Every job Airship was told about: its labels, the runner that served it, and
   — when none did — the reason why, in plain words.
   [Troubleshooting](/troubleshooting#why-a-job-was-not-run) covers each reason.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/jobs-light.webp" alt="The Jobs page: every job with its status, runs-on label, the runner that served it, queue time and duration" />
+    <img className="hidden dark:block" src="/images/dashboard/jobs-dark.webp" alt="The Jobs page: every job with its status, runs-on label, the runner that served it, queue time and duration" />
+  </Frame>
 </ResponseField>
 
 <ResponseField name="Events" type="the activity log">
@@ -49,12 +93,22 @@ read.
   stopped parsing, clouds connected and rejected, caches that quietly
   degraded, runners lost. **Start here when something did not work.** Retained
   for 30 days.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/events-light.webp" alt="The Events page: launches, pull requests and other activity, newest first, each with its repository" />
+    <img className="hidden dark:block" src="/images/dashboard/events-dark.webp" alt="The Events page: launches, pull requests and other activity, newest first, each with its repository" />
+  </Frame>
 </ResponseField>
 
 <ResponseField name="Analytics" type="usage over time">
   Jobs, runner minutes and queue waits per day and per repository. For cost,
   your cloud's own bill is the authority — the machine tags make it
   per-repository without extra work.
+
+  <Frame>
+    <img className="block dark:hidden" src="/images/dashboard/analytics-light.webp" alt="The Analytics page: totals, then jobs, runner minutes and queue time per day, and usage per repository" />
+    <img className="hidden dark:block" src="/images/dashboard/analytics-dark.webp" alt="The Analytics page: totals, then jobs, runner minutes and queue time per day, and usage per repository" />
+  </Frame>
 </ResponseField>
 
 <ResponseField name="API keys" type="tokens for automation">
@@ -98,6 +152,7 @@ read.
 | `job.skipped` | A job asked for an Airship label and will not be served |
 | `cloud.credentials_rejected` | Your cloud refused the credential |
 | `access.updated` | `access.yaml` changed |
+| `migration.proposed` | **Move workflows** opened a pull request |
 | `repository.activated` | Someone switched a repository on |
 
 <Tip>

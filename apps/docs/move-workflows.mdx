@@ -1,0 +1,121 @@
+---
+title: "Move your workflows"
+description: "Let the dashboard read your workflows, suggest runners, and open the pull request that moves your jobs."
+icon: "git-pull-request-arrow"
+---
+
+You do not have to write `airship.yaml` or edit `runs-on` by hand. **Move
+workflows** reads a repository's `.github/workflows`, suggests a runner for
+each kind of machine your jobs use today, and shows the exact changes before
+anything is written. Open it from **Repositories → Move workflows**, or from
+the last step of **Set up**.
+
+Nothing changes in the repository until you merge the pull request it opens.
+Your choices are kept in the browser, so you can stop at any step and pick it
+up later; every step can be skipped and revisited.
+
+<Frame>
+  <img className="block dark:hidden" src="/images/dashboard/setup-workflows-light.webp" alt="The Set up page's last step: activated repositories, each with a Move workflows button" />
+  <img className="hidden dark:block" src="/images/dashboard/setup-workflows-dark.webp" alt="The Set up page's last step: activated repositories, each with a Move workflows button" />
+</Frame>
+
+<Note>
+  Only organization owners can move workflows: it shows the content of
+  repositories some members may not be able to read on GitHub.
+</Note>
+
+<Steps>
+  <Step title="Pick a repository">
+    Any repository the GitHub App can see, activated or not. Ones you have
+    started show **Resume**.
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/move-workflows-repository-light.webp" alt="The repository list, with a search field and a Select button on each repository" />
+      <img className="hidden dark:block" src="/images/dashboard/move-workflows-repository-dark.webp" alt="The repository list, with a search field and a Select button on each repository" />
+    </Frame>
+  </Step>
+
+  <Step title="Choose jobs">
+    Every job in every workflow on the default branch, with its `runs-on` as
+    written today. Jobs on GitHub-hosted Linux runners are picked for you;
+    tick or untick anything else.
+
+    Some jobs cannot be moved automatically, and say why: a `runs-on` computed
+    by an expression such as `${{ matrix.os }}`, a runner group, or a call to
+    a reusable workflow. Change those by hand.
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/move-workflows-jobs-light.webp" alt="Jobs grouped by workflow file, each with a checkbox, its runs-on label and its platform" />
+      <img className="hidden dark:block" src="/images/dashboard/move-workflows-jobs-dark.webp" alt="Jobs grouped by workflow file, each with a checkbox, its runs-on label and its platform" />
+    </Frame>
+  </Step>
+
+  <Step title="Set up runners">
+    One runner is suggested for each kind of machine the jobs need — Linux,
+    Linux on Arm, an older Ubuntu — sized at four vCPUs like GitHub's
+    standard runner, on the cloud you connected. Change the name, cloud,
+    machine, image, region or spot capacity, add more runners, and choose
+    which runner each job uses.
+
+    Each runner becomes a definition in [`airship.yaml`](/configuration/overview),
+    serving the label `airship-<name>`.
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/move-workflows-runners-light.webp" alt="Runner cards with name, cloud, machine, image and region fields, and a list of where each job runs" />
+      <img className="hidden dark:block" src="/images/dashboard/move-workflows-runners-dark.webp" alt="Runner cards with name, cloud, machine, image and region fields, and a list of where each job runs" />
+    </Frame>
+  </Step>
+
+  <Step title="Review and ship">
+    A diff of every file the change writes, checked the same way a job would
+    read it. Open a pull request into the default branch, or copy or download
+    the files and commit them yourself. If the repository is not activated
+    yet, activate it here too.
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/move-workflows-review-light.webp" alt="Diffs of the new airship.yaml and of each workflow's runs-on lines, with Download files and Open pull request buttons" />
+      <img className="hidden dark:block" src="/images/dashboard/move-workflows-review-dark.webp" alt="Diffs of the new airship.yaml and of each workflow's runs-on lines, with Download files and Open pull request buttons" />
+    </Frame>
+
+    Once it is open, the next run after you merge uses your runners.
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/move-workflows-opened-light.webp" alt="Pull request opened, with buttons to review it on GitHub and to activate the repository" />
+      <img className="hidden dark:block" src="/images/dashboard/move-workflows-opened-dark.webp" alt="Pull request opened, with buttons to review it on GitHub and to activate the repository" />
+    </Frame>
+  </Step>
+</Steps>
+
+## What changes
+
+- **`airship.yaml`** gains a definition for each new runner. If the
+  repository already has one, the definitions are added to the end of its
+  `runners:` list and the rest of the file is left as it is.
+- **Each moved job's `runs-on`** becomes its runner's label with the run ID
+  as a [suffix](/configuration/labels#always-add-the-run_id-suffix), and for
+  a matrix job the leg's index too, so every leg gets a machine of its own:
+
+  ```yaml
+  runs-on: airship-linux--${{ github.run_id }}
+  runs-on: airship-linux--${{ github.run_id }}-${{ strategy.job-index }}
+  ```
+
+  Only that value changes. Comments, quoting and everything else in the file
+  stay exactly as they were.
+
+A job can also use a label your `airship.yaml` or the organization's
+[shared runners](/organization/runners) already serve.
+
+## Windows and macOS jobs
+
+They are not picked by default. A Windows job needs a runner with a Windows
+image ([Windows runners](/configuration/windows)), and there are no macOS
+images; the runner step warns about both before anything is written.
+
+## Opening the pull request
+
+The GitHub App opens the pull request only if it has Contents, Pull requests
+and Workflows write access; GitHub refuses an app's changes under
+`.github/workflows` without the last one. Without them the dashboard says
+which to grant, and you can still download the files and commit them
+yourself. See [the GitHub App's permissions](/self-hosting/github-app).

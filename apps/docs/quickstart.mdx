@@ -23,6 +23,11 @@ caching. Everything here applies to [Google Cloud](/clouds/google-cloud) and
     The app asks to read `airship.yaml`, to read job and runner metadata, and
     to register and remove runners. It never gets your Actions secrets.
     [What each permission is for](/self-hosting/github-app#permissions).
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/sign-in-light.webp" alt="The sign-in page: the Airship mark, a Sign in to Airship heading and a full-width Continue with GitHub button" />
+      <img className="hidden dark:block" src="/images/dashboard/sign-in-dark.webp" alt="The sign-in page: the Airship mark, a Sign in to Airship heading and a full-width Continue with GitHub button" />
+    </Frame>
   </Step>
 
   <Step title="Create a cloud credential" icon="key">
@@ -47,6 +52,14 @@ caching. Everything here applies to [Google Cloud](/clouds/google-cloud) and
   </Step>
 
   <Step title="Connect the cloud" icon="cloud">
+    The dashboard's **Set up** page walks the same path, one step at a time;
+    the **Get started** panel on the overview opens it.
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/setup-cloud-light.webp" alt="The Set up page on its Connect a cloud step: the steps on the left, provider tiles, and the chosen provider's credential form" />
+      <img className="hidden dark:block" src="/images/dashboard/setup-cloud-dark.webp" alt="The Set up page on its Connect a cloud step: the steps on the left, provider tiles, and the chosen provider's credential form" />
+    </Frame>
+
     Open **Cloud → AWS** in the dashboard, paste the access key ID and secret,
     and pick the default region — where runners launch when a definition names
     none.
@@ -62,10 +75,25 @@ caching. Everything here applies to [Google Cloud](/clouds/google-cloud) and
     This is deliberately separate from installing the app: an `airship.yaml`
     in a repository nobody activated launches nothing, so a config file can
     never start spending money on its own.
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/setup-activate-light.webp" alt="The Set up page's Activate a repository step: a searchable list of repositories, each with an Activate button" />
+      <img className="hidden dark:block" src="/images/dashboard/setup-activate-dark.webp" alt="The Set up page's Activate a repository step: a searchable list of repositories, each with an Activate button" />
+    </Frame>
   </Step>
 
   <Step title="Commit a runner definition" icon="file-code">
-    Add `airship.yaml` to the repository root:
+    The quickest way is **Repositories → Move workflows**: it reads your
+    workflows, writes the `airship.yaml` and `runs-on` changes for you, and
+    opens a pull request ([Move your workflows](/move-workflows)).
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/move-workflows-review-light.webp" alt="Diffs of the new airship.yaml and of each workflow's runs-on lines, with Download files and Open pull request buttons" />
+      <img className="hidden dark:block" src="/images/dashboard/move-workflows-review-dark.webp" alt="Diffs of the new airship.yaml and of each workflow's runs-on lines, with Download files and Open pull request buttons" />
+    </Frame>
+
+    To write them by hand instead, add `airship.yaml` to the repository
+    root:
 
     ```yaml airship.yaml
     runners:
@@ -109,6 +137,11 @@ caching. Everything here applies to [Google Cloud](/clouds/google-cloud) and
     | EC2 console | One instance tagged `airship:installation`, with no inbound security group rules |
     | The job log | Your steps, on a runner labelled `self-hosted`, `x64`, `aws`, `airship` |
     | EC2 console, again | The instance terminated within seconds of the job finishing |
+
+    <Frame>
+      <img className="block dark:hidden" src="/images/dashboard/jobs-light.webp" alt="The Jobs page: every job with its status, runs-on label, the runner that served it, queue time and duration" />
+      <img className="hidden dark:block" src="/images/dashboard/jobs-dark.webp" alt="The Jobs page: every job with its status, runs-on label, the runner that served it, queue time and duration" />
+    </Frame>
 
     The first job in a repository usually waits a minute or two for the
     machine to boot and register. [Idle

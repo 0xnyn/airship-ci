@@ -14,6 +14,7 @@ export const docsPages = {
   "Developer API": "/api-reference/introduction",
   "Google Cloud": "/clouds/google-cloud",
   "Idle runners": "/performance/idle-runners",
+  "Labels and runs-on": "/configuration/labels",
   "Microsoft Azure": "/clouds/azure",
   "Organization-wide runners": "/organization/runners",
   "Security and trust": "/security",

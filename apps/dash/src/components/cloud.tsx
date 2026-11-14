@@ -229,6 +229,54 @@ function StatusPill({ cloud }: { cloud: Schemas["Cloud"] | undefined }) {
   );
 }
 
+const forms: Record<
+  CloudName,
+  (existing: Schemas["Cloud"] | undefined) => ReactNode
+> = {
+  aws: (existing) => <ConnectAWSForm existing={existing} />,
+  azure: (existing) => <ConnectAzureForm existing={existing} />,
+  daytona: (existing) => <ConnectDaytonaForm existing={existing} />,
+  e2b: (existing) => <ConnectE2BForm existing={existing} />,
+  gcp: (existing) => <ConnectGCPForm existing={existing} />,
+  lelantos: (existing) => (
+    <ConnectE2BCompatibleForm cloud="lelantos" existing={existing} />
+  ),
+  modal: (existing) => <ConnectModalForm existing={existing} />,
+  namespace: (existing) => <ConnectNamespaceForm existing={existing} />,
+  novita: (existing) => (
+    <ConnectE2BCompatibleForm cloud="novita" existing={existing} />
+  ),
+  runloop: (existing) => <ConnectRunloopForm existing={existing} />,
+  tenki: (existing) => <ConnectTenkiForm existing={existing} />,
+};
+
+/** The providers, in the order the Cloud page lists them. */
+export const cloudOrder = ORDER;
+
+/** A provider's name, as its card titles it. */
+export function cloudName(name: CloudName): string {
+  return cloudCopy[name].title;
+}
+
+/** One provider's card with its connect form, for the setup flow. */
+export function ConnectCloud({ name }: { name: CloudName }) {
+  const { org } = useOrg();
+  const clouds = $api.useQuery("get", CLOUDS, {
+    params: { path: { org: org.login } },
+  });
+  return (
+    <CloudSection
+      clouds={clouds}
+      existing={clouds.data?.items?.find((item) => item.cloud === name)}
+      form={forms[name]}
+      name={name}
+    />
+  );
+}
+
+/** A provider's logo on a tile, as the Cloud page shows it. */
+export { CloudTile };
+
 export function CloudPage() {
   const { org } = useOrg();
   const clouds = $api.useQuery("get", CLOUDS, {
@@ -236,27 +284,6 @@ export function CloudPage() {
   });
   const find = (name: CloudName) =>
     clouds.data?.items?.find((item) => item.cloud === name);
-  const forms: Record<
-    CloudName,
-    (existing: Schemas["Cloud"] | undefined) => ReactNode
-  > = {
-    aws: (existing) => <ConnectAWSForm existing={existing} />,
-    azure: (existing) => <ConnectAzureForm existing={existing} />,
-    daytona: (existing) => <ConnectDaytonaForm existing={existing} />,
-    e2b: (existing) => <ConnectE2BForm existing={existing} />,
-    gcp: (existing) => <ConnectGCPForm existing={existing} />,
-    lelantos: (existing) => (
-      <ConnectE2BCompatibleForm cloud="lelantos" existing={existing} />
-    ),
-    modal: (existing) => <ConnectModalForm existing={existing} />,
-    namespace: (existing) => <ConnectNamespaceForm existing={existing} />,
-    novita: (existing) => (
-      <ConnectE2BCompatibleForm cloud="novita" existing={existing} />
-    ),
-    runloop: (existing) => <ConnectRunloopForm existing={existing} />,
-    tenki: (existing) => <ConnectTenkiForm existing={existing} />,
-  };
-
   return (
     <>
       <PageHeader

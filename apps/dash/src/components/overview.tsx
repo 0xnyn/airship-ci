@@ -223,35 +223,36 @@ function GettingStarted({
   repositories: Schemas["Repository"][];
 }) {
   const { org } = useOrg();
+  const setup = (step: string) => `/${org.login}/setup?step=${step}`;
   const steps = [
     {
       action: "Repositories",
       description: "Grant it access on GitHub",
       done: true,
-      href: `/${org.login}/repositories`,
+      href: setup("github"),
       title: "Install the GitHub App",
     },
     {
-      action: "Cloud",
+      action: "Connect",
       description: "Runners launch in the account you connect",
       done: clouds.length > 0,
-      href: `/${org.login}/cloud`,
+      href: setup("cloud"),
       title: "Connect a cloud",
     },
     {
-      action: "Repositories",
+      action: "Activate",
       description:
         "Airship only reads airship.yaml in repositories you activate",
       done: repositories.length > 0,
-      href: `/${org.login}/repositories`,
+      href: setup("activate"),
       title: "Activate a repository",
     },
     {
-      action: "Repositories",
-      description: "Point runs-on at one of its labels",
+      action: "Move workflows",
+      description: "Airship writes the airship.yaml and runs-on changes",
       done: false,
-      href: `/${org.login}/repositories`,
-      title: "Commit an airship.yaml",
+      href: setup("workflows"),
+      title: "Move your workflows",
     },
   ];
 
@@ -269,6 +270,15 @@ function GettingStarted({
             {steps.filter((step) => step.done).length} of {steps.length} done
           </p>
         </div>
+        <Link
+          className={cn(
+            buttonVariants({ size: "sm" }),
+            "absolute top-4 right-5"
+          )}
+          href={`/${org.login}/setup` as Route}
+        >
+          Open setup
+        </Link>
         <ol className="grid gap-px overflow-hidden rounded-md border bg-border">
           {steps.map((step, index) => (
             <li className="flex items-start gap-3 bg-card p-3" key={step.title}>

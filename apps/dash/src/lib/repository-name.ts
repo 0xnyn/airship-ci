@@ -34,3 +34,45 @@ export function parseRepositoryInput(
   }
   return { name };
 }
+
+const PASTED = /[/:.]/;
+
+/**
+ * What a repository search box finds. Plain text matches anywhere in the
+ * full name; a pasted owner/name or GitHub URL matches that repository
+ * exactly. `missing` says why nothing could match a pasted name.
+ */
+export function matchRepositories<T extends { fullName: string }>(
+  repositories: readonly T[],
+  typed: string,
+  orgLogin: string
+): { items: T[]; missing: string | null } {
+  const query = typed.trim();
+  if (query === "") {
+    return { items: [...repositories], missing: null };
+  }
+  if (!PASTED.test(query)) {
+    const needle = query.toLowerCase();
+    return {
+      items: repositories.filter((repo) =>
+        repo.fullName.toLowerCase().includes(needle)
+      ),
+      missing: null,
+    };
+  }
+  const parsed = parseRepositoryInput(query, orgLogin);
+  if ("problem" in parsed) {
+    return { items: [], missing: parsed.problem };
+  }
+  const want = `${orgLogin}/${parsed.name}`.toLowerCase();
+  const items = repositories.filter(
+    (repo) => repo.fullName.toLowerCase() === want
+  );
+  return {
+    items,
+    missing:
+      items.length === 0
+        ? `Airship cannot see ${orgLogin}/${parsed.name}`
+        : null,
+  };
+}

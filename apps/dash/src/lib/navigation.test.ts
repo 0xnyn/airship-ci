@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isActiveSection, nextFor, safeNext } from "./navigation.ts";
+import {
+  isActiveSection,
+  isFlowPath,
+  nextFor,
+  safeNext,
+} from "./navigation.ts";
 
 test("safeNext keeps local paths and rejects everything else", () => {
   assert.equal(
@@ -39,4 +44,14 @@ test("sections match the path case-insensitively and by prefix", () => {
   assert.equal(isActiveSection("/acme/jobsx", "/acme", "/jobs"), false);
   assert.equal(isActiveSection("/ACME", "/acme", ""), true);
   assert.equal(isActiveSection("/acme/jobs", "/acme", ""), false);
+});
+
+test("guided flows are recognised under any casing of the login", () => {
+  assert.equal(isFlowPath("/acme/setup", "/acme"), true);
+  assert.equal(isFlowPath("/ACME/repositories/new", "/acme"), true);
+  assert.equal(isFlowPath("/acme/repositories/migrate", "/acme"), true);
+  assert.equal(isFlowPath("/acme/cloud/connect", "/acme"), true);
+  assert.equal(isFlowPath("/acme/repositories", "/acme"), false);
+  assert.equal(isFlowPath("/acme/cloud", "/acme"), false);
+  assert.equal(isFlowPath("/acme/setupx", "/acme"), false);
 });

@@ -23,7 +23,9 @@ import { Skeleton } from "@airship/ui/components/skeleton";
 import { Textarea } from "@airship/ui/components/textarea";
 import { cn } from "@airship/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
+import type { Route } from "next";
+import Link from "next/link";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { $api, invalidatePath } from "@/lib/api";
@@ -37,10 +39,10 @@ import {
 } from "@/lib/labels";
 import { CloudLogo } from "./cloud-logo";
 import { CodeBlock } from "./copy-button";
-import { ErrorRow } from "./data-table";
+import { ErrorRow, TableSkeleton } from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
-import { PageHeader } from "./page-header";
+import { PageHeader, SectionHeading } from "./page-header";
 import {
   Fact,
   Facts,
@@ -277,65 +279,134 @@ export function ConnectCloud({ name }: { name: CloudName }) {
 /** A provider's logo on a tile, as the Cloud page shows it. */
 export { CloudTile };
 
+/** The clouds in the customer's own account, before the sandbox clouds. */
+const OWN_CLOUDS: readonly CloudName[] = ["aws", "gcp", "azure"];
+
+/** Providers grouped as the documentation groups them. */
+export const cloudGroups: readonly {
+  label: string;
+  names: readonly CloudName[];
+}[] = [
+  { label: "Your cloud", names: OWN_CLOUDS },
+  {
+    label: "Sandbox clouds",
+    names: ORDER.filter((name) => !OWN_CLOUDS.includes(name)),
+  },
+];
+
+export type { CloudName };
+
 export function CloudPage() {
-  const { org } = useOrg();
+  const { isAdmin, org } = useOrg();
   const clouds = $api.useQuery("get", CLOUDS, {
     params: { path: { org: org.login } },
   });
-  const find = (name: CloudName) =>
-    clouds.data?.items?.find((item) => item.cloud === name);
+  const connected = ORDER.flatMap((name) => {
+    const found = clouds.data?.items?.find((item) => item.cloud === name);
+    return found ? [found] : [];
+  });
+  const available = ORDER.filter(
+    (name) => !connected.some((cloud) => cloud.cloud === name)
+  );
+  const connectHref = (name?: CloudName) =>
+    (name
+      ? `/${org.login}/cloud/connect?cloud=${name}&step=credentials`
+      : `/${org.login}/cloud/connect`) as Route;
+
   return (
     <>
       <PageHeader
+        action={
+          isAdmin ? (
+            <Button nativeButton={false} render={<Link href={connectHref()} />}>
+              <Plus />
+              Connect cloud
+            </Button>
+          ) : null
+        }
         description="Where Airship launches runners. Credentials are encrypted and never shown again."
         title="Cloud"
       />
-      <nav
-        aria-label="Providers"
-        className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border lg:grid-cols-4"
-      >
-        {ORDER.map((name) => (
-          <a
-            className="flex items-center gap-3 bg-card p-4 transition-colors hover:bg-muted"
-            href={`#${name}`}
-            key={name}
-          >
-            <CloudTile name={name} size="sm" />
-            <span className="grid min-w-0 gap-0.5">
-              <span className="truncate font-medium text-sm">
-                {cloudCopy[name].title}
-              </span>
-              <span className="text-xs">
-                {clouds.isPending ? (
-                  <Skeleton className="h-3 w-16" />
-                ) : (
-                  <ProviderState cloud={find(name)} />
-                )}
-              </span>
-            </span>
-          </a>
-        ))}
-      </nav>
-      <div className="grid gap-6">
-        {ORDER.map((name) => (
-          <CloudSection
-            clouds={clouds}
-            existing={find(name)}
-            form={forms[name]}
-            key={name}
-            name={name}
-          />
-        ))}
-      </div>
+      {clouds.isPending ? <TableSkeleton /> : null}
+      {clouds.isError ? (
+        <ErrorRow error={clouds.error} fallback="Could not load your clouds" />
+      ) : null}
+      {connected.length > 0 ? (
+        <div className="grid gap-6">
+          {connected.map((cloud) => (
+            <CloudSection
+              clouds={clouds}
+              existing={cloud}
+              form={forms[cloud.cloud]}
+              key={cloud.cloud}
+              name={cloud.cloud}
+            />
+          ))}
+        </div>
+      ) : null}
+      {clouds.isSuccess && available.length > 0 ? (
+        <section aria-labelledby="available-clouds" className="grid gap-3">
+          <SectionHeading id="available-clouds">
+            {connected.length > 0
+              ? "Add another provider"
+              : "Choose where runners launch"}
+          </SectionHeading>
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <ul className="-mr-px -mb-px grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {available.map((name) => (
+                <li className="border-r border-b" key={name}>
+                  <ProviderLink
+                    disabled={!isAdmin}
+                    href={connectHref(name)}
+                    name={name}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }
 
-function ProviderState({ cloud }: { cloud: Schemas["Cloud"] | undefined }) {
-  if (!cloud) {
-    return <span className="text-muted-foreground">Not connected</span>;
+/** A provider not yet connected, linking into the connect flow. */
+function ProviderLink({
+  disabled,
+  href,
+  name,
+}: {
+  disabled: boolean;
+  href: Route;
+  name: CloudName;
+}) {
+  const body = (
+    <>
+      <CloudTile name={name} size="sm" />
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="truncate font-medium text-sm">
+          {cloudCopy[name].title}
+        </span>
+        <span className="truncate text-muted-foreground text-xs">
+          {OWN_CLOUDS.includes(name) ? "Your cloud account" : "Sandbox cloud"}
+        </span>
+      </span>
+    </>
+  );
+  if (disabled) {
+    return <div className="flex items-center gap-3 p-4">{body}</div>;
   }
-  return <CloudStatus cloud={cloud} />;
+  return (
+    <Link
+      className="group flex items-center gap-3 p-4 outline-none transition-colors hover:bg-muted/60 focus-visible:bg-muted/60"
+      href={href}
+    >
+      {body}
+      <span className="text-muted-foreground text-sm opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+        Connect
+      </span>
+    </Link>
+  );
 }
 
 function CloudSection({

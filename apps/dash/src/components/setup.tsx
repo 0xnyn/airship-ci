@@ -3,13 +3,12 @@
 import type { Schemas } from "@airship/client";
 import { Badge } from "@airship/ui/components/badge";
 import { Button, buttonVariants } from "@airship/ui/components/button";
-import { Input } from "@airship/ui/components/input";
 import { cn } from "@airship/ui/lib/utils";
-import { ArrowRight, ExternalLink, Lock, Search } from "lucide-react";
+import { ArrowRight, ExternalLink } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 
 import { $api } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
@@ -19,6 +18,7 @@ import { CloudTile, ConnectCloud, cloudName, cloudOrder } from "./cloud";
 import { OnboardingLayout, StepPanel, StepSkeleton } from "./onboarding";
 import { useOrg } from "./org-context";
 import { Panel, PanelList } from "./panel";
+import { RepositoryPicker } from "./repository-picker";
 import { CloudStatus } from "./status";
 
 const SETUP_STEPS = ["github", "cloud", "activate", "workflows"] as const;
@@ -265,65 +265,6 @@ function CloudStep({
   );
 }
 
-function RepositoryList({
-  action,
-  repositories,
-}: {
-  action: (repo: Schemas["Repository"]) => ReactNode;
-  repositories: Schemas["Repository"][];
-}) {
-  const [query, setQuery] = useState("");
-  const items = repositories
-    .filter((repo) => repo.accessible)
-    .filter((repo) =>
-      repo.fullName.toLowerCase().includes(query.trim().toLowerCase())
-    );
-
-  return (
-    <>
-      <div className="relative">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          aria-label="Search repositories"
-          className="pl-9"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search…"
-          value={query}
-        />
-      </div>
-      {items.length === 0 ? (
-        <Panel className="p-6 text-center text-muted-foreground text-sm">
-          {query
-            ? "No repository matches"
-            : "The app cannot see any repositories yet. Grant it access on GitHub."}
-        </Panel>
-      ) : (
-        <PanelList className="max-h-[420px] overflow-y-auto">
-          {items.map((repo) => (
-            <li className="flex items-center gap-3 px-4 py-3" key={repo.id}>
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                {repo.private ? (
-                  <Lock
-                    aria-label="Private"
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                  />
-                ) : null}
-                <span className="truncate font-medium text-sm">
-                  {repo.fullName}
-                </span>
-              </span>
-              {action(repo)}
-            </li>
-          ))}
-        </PanelList>
-      )}
-    </>
-  );
-}
-
 function ActivateStep({
   onBack,
   onNext,
@@ -349,7 +290,7 @@ function ActivateStep({
       footer={<Footer next={any} onBack={onBack} onNext={onNext} />}
       title={titles.activate.title}
     >
-      <RepositoryList
+      <RepositoryPicker
         action={(repo) => {
           if (repo.activated) {
             return <Badge variant="success">Activated</Badge>;
@@ -367,7 +308,8 @@ function ActivateStep({
             </Button>
           );
         }}
-        repositories={repositories}
+        onPick={isAdmin ? setActivating : undefined}
+        pickable={(repo) => !repo.activated}
       />
       <ActivateDialog onClose={() => setActivating(null)} repo={activating} />
     </StepPanel>

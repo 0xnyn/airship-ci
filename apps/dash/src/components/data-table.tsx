@@ -57,7 +57,14 @@ export function TableSkeleton() {
  * What a list shows when it has nothing in it: a dashed frame over the
  * landing page's halftone, so an empty page still has texture.
  */
-export function EmptyRow({ children }: { children: ReactNode }) {
+export function EmptyRow({
+  action,
+  children,
+}: {
+  /** The one next thing to do, under the message. */
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="relative grid place-items-center overflow-hidden rounded-lg border border-dashed px-6 py-14 text-center">
       <div
@@ -67,6 +74,7 @@ export function EmptyRow({ children }: { children: ReactNode }) {
       <p className="relative max-w-sm text-pretty text-muted-foreground text-sm/relaxed">
         {children}
       </p>
+      {action ? <div className="relative mt-4">{action}</div> : null}
     </div>
   );
 }

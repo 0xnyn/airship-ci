@@ -48,7 +48,7 @@ import { toast } from "sonner";
 
 import { $api, api } from "@/lib/api";
 import { errorMessage, errorStatus } from "@/lib/api-errors";
-import { isActiveSection, nextFor } from "@/lib/navigation";
+import { isActiveSection, isFlowPath, nextFor } from "@/lib/navigation";
 
 import { CommandMenu } from "./command-menu";
 import { Logo } from "./logo";
@@ -61,6 +61,7 @@ import {
   sectionGroups,
   sections,
 } from "./sections";
+import { Slash } from "./slash";
 
 const UNAUTHORIZED = 401;
 const POLL_MS = 10_000;
@@ -238,6 +239,25 @@ export function Shell({
     );
   }
 
+  const commandMenu = (
+    <CommandMenu
+      onOpenChange={setCommandsOpen}
+      open={commandsOpen}
+      org={value.org.login}
+      organizations={me.data.organizations ?? []}
+    />
+  );
+
+  // A guided flow takes the whole window; it draws its own header.
+  if (isFlowPath(pathname, base)) {
+    return (
+      <OrgContext value={value}>
+        <div className="min-h-svh bg-background">{children}</div>
+        {commandMenu}
+      </OrgContext>
+    );
+  }
+
   return (
     <OrgContext value={value}>
       <div className="flex h-svh overflow-hidden bg-sidebar">
@@ -280,12 +300,7 @@ export function Shell({
           </main>
         </div>
       </div>
-      <CommandMenu
-        onOpenChange={setCommandsOpen}
-        open={commandsOpen}
-        org={value.org.login}
-        organizations={me.data.organizations ?? []}
-      />
+      {commandMenu}
     </OrgContext>
   );
 }
@@ -643,25 +658,6 @@ function UserMenu({ me }: { me: Me }) {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/** A breadcrumb separator, drawn as Vercel-style slanted hairline. */
-function Slash() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-4 shrink-0 text-faint"
-      fill="none"
-      viewBox="0 0 16 16"
-    >
-      <path
-        d="M10.5 2.5 5.5 13.5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.25"
-      />
-    </svg>
   );
 }
 

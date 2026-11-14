@@ -8,10 +8,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@airship/ui/components/dropdown-menu";
-import { Field, FieldError, FieldLabel } from "@airship/ui/components/field";
-import { Input } from "@airship/ui/components/input";
+import { Field, FieldLabel } from "@airship/ui/components/field";
 import { Switch } from "@airship/ui/components/switch";
 import {
   Table,
@@ -23,7 +23,15 @@ import {
 } from "@airship/ui/components/table";
 import { Textarea } from "@airship/ui/components/textarea";
 import { useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, MoreHorizontal } from "lucide-react";
+import {
+  ArrowUpRight,
+  Compass,
+  ExternalLink,
+  FileCheck,
+  GitPullRequest,
+  MoreHorizontal,
+  Plus,
+} from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
@@ -32,8 +40,7 @@ import { toast } from "sonner";
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
 import { listDrafts } from "@/lib/migration";
-import { parseRepositoryInput } from "@/lib/repository-name";
-import { ActivateDialog } from "./activate-dialog";
+import { GitHubMark } from "./auth-frame";
 import { EmptyRow, FilterTabs, TableSkeleton } from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
@@ -96,140 +103,76 @@ function Actions() {
   const { isAdmin, org } = useOrg();
   const config = $api.useQuery("get", "/v1/auth/config");
   const installUrl = config.data?.installUrl;
-  const repos = $api.useQuery("get", REPOSITORIES, {
-    params: { path: { org: org.login } },
-  });
-  const [name, setName] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
-  const [activating, setActivating] = useState<Schemas["Repository"] | null>(
-    null
-  );
   const [drafts, setDrafts] = useState(0);
 
   useEffect(() => {
     setDrafts(listDrafts(org.login).length);
   }, [org.login]);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const parsed = parseRepositoryInput(name, org.login);
-    if ("problem" in parsed) {
-      setProblem(parsed.problem);
-      return;
-    }
-    const repoName = parsed.name;
-    const match = (repos.data?.items ?? []).find(
-      (repo) =>
-        repo.fullName.toLowerCase() === `${org.login}/${repoName}`.toLowerCase()
-    );
-    if (!match?.accessible) {
-      setProblem(
-        `The app cannot see ${org.login}/${repoName}. Grant it access on GitHub first.`
-      );
-      return;
-    }
-    if (match.activated) {
-      setProblem(`${match.fullName} is already activated`);
-      return;
-    }
-    setProblem(null);
-    setActivating(match);
-  };
-
   return (
     <div className="flex items-center gap-2">
-      {isAdmin ? (
-        <form className="flex items-center gap-2" onSubmit={submit}>
-          <Field data-invalid={problem !== null || undefined}>
-            <FieldLabel className="sr-only" htmlFor="activate-repo">
-              Repository
-            </FieldLabel>
-            <Input
-              aria-invalid={problem !== null || undefined}
-              autoComplete="off"
-              className="h-9 w-56 font-mono text-sm"
-              id="activate-repo"
-              onChange={(event) => {
-                setName(event.target.value);
-                setProblem(null);
-              }}
-              placeholder={`${org.login}/repo`}
-              required
-              spellCheck={false}
-              value={name}
-            />
-            {problem ? (
-              <FieldError className="absolute top-full mt-1 whitespace-nowrap">
-                {problem}
-              </FieldError>
-            ) : null}
-          </Field>
-          <Button
-            disabled={repos.isPending || name.trim() === ""}
-            size="sm"
-            type="submit"
-          >
-            Activate
-          </Button>
-        </form>
-      ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger
           className={buttonVariants({ size: "icon", variant: "outline" })}
         >
-          <MoreHorizontal className="size-4" />
+          <MoreHorizontal />
           <span className="sr-only">More actions</span>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="w-64">
           {isAdmin ? (
             <DropdownMenuItem
-              onSelect={() => null}
               render={
                 <Link href={`/${org.login}/repositories/migrate` as Route} />
               }
             >
+              <GitPullRequest />
               Move workflows
               {drafts > 0 ? (
-                <Badge className="ml-auto" variant="secondary">
+                <DropdownMenuShortcut className="tracking-normal">
                   {drafts} in progress
-                </Badge>
+                </DropdownMenuShortcut>
               ) : null}
             </DropdownMenuItem>
           ) : null}
-          {installUrl ? (
-            <DropdownMenuItem
-              onSelect={() => null}
-              render={
-                <a
-                  href={installUrl}
-                  rel="noopener noreferrer"
-                  target="_blank"
-                />
-              }
-            >
-              Manage app on GitHub
-              <ExternalLink
-                aria-hidden="true"
-                className="ml-auto size-3.5 text-muted-foreground"
-              />
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => null}
             render={<Link href={`/${org.login}/setup` as Route} />}
           >
+            <Compass />
             Guided setup
           </DropdownMenuItem>
+          <DropdownMenuItem render={<a href="#check-config" />}>
+            <FileCheck />
+            Check a config file
+          </DropdownMenuItem>
+          {installUrl ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                render={
+                  <a
+                    href={installUrl}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  />
+                }
+              >
+                <GitHubMark className="size-4" />
+                GitHub access
+                <ArrowUpRight className="ml-auto text-muted-foreground" />
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-      <ActivateDialog
-        onClose={() => {
-          setActivating(null);
-          setName("");
-        }}
-        repo={activating}
-      />
+      {isAdmin ? (
+        <Button
+          nativeButton={false}
+          render={<Link href={`/${org.login}/repositories/new` as Route} />}
+        >
+          <Plus />
+          Add repository
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -269,7 +212,21 @@ function ActivatedList() {
   }
   if (items.length === 0) {
     return (
-      <EmptyRow>
+      <EmptyRow
+        action={
+          isAdmin ? (
+            <Button
+              nativeButton={false}
+              render={<Link href={`/${org.login}/repositories/new` as Route} />}
+              size="sm"
+              variant="outline"
+            >
+              <Plus />
+              Add repository
+            </Button>
+          ) : null
+        }
+      >
         {visible === 0
           ? "The app cannot see any repositories yet. Grant it access on GitHub."
           : `None of the ${visible} repositories the app can see is activated`}

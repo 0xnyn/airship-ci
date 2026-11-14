@@ -9,7 +9,11 @@ import { Kbd, KbdGroup } from "@airship/ui/components/kbd";
 import { cn } from "@airship/ui/lib/utils";
 import {
   BookOpen,
+  CloudUpload,
+  Compass,
   CornerDownLeft,
+  FolderPlus,
+  GitPullRequest,
   type LucideIcon,
   Monitor,
   Moon,
@@ -72,6 +76,26 @@ export function CommandMenu({
         label: section.label,
         run: close(() => router.push(`/${org}${section.href}` as Route)),
         shortcut: ["G", section.shortcut.toUpperCase()],
+      })),
+      ...(
+        [
+          ["/repositories/new", "Add repository", FolderPlus, "activate repo"],
+          ["/cloud/connect", "Connect cloud", CloudUpload, "aws gcp azure"],
+          [
+            "/repositories/migrate",
+            "Move workflows",
+            GitPullRequest,
+            "migrate runs-on",
+          ],
+          ["/setup", "Guided setup", Compass, "onboarding start"],
+        ] as const
+      ).map(([href, label, icon, keywords]) => ({
+        group: "Actions",
+        icon,
+        id: `do:${href}`,
+        keywords,
+        label,
+        run: close(() => router.push(`/${org}${href}` as Route)),
       })),
       ...organizations
         .filter((candidate) => candidate.login !== org)

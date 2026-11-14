@@ -34,3 +34,19 @@ export function isActiveSection(
   }
   return current === target || current.startsWith(`${target}/`);
 }
+
+/** Paths under an organization that are guided flows, shown full screen. */
+const FLOW_PATHS = [
+  "/setup",
+  "/repositories/new",
+  "/repositories/migrate",
+  "/cloud/connect",
+] as const;
+
+/**
+ * Whether a path is a guided flow, which takes the whole window: no
+ * sidebar, just the steps and a way out.
+ */
+export function isFlowPath(pathname: string, base: string): boolean {
+  return FLOW_PATHS.some((path) => isActiveSection(pathname, base, path));
+}

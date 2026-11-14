@@ -20,9 +20,7 @@ import {
   ExternalLink,
   FileCode,
   GitPullRequest,
-  Lock,
   Plus,
-  Search,
   Trash2,
 } from "lucide-react";
 import type { Route } from "next";
@@ -72,6 +70,7 @@ import { DocsLink } from "./docs-link";
 import { OnboardingLayout, StepPanel, StepSkeleton } from "./onboarding";
 import { useOrg } from "./org-context";
 import { Panel, PanelList } from "./panel";
+import { RepositoryPicker } from "./repository-picker";
 
 const REPOSITORIES = "/v1/orgs/{org}/repositories";
 const WORKFLOWS = "/v1/orgs/{org}/repositories/{repo}/workflows";
@@ -321,98 +320,49 @@ function PickRepository({
   pending: boolean;
 }) {
   const { org } = useOrg();
-  const [query, setQuery] = useState("");
-  const repos = $api.useQuery("get", REPOSITORIES, {
-    params: { path: { org: org.login } },
-  });
   const drafts = useMemo(() => listDrafts(org.login), [org.login]);
   const draftAt = new Map(drafts.map((draft) => [draft.repo, draft]));
-  const items = (repos.data?.items ?? [])
-    .filter((repo) => repo.accessible)
-    .filter((repo) =>
-      repo.fullName.toLowerCase().includes(query.trim().toLowerCase())
-    )
-    .sort(
-      (a, b) =>
-        (draftAt.get(b.id)?.updatedAt ?? 0) -
-        (draftAt.get(a.id)?.updatedAt ?? 0)
-    );
 
   return (
-    <section className="grid gap-4">
-      <div className="grid gap-1">
-        <h2 className="font-semibold text-xl tracking-[-0.02em]">
-          {stepTitle.repository}
-        </h2>
-        <p className="text-muted-foreground text-sm">
-          Airship reads its workflows; nothing changes until you merge
-        </p>
-      </div>
-      <div className="relative">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          aria-label="Search repositories"
-          className="pl-9"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search…"
-          value={query}
-        />
-      </div>
-      {pending || repos.isPending ? <Skeleton className="h-48" /> : null}
-      {repos.isError ? (
-        <p className="text-danger-foreground text-sm" role="alert">
-          {errorMessage(repos.error, "Could not list repositories")}
-        </p>
-      ) : null}
-      {repos.data && items.length === 0 ? (
-        <Panel className="p-6 text-center text-muted-foreground text-sm">
-          {query
-            ? "No repository matches"
-            : "The app cannot see any repositories yet. Grant it access on GitHub."}
-        </Panel>
-      ) : null}
-      {items.length > 0 ? (
-        <PanelList>
-          {items.map((repo) => {
+    <StepPanel
+      description="Airship reads its workflows; nothing changes until you merge"
+      title={stepTitle.repository}
+    >
+      {pending ? (
+        <StepSkeleton />
+      ) : (
+        <RepositoryPicker
+          action={(repo) => {
             const draft = draftAt.get(repo.id);
             return (
-              <li className="flex items-center gap-3 px-4 py-3" key={repo.id}>
-                <span className="grid min-w-0 flex-1 gap-0.5">
-                  <span className="flex min-w-0 items-center gap-2">
-                    {repo.private ? (
-                      <Lock
-                        aria-label="Private"
-                        className="size-3.5 shrink-0 text-muted-foreground"
-                      />
-                    ) : null}
-                    <span className="truncate font-medium text-sm">
-                      {repo.fullName}
-                    </span>
-                    {repo.activated ? (
-                      <Badge variant="success">Activated</Badge>
-                    ) : null}
-                    {draft ? <Badge variant="info">In progress</Badge> : null}
-                  </span>
-                  <span className="font-mono text-muted-foreground text-xs">
-                    {repo.defaultBranch}
-                  </span>
-                </span>
-                <Button
-                  onClick={() => onChoose(repo.id)}
-                  size="sm"
-                  variant={draft ? "default" : "outline"}
-                >
-                  {draft ? "Resume" : "Select"}
-                </Button>
-              </li>
+              <Button
+                onClick={() => onChoose(repo.id)}
+                size="sm"
+                variant={draft ? "default" : "outline"}
+              >
+                {draft ? "Resume" : "Select"}
+              </Button>
             );
-          })}
-        </PanelList>
-      ) : null}
-    </section>
+          }}
+          badges={(repo) => (
+            <>
+              {repo.activated ? (
+                <Badge variant="success">Activated</Badge>
+              ) : null}
+              {draftAt.has(repo.id) ? (
+                <Badge variant="info">In progress</Badge>
+              ) : null}
+            </>
+          )}
+          onPick={(repo) => onChoose(repo.id)}
+          sort={(a, b) =>
+            (draftAt.get(b.id)?.updatedAt ?? 0) -
+              (draftAt.get(a.id)?.updatedAt ?? 0) ||
+            a.fullName.localeCompare(b.fullName)
+          }
+        />
+      )}
+    </StepPanel>
   );
 }
 
@@ -738,7 +688,7 @@ function SetUpRunners({
           before or after merging.
           <Link
             className={buttonVariants({ size: "sm", variant: "outline" })}
-            href={`/${org.login}/cloud` as Route}
+            href={`/${org.login}/cloud/connect` as Route}
           >
             Connect a cloud
           </Link>

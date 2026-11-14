@@ -102,12 +102,16 @@ const themeEntries = (values, clouds, code) => [
   ...Object.entries(clouds).map(([name, value]) => [`cloud-${name}`, value]),
 ];
 
+// Only the theme's camelCase roles are kebab-cased, as themeEntries does:
+// cloud and syntax names are used as written (e2b stays e2b).
 const colorNames = [
-  ...Object.keys(theme.dark).filter((name) => name !== "halftone"),
+  ...Object.keys(theme.dark)
+    .filter((name) => name !== "halftone")
+    .map(kebab),
   "destructive",
   ...Object.keys(cloud.dark).map((name) => `cloud-${name}`),
   ...Object.keys(syntax.dark).map((name) => `syntax-${name}`),
-].map(kebab);
+];
 
 const shellEntries = [
   ["radius", radius.lg],

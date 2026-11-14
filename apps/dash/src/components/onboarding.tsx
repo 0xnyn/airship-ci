@@ -8,7 +8,7 @@ import { Check, X } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { Logo } from "./logo";
 import { useOrg } from "./org-context";
@@ -150,8 +150,8 @@ export function OnboardingLayout<T extends string>({
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-6xl items-start gap-8 px-4 pt-8 pb-24 md:px-10 md:pt-12 lg:grid-cols-[256px_minmax(0,1fr)] lg:gap-16">
-        <div className="grid gap-6 lg:sticky lg:top-24">
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)] items-start gap-8 px-4 pt-8 pb-24 md:px-10 md:pt-12 lg:grid-cols-[256px_minmax(0,1fr)] lg:gap-16">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6 lg:sticky lg:top-24">
           <div className="grid gap-1.5">
             <h1 className="text-balance font-semibold text-2xl tracking-[-0.03em]">
               {title}
@@ -164,7 +164,7 @@ export function OnboardingLayout<T extends string>({
             <p className="mb-2 font-medium text-muted-foreground text-xs lg:hidden">
               Step {index + 1} of {steps.length}
             </p>
-            <ol className="flex gap-1 overflow-x-auto lg:grid lg:gap-0 lg:overflow-visible">
+            <ol className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:grid lg:gap-0 lg:overflow-visible lg:px-0">
               {steps.map((step, position) => (
                 <StepLink
                   active={step.id === current}
@@ -202,8 +202,18 @@ function StepLink<T extends string>({
   onVisit: () => void;
   step: OnboardingStep<T>;
 }) {
+  const ref = useRef<HTMLLIElement>(null);
+  // On a phone the steps scroll sideways; keep the current one in view.
+  useEffect(() => {
+    const item = ref.current;
+    const strip = item?.parentElement;
+    if (active && item && strip && strip.scrollWidth > strip.clientWidth) {
+      strip.scrollTo({ left: item.offsetLeft - strip.offsetLeft - 16 });
+    }
+  }, [active]);
+
   return (
-    <li className="relative shrink-0 lg:pb-1">
+    <li className="relative shrink-0 lg:pb-1" ref={ref}>
       {last ? null : (
         <span
           aria-hidden="true"
@@ -285,7 +295,7 @@ export function StepPanel({
  */
 export function StepFooter({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky bottom-0 z-10 -mx-1 mt-2 flex flex-wrap items-center justify-between gap-3 border-t bg-background/90 px-1 py-4 backdrop-blur-md">
+    <div className="sticky bottom-0 z-10 -mx-1 mt-2 flex flex-wrap items-center justify-between gap-3 border-t bg-background px-1 py-4">
       {children}
     </div>
   );

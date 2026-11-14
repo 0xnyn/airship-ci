@@ -27,7 +27,6 @@ import {
   ArrowUpRight,
   Compass,
   ExternalLink,
-  FileCheck,
   GitPullRequest,
   MoreHorizontal,
   Plus,
@@ -139,10 +138,6 @@ function Actions() {
           >
             <Compass />
             Guided setup
-          </DropdownMenuItem>
-          <DropdownMenuItem render={<a href="#check-config" />}>
-            <FileCheck />
-            Check a config file
           </DropdownMenuItem>
           {installUrl ? (
             <>

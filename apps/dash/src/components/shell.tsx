@@ -252,7 +252,9 @@ export function Shell({
   if (isFlowPath(pathname, base)) {
     return (
       <OrgContext value={value}>
-        <div className="min-h-svh bg-background">{children}</div>
+        <div className="min-h-svh overflow-x-clip bg-background">
+          {children}
+        </div>
         {commandMenu}
       </OrgContext>
     );

@@ -78,7 +78,7 @@ export function RepositoryPicker({
                 onPick?.(firstPickable);
               }
             }}
-            placeholder={`Search, or paste ${org.login}/repo or a GitHub URL`}
+            placeholder="Search, or paste a name or GitHub URL"
             spellCheck={false}
             value={query}
           />
@@ -112,7 +112,7 @@ export function RepositoryPicker({
       />
       {repos.isSuccess && items.length > 0 && installUrl ? (
         <div className="flex items-center justify-between gap-3 border-t bg-muted/60 px-4 py-2.5 text-muted-foreground text-xs">
-          <span>
+          <span className="hidden sm:inline">
             {visible.length === 1
               ? "1 repository visible"
               : `${visible.length} repositories visible`}

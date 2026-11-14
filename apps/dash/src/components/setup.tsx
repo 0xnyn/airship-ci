@@ -13,7 +13,6 @@ import { useState } from "react";
 import { $api } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
 
-import { ActivateDialog } from "./activate-dialog";
 import { CloudTile, ConnectCloud, cloudName, cloudOrder } from "./cloud";
 import { OnboardingLayout, StepPanel, StepSkeleton } from "./onboarding";
 import { useOrg } from "./org-context";
@@ -274,11 +273,11 @@ function ActivateStep({
   onNext: () => void;
   repositories: Schemas["Repository"][];
 }) {
-  const { isAdmin } = useOrg();
-  const [activating, setActivating] = useState<Schemas["Repository"] | null>(
-    null
-  );
+  const { isAdmin, org } = useOrg();
+  const router = useRouter();
   const any = repositories.some((repo) => repo.activated);
+  const activateHref = (repo: Schemas["Repository"]) =>
+    `/${org.login}/repositories/new?repo=${repo.id}&step=options&from=setup` as Route;
 
   return (
     <StepPanel
@@ -300,7 +299,8 @@ function ActivateStep({
           }
           return (
             <Button
-              onClick={() => setActivating(repo)}
+              nativeButton={false}
+              render={<Link href={activateHref(repo)} />}
               size="sm"
               variant="outline"
             >
@@ -308,10 +308,9 @@ function ActivateStep({
             </Button>
           );
         }}
-        onPick={isAdmin ? setActivating : undefined}
+        onPick={isAdmin ? (repo) => router.push(activateHref(repo)) : undefined}
         pickable={(repo) => !repo.activated}
       />
-      <ActivateDialog onClose={() => setActivating(null)} repo={activating} />
     </StepPanel>
   );
 }

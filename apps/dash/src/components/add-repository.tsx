@@ -28,6 +28,7 @@ import { toast } from "sonner";
 
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
+import { DOCS_URL, docsPages } from "@/lib/docs";
 
 import { DocsLink } from "./docs-link";
 import { OnboardingLayout, StepPanel, StepSkeleton } from "./onboarding";
@@ -49,6 +50,30 @@ const copy: Record<Step, { hint: string; title: string }> = {
   repository: { hint: "Any repository the app can see", title: "Repository" },
   workflows: { hint: "Optional", title: "Move workflows" },
 };
+
+/**
+ * Where a flow that sent someone here to activate a repository takes them
+ * back to once it is done, so activating never strands them.
+ */
+function returnTo(
+  from: string | null,
+  org: string,
+  repoId: number | null
+): { href: string; label: string } | null {
+  if (from === "setup") {
+    return { href: `/${org}/setup?step=workflows`, label: "Setup" };
+  }
+  if (from === "jobs") {
+    return { href: `/${org}/jobs`, label: "Jobs" };
+  }
+  if (from === "migrate" && repoId !== null) {
+    return {
+      href: `/${org}/repositories/migrate?repo=${repoId}`,
+      label: "Move workflows",
+    };
+  }
+  return null;
+}
 
 function isStep(value: string | null): value is Step {
   return STEPS.includes(value as Step);
@@ -80,11 +105,19 @@ export function AddRepository() {
       query.set("repo", String(id));
     }
     query.set("step", next);
+    const from = params.get("from");
+    if (from) {
+      query.set("from", from);
+    }
     router.replace(`/${org.login}/repositories/new?${query}` as Route, {
       scroll: false,
     });
   };
-  const back = { href: `/${org.login}/repositories`, label: "Repositories" };
+  const origin = returnTo(params.get("from"), org.login, repoId);
+  const back = origin ?? {
+    href: `/${org.login}/repositories`,
+    label: "Repositories",
+  };
 
   const index = STEPS.indexOf(step);
   const steps = STEPS.map((id, position) => ({
@@ -131,7 +164,9 @@ export function AddRepository() {
       {isAdmin && repo && step === "activate" ? (
         <ActivateStep
           allowPublic={allowPublic}
-          onActivated={() => go("workflows")}
+          onActivated={() =>
+            origin ? router.push(origin.href as Route) : go("workflows")
+          }
           onBack={() => go("options")}
           repo={repo}
         />
@@ -396,8 +431,9 @@ function WorkflowsStep({
           title="Move workflows"
         />
         <Choice
-          description="Write airship.yaml yourself and check it before you commit"
-          href={`/${org.login}/repositories#check-config`}
+          description="Define runners yourself with the configuration reference"
+          external
+          href={`${DOCS_URL}${docsPages["airship.yaml"]}`}
           icon={FileCode}
           title="Write airship.yaml"
         />
@@ -430,25 +466,26 @@ function ConfigLine({ repo }: { repo: Schemas["Repository"] }) {
 
 function Choice({
   description,
+  external = false,
   href,
   icon: Icon,
   primary = false,
   title,
 }: {
   description: string;
+  /** Opens the documentation in a new tab. */
+  external?: boolean;
   href: string;
   icon: typeof FileCode;
   primary?: boolean;
   title: string;
 }) {
-  return (
-    <Link
-      className={cn(
-        "group grid gap-3 rounded-lg border bg-card p-5 outline-none transition-colors hover:border-foreground/30 hover:bg-muted/40 focus-visible:ring-1 focus-visible:ring-ring",
-        primary && "border-foreground/20"
-      )}
-      href={href as Route}
-    >
+  const className = cn(
+    "group grid gap-3 rounded-lg border bg-card p-5 outline-none transition-colors hover:border-foreground/30 hover:bg-muted/40 focus-visible:ring-1 focus-visible:ring-ring",
+    primary && "border-foreground/20"
+  );
+  const content = (
+    <>
       <span className="grid size-9 place-items-center rounded-md border bg-background text-muted-foreground transition-colors group-hover:text-foreground">
         <Icon aria-hidden="true" className="size-4" />
       </span>
@@ -464,6 +501,18 @@ function Choice({
           {description}
         </span>
       </span>
+    </>
+  );
+  if (external) {
+    return (
+      <a className={className} href={href} rel="noopener" target="_blank">
+        {content}
+      </a>
+    );
+  }
+  return (
+    <Link className={className} href={href as Route}>
+      {content}
     </Link>
   );
 }

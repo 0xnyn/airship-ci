@@ -26,7 +26,7 @@ import {
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { $api } from "@/lib/api";
@@ -63,7 +63,6 @@ import {
   type WorkflowScan,
 } from "@/lib/migration";
 
-import { ActivateDialog } from "./activate-dialog";
 import { CloudLogo } from "./cloud-logo";
 import { CopyButton } from "./copy-button";
 import { DocsLink } from "./docs-link";
@@ -984,21 +983,17 @@ function Review({
       onSuccess: () => clearDraft(org.login, repoId),
     }
   );
-  const [activating, setActivating] = useState(false);
+  const activateHref =
+    `/${org.login}/repositories/new?repo=${repoId}&step=options&from=migrate` as Route;
 
   if (open.data) {
     return (
       <Opened
+        activateHref={`/${org.login}/repositories/new?repo=${repoId}&step=options&from=jobs`}
         number={open.data.number}
-        onActivate={() => setActivating(true)}
         repo={repo}
         url={open.data.url}
-      >
-        <ActivateDialog
-          onClose={() => setActivating(false)}
-          repo={activating ? (repo ?? null) : null}
-        />
-      </Opened>
+      />
     );
   }
 
@@ -1054,17 +1049,12 @@ function Review({
           <span className="text-muted-foreground">
             {repo.fullName} is not activated, so its jobs will not launch yet
           </span>
-          <Button
-            onClick={() => setActivating(true)}
-            size="sm"
-            variant="outline"
+          <Link
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+            href={activateHref}
           >
             Activate
-          </Button>
-          <ActivateDialog
-            onClose={() => setActivating(false)}
-            repo={activating ? repo : null}
-          />
+          </Link>
         </Panel>
       ) : null}
     </StepPanel>
@@ -1072,15 +1062,14 @@ function Review({
 }
 
 function Opened({
-  children,
+  activateHref,
   number,
-  onActivate,
   repo,
   url,
 }: {
-  children: ReactNode;
+  /** The pull request's draft is gone, so activating returns to jobs. */
+  activateHref: string;
   number: number;
-  onActivate: () => void;
   repo: Schemas["Repository"] | undefined;
   url: string;
 }) {
@@ -1109,9 +1098,12 @@ function Opened({
           <ExternalLink aria-hidden="true" />
         </a>
         {repo && !repo.activated ? (
-          <Button onClick={onActivate} variant="outline">
+          <Link
+            className={buttonVariants({ variant: "outline" })}
+            href={activateHref as Route}
+          >
             Activate {repo.fullName}
-          </Button>
+          </Link>
         ) : (
           <Link
             className={buttonVariants({ variant: "outline" })}
@@ -1121,7 +1113,6 @@ function Opened({
           </Link>
         )}
       </div>
-      {children}
     </Panel>
   );
 }

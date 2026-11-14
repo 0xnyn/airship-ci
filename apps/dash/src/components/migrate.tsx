@@ -29,6 +29,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { $api } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
@@ -1027,6 +1028,9 @@ function Review({
     "post",
     "/v1/orgs/{org}/repositories/{repo}/migration/pull-request",
     {
+      onError: (error) => {
+        toast.error(errorMessage(error, "Could not open the pull request"));
+      },
       onSuccess: () => clearDraft(org.login, repoId),
     }
   );
@@ -1089,13 +1093,6 @@ function Review({
         <Panel className="border-danger/25 bg-danger-surface p-4 text-danger-foreground text-sm">
           <span role="alert">
             {errorMessage(preview.error, "Could not build the changes")}
-          </span>
-        </Panel>
-      ) : null}
-      {open.isError ? (
-        <Panel className="border-warning/30 bg-warning-surface p-4 text-sm text-warning-foreground">
-          <span role="alert">
-            {errorMessage(open.error, "Could not open the pull request")}
           </span>
         </Panel>
       ) : null}

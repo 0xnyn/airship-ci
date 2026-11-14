@@ -22,7 +22,7 @@ import { skipReasonLabel, sourceLabel } from "@/lib/labels";
 import { CloudLogo } from "./cloud-logo";
 import { EventRow } from "./event-row";
 import { useOrg } from "./org-context";
-import { DetailSection, Fact, Facts } from "./panel";
+import { DetailFact, DetailFacts, DetailSection } from "./panel";
 import { JobStatus, RunnerState } from "./status";
 import { RelativeTime } from "./time";
 
@@ -139,30 +139,32 @@ function JobDetail({ job }: { job: Schemas["Job"] }) {
           <JobStatus job={job} />
         </SheetDescription>
       </SheetHeader>
-      <SheetBody className="grid content-start gap-6">
-        <Facts className="grid-cols-2 lg:grid-cols-2">
-          <Fact label="Repository">{job.repository}</Fact>
-          <Fact label="Branch" mono>
+      <SheetBody className="grid content-start gap-5">
+        <DetailFacts>
+          <DetailFact label="Repository">{job.repository}</DetailFact>
+          <DetailFact label="Branch" mono>
             {job.headBranch ?? "—"}
-          </Fact>
-          <Fact label="Workflow">{job.workflowName ?? "—"}</Fact>
-          <Fact label="Runs on" mono>
+          </DetailFact>
+          <DetailFact label="Workflow">{job.workflowName ?? "—"}</DetailFact>
+          <DetailFact label="Runs on" mono>
             {(job.labels ?? []).join(", ") || "—"}
-          </Fact>
-          <Fact label="Runner" mono>
+          </DetailFact>
+          <DetailFact label="Runner" mono>
             {job.runnerName ?? "—"}
-          </Fact>
-          <Fact label="On Airship">{job.onAirship ? "Yes" : "No"}</Fact>
-          <Fact label="Queued">
+          </DetailFact>
+          <DetailFact label="On Airship">
+            {job.onAirship ? "Yes" : "No"}
+          </DetailFact>
+          <DetailFact label="Queued">
             <RelativeTime value={job.queuedAt} />
-          </Fact>
-          <Fact label="Waited">{wait}</Fact>
-          <Fact label="Ran for">{duration}</Fact>
-          <Fact label="Conclusion">{job.conclusion ?? "—"}</Fact>
-        </Facts>
+          </DetailFact>
+          <DetailFact label="Waited">{wait}</DetailFact>
+          <DetailFact label="Ran for">{duration}</DetailFact>
+          <DetailFact label="Conclusion">{job.conclusion ?? "—"}</DetailFact>
+        </DetailFacts>
         {job.skipReason ? (
           <DetailSection title="Why Airship did not run it">
-            <div className="grid gap-1 rounded-lg border border-warning/30 bg-warning-surface p-3 text-sm text-warning-foreground">
+            <div className="grid gap-1 rounded-lg border border-warning/30 bg-warning-surface px-3 py-2.5 text-sm text-warning-foreground">
               <p className="font-medium">
                 {skipReasonLabel[job.skipReason] ?? job.skipReason}
               </p>
@@ -201,54 +203,54 @@ function RunnerDetail({ runner }: { runner: Schemas["Runner"] }) {
           <RunnerState runner={runner} />
         </SheetDescription>
       </SheetHeader>
-      <SheetBody className="grid content-start gap-6">
+      <SheetBody className="grid content-start gap-5">
         {runner.error ? (
-          <p className="rounded-lg border border-danger/25 bg-danger-surface p-3 text-danger-foreground text-sm">
+          <p className="rounded-lg border border-danger/25 bg-danger-surface px-3 py-2.5 text-danger-foreground text-sm">
             {runner.error}
           </p>
         ) : null}
-        <Facts className="grid-cols-2 lg:grid-cols-2">
-          <Fact label="Repository">{runner.repository}</Fact>
-          <Fact label="Definition" mono>
+        <DetailFacts>
+          <DetailFact label="Repository">{runner.repository}</DetailFact>
+          <DetailFact label="Definition" mono>
             {runner.definition}
-          </Fact>
-          <Fact label="Defined in">
+          </DetailFact>
+          <DetailFact label="Defined in">
             {sourceLabel[runner.source] ?? runner.source}
             {runner.warm ? ", idle pool" : ""}
-          </Fact>
-          <Fact label="Labels" mono>
+          </DetailFact>
+          <DetailFact label="Labels" mono>
             {(runner.labels ?? []).join(", ") || "—"}
-          </Fact>
-          <Fact label="Cloud">
+          </DetailFact>
+          <DetailFact label="Cloud">
             <span className="inline-flex items-center gap-1.5">
               <CloudLogo className="size-3.5" name={runner.cloud} />
               <span className="font-mono text-[13px]">{runner.region}</span>
             </span>
-          </Fact>
-          <Fact label="Machine" mono>
+          </DetailFact>
+          <DetailFact label="Machine" mono>
             {runner.instanceType || "—"}
             {runner.spot ? " (spot)" : ""}
-          </Fact>
-          <Fact label="Instance" mono>
+          </DetailFact>
+          <DetailFact label="Instance" mono>
             {runner.instanceId ?? "—"}
-          </Fact>
-          <Fact label="Job">{runner.jobId ?? "—"}</Fact>
-          <Fact label="Created">
+          </DetailFact>
+          <DetailFact label="Job">{runner.jobId ?? "—"}</DetailFact>
+          <DetailFact label="Created">
             <RelativeTime value={runner.createdAt} />
-          </Fact>
-          <Fact label="Lifetime">
+          </DetailFact>
+          <DetailFact label="Lifetime">
             {runner.runningAt
               ? formatDuration(
                   secondsBetween(runner.runningAt, runner.finishedAt)
                 )
               : "—"}
-          </Fact>
+          </DetailFact>
           {runner.finishedAt ? (
-            <Fact label="Finished">
+            <DetailFact label="Finished">
               <RelativeTime value={runner.finishedAt} />
-            </Fact>
+            </DetailFact>
           ) : null}
-        </Facts>
+        </DetailFacts>
         <DetailSection title="Timeline">
           <Timeline filter={{ runner: runner.id }} />
         </DetailSection>
@@ -294,20 +296,20 @@ function EventDetail({ event }: { event: Schemas["Event"] }) {
           <RelativeTime value={event.createdAt} />
         </SheetDescription>
       </SheetHeader>
-      <SheetBody className="grid content-start gap-6">
+      <SheetBody className="grid content-start gap-5">
         <p className="text-pretty text-sm leading-relaxed">{event.message}</p>
-        <Facts className="grid-cols-2 lg:grid-cols-2">
-          <Fact label="Level">
+        <DetailFacts>
+          <DetailFact label="Level">
             <span className="capitalize">{event.level}</span>
-          </Fact>
-          <Fact label="Repository">{event.repository ?? "—"}</Fact>
-          <Fact label="Runner" mono>
+          </DetailFact>
+          <DetailFact label="Repository">{event.repository ?? "—"}</DetailFact>
+          <DetailFact label="Runner" mono>
             {event.runnerId ?? "—"}
-          </Fact>
-          <Fact label="Job" mono>
+          </DetailFact>
+          <DetailFact label="Job" mono>
             {event.jobId ?? "—"}
-          </Fact>
-        </Facts>
+          </DetailFact>
+        </DetailFacts>
         {related}
       </SheetBody>
     </>

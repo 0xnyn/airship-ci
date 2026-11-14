@@ -69,8 +69,8 @@ export function EventRow({
     </>
   );
   const layout = cn(
-    "grid w-full grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1 px-4 text-left text-xs transition-colors hover:bg-muted",
-    compact ? "py-3" : "py-3.5",
+    "grid w-full grid-cols-[auto_1fr_auto] gap-y-1 text-left text-xs transition-colors hover:bg-muted",
+    compact ? "gap-x-2.5 px-3 py-2.5" : "gap-x-3 px-4 py-3.5",
     selected && "bg-muted"
   );
   if (onOpen) {

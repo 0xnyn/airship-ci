@@ -241,9 +241,42 @@ export function DetailSection({
   title: string;
 }) {
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-1.5">
       <h3 className="font-medium text-muted-foreground text-xs">{title}</h3>
       {children}
     </section>
+  );
+}
+
+/** A detail sheet's facts: one label-and-value row each, in one frame. */
+export function DetailFacts({ children }: { children: ReactNode }) {
+  return (
+    <dl className="divide-y overflow-hidden rounded-lg border text-sm">
+      {children}
+    </dl>
+  );
+}
+
+export function DetailFact({
+  children,
+  label,
+  mono = false,
+}: {
+  children: ReactNode;
+  label: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex min-h-9 items-center justify-between gap-4 px-3 py-1.5">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "min-w-0 truncate text-right",
+          mono && "font-mono text-[13px]"
+        )}
+      >
+        {children}
+      </dd>
+    </div>
   );
 }

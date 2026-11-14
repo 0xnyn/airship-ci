@@ -77,7 +77,7 @@ import {
   useDetailParam,
 } from "./data-table";
 import { useOrg } from "./org-context";
-import { DetailSection, Fact, Facts } from "./panel";
+import { DetailFact, DetailFacts, DetailSection } from "./panel";
 import { StatusDot } from "./status";
 import { RelativeTime } from "./time";
 
@@ -551,23 +551,25 @@ function RepositoryDetail({ repo }: { repo: Repository }) {
           {repo.private ? null : <Badge variant="outline">Public</Badge>}
         </SheetDescription>
       </SheetHeader>
-      <SheetBody className="grid content-start gap-6">
-        <Facts className="grid-cols-2 lg:grid-cols-2">
-          <Fact label="Default branch" mono>
+      <SheetBody className="grid content-start gap-5">
+        <DetailFacts>
+          <DetailFact label="Default branch" mono>
             {repo.defaultBranch}
-          </Fact>
-          <Fact label="Visibility">{repo.private ? "Private" : "Public"}</Fact>
-          <Fact label="Activated">
+          </DetailFact>
+          <DetailFact label="Visibility">
+            {repo.private ? "Private" : "Public"}
+          </DetailFact>
+          <DetailFact label="Activated">
             {repo.activatedAt ? (
               <RelativeTime value={repo.activatedAt} />
             ) : (
               "Not active"
             )}
-          </Fact>
-          <Fact label="Runs while public">
+          </DetailFact>
+          <DetailFact label="Runs while public">
             {repo.allowPublic ? "Yes" : "No"}
-          </Fact>
-        </Facts>
+          </DetailFact>
+        </DetailFacts>
         {repo.activated ? (
           <DetailSection title="airship.yaml">
             <ConfigDetail repo={repo} />
@@ -663,7 +665,7 @@ function ConfigDetail({ repo }: { repo: Repository }) {
     return <p className="text-muted-foreground text-sm">Not read yet</p>;
   }
   return (
-    <div className="grid gap-2 rounded-lg border p-3 text-sm">
+    <div className="grid gap-1.5 rounded-lg border px-3 py-2.5 text-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="text-muted-foreground">
           Checked <RelativeTime value={config.checkedAt} />

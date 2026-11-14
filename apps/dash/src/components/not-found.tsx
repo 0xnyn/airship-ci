@@ -1,7 +1,7 @@
 import { buttonVariants } from "@airship/ui/components/button";
 import Link from "next/link";
 
-import { AuthFrame, AuthHeading } from "./auth-frame";
+import { AuthFrame, AuthHeading, authButton } from "./auth-frame";
 
 export function NotFound({
   description,
@@ -12,14 +12,16 @@ export function NotFound({
 }) {
   return (
     <AuthFrame>
-      <AuthHeading eyebrow="Airship" title={title}>
-        {description}
-      </AuthHeading>
-      <div>
-        <Link className={buttonVariants({ variant: "outline" })} href="/">
-          Go home
-        </Link>
-      </div>
+      <AuthHeading title={title}>{description}</AuthHeading>
+      <Link
+        className={buttonVariants({
+          className: authButton,
+          variant: "outline",
+        })}
+        href="/"
+      >
+        Go home
+      </Link>
     </AuthFrame>
   );
 }

@@ -2,6 +2,8 @@
 
 import { Button } from "@airship/ui/components/button";
 
+import { AuthFrame, AuthHeading, authButton } from "@/components/auth-frame";
+
 /**
  * Catches a render error anywhere under the root layout, so a bad value
  * on one page shows this instead of a blank screen.
@@ -14,18 +16,13 @@ export default function RouteError({
   reset: () => void;
 }) {
   return (
-    <main className="mx-auto grid min-h-svh max-w-md content-center gap-4 p-10 text-center">
-      <h1 className="font-medium text-2xl tracking-display">
-        Something went wrong
-      </h1>
-      <p className="text-muted-foreground text-xs">
-        {error.message || "This page could not be shown."}
-      </p>
-      <div>
-        <Button onClick={reset} size="sm" variant="outline">
-          Try again
-        </Button>
-      </div>
-    </main>
+    <AuthFrame>
+      <AuthHeading title="Something went wrong">
+        {error.message || "This page could not be shown"}
+      </AuthHeading>
+      <Button className={authButton} onClick={reset} variant="outline">
+        Try again
+      </Button>
+    </AuthFrame>
   );
 }

@@ -3,21 +3,7 @@
 import type { Schemas } from "@airship/client";
 import { Badge } from "@airship/ui/components/badge";
 import { Button, buttonVariants } from "@airship/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@airship/ui/components/dialog";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-} from "@airship/ui/components/field";
+import { Field, FieldError, FieldLabel } from "@airship/ui/components/field";
 import { Input } from "@airship/ui/components/input";
 import { Switch } from "@airship/ui/components/switch";
 import {
@@ -31,13 +17,16 @@ import {
 import { Textarea } from "@airship/ui/components/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import type { Route } from "next";
+import Link from "next/link";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { $api, invalidatePath } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
+import { listDrafts } from "@/lib/migration";
 import { parseRepositoryInput } from "@/lib/repository-name";
-
+import { ActivateDialog } from "./activate-dialog";
 import { EmptyRow, FilterTabs, TableSkeleton } from "./data-table";
 import { DocsLink } from "./docs-link";
 import { useOrg } from "./org-context";
@@ -81,9 +70,10 @@ export function Repositories() {
         description="Repositories Airship may run jobs for"
         title="Repositories"
       />
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-3">
         <ConnectGitHub />
         <Activate />
+        <MoveWorkflows />
       </div>
       <Section title="Activated repositories">
         <ActivatedList />
@@ -138,6 +128,45 @@ function ConnectGitHub() {
             Manage app on GitHub
             <ExternalLink aria-hidden="true" />
           </a>
+        ) : null}
+      </SettingsCardFooter>
+    </SettingsCard>
+  );
+}
+
+function MoveWorkflows() {
+  const { isAdmin, org } = useOrg();
+  const [drafts, setDrafts] = useState(0);
+  // Drafts live in this browser only, so read them after mounting.
+  useEffect(() => {
+    setDrafts(listDrafts(org.login).length);
+  }, [org.login]);
+
+  let note = "Only organization owners can move workflows";
+  if (isAdmin) {
+    note =
+      drafts > 0 ? `${drafts} in progress` : "Opens a pull request to review";
+  }
+
+  return (
+    <SettingsCard aria-labelledby="move-workflows" className="flex flex-col">
+      <SettingsCardHeader
+        description="Airship rewrites runs-on and drafts airship.yaml"
+        icon={<StepNumber number={3} />}
+        id="move-workflows"
+        title="Move workflows"
+      />
+      <div className="flex-1" />
+      <SettingsCardFooter note={note}>
+        {isAdmin ? (
+          <Link
+            className={buttonVariants({
+              variant: drafts > 0 ? "outline" : "default",
+            })}
+            href={`/${org.login}/repositories/migrate` as Route}
+          >
+            {drafts > 0 ? "Resume" : "Start"}
+          </Link>
         ) : null}
       </SettingsCardFooter>
     </SettingsCard>
@@ -421,83 +450,6 @@ function ActiveSwitch({
         })
       }
     />
-  );
-}
-
-function ActivateDialog({
-  onClose,
-  repo,
-}: {
-  onClose: () => void;
-  repo: Schemas["Repository"] | null;
-}) {
-  const { org } = useOrg();
-  const queryClient = useQueryClient();
-  const [allowPublic, setAllowPublic] = useState(false);
-  const activate = $api.useMutation("put", ACTIVATION, {
-    onError: (error) => {
-      toast.error(errorMessage(error, "Could not activate the repository"));
-    },
-    onSuccess: async (activated) => {
-      onClose();
-      setAllowPublic(false);
-      toast.success(
-        activated.config?.error
-          ? `Activated ${activated.fullName}, but its airship.yaml has a problem`
-          : `Activated ${activated.fullName}`
-      );
-      await invalidatePath(queryClient, REPOSITORIES, POOLS);
-    },
-  });
-  if (!repo) {
-    return null;
-  }
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    activate.mutate({
-      body: { allowPublic },
-      params: { path: { org: org.login, repo: repo.id } },
-    });
-  };
-
-  return (
-    <Dialog onOpenChange={(open) => (open ? null : onClose())} open>
-      <DialogContent>
-        <form className="grid gap-4" onSubmit={submit}>
-          <DialogHeader>
-            <DialogTitle>Activate {repo.fullName}?</DialogTitle>
-            <DialogDescription>
-              Jobs asking for an <code className="font-mono">airship-</code>{" "}
-              label will launch machines in your cloud account, and any idle
-              pools start right away. <DocsLink page="Security and trust" />
-            </DialogDescription>
-          </DialogHeader>
-          <Field orientation="horizontal">
-            <FieldContent>
-              <FieldLabel htmlFor="allow-public">
-                Run jobs while public
-              </FieldLabel>
-              <FieldDescription>
-                {repo.private
-                  ? "If this repository becomes public, Airship stops its jobs unless this is on"
-                  : "This repository is public: anyone who opens a pull request can run code on your machines"}
-              </FieldDescription>
-            </FieldContent>
-            <Switch
-              checked={allowPublic}
-              id="allow-public"
-              onCheckedChange={setAllowPublic}
-            />
-          </Field>
-          <DialogFooter>
-            <Button disabled={activate.isPending} type="submit">
-              {activate.isPending ? "Activating…" : "Activate"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
 

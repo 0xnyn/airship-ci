@@ -10,7 +10,7 @@ import { $api } from "@/lib/api";
 import { errorMessage } from "@/lib/api-errors";
 import { safeNext } from "@/lib/navigation";
 
-import { AuthFrame, AuthHeading } from "./auth-frame";
+import { AuthFrame, AuthHeading, authButton, GitHubMark } from "./auth-frame";
 
 export function SignIn() {
   const router = useRouter();
@@ -31,9 +31,9 @@ export function SignIn() {
   const githubUrl = config.data?.githubSignInUrl;
 
   return (
-    <AuthFrame>
-      <AuthHeading eyebrow="Sign in" title="Run your CI in your cloud">
-        Fully managed GitHub Actions runners in your AWS, GCP, or Azure account.
+    <AuthFrame footer="Airship signs you in with GitHub and only sees what you grant it">
+      <AuthHeading mark title="Sign in to Airship">
+        GitHub Actions runners in your own cloud account
       </AuthHeading>
       {failure ? (
         <p
@@ -44,19 +44,21 @@ export function SignIn() {
         </p>
       ) : null}
       {config.isPending ? (
-        <Skeleton className="h-9" />
+        <Skeleton className="h-11" />
       ) : (
-        <div className="grid gap-2">
+        <div className="grid gap-3">
           {githubUrl ? (
             <a
-              className={buttonVariants({ size: "lg" })}
+              className={buttonVariants({ className: authButton, size: "lg" })}
               href={`${githubUrl}?next=${encodeURIComponent(next)}`}
             >
+              <GitHubMark />
               Continue with GitHub
             </a>
           ) : null}
           {config.data?.devSignIn ? (
             <Button
+              className={authButton}
               disabled={devSignIn.isPending}
               onClick={() => devSignIn.mutate({})}
               size="lg"
@@ -66,13 +68,13 @@ export function SignIn() {
             </Button>
           ) : null}
           {config.isError ? (
-            <p className="text-destructive text-xs" role="alert">
+            <p className="text-center text-destructive text-xs" role="alert">
               {errorMessage(config.error, "The API cannot be reached")}. Is the
               API running?
             </p>
           ) : null}
           {githubUrl || config.data?.devSignIn || config.isError ? null : (
-            <p className="text-muted-foreground text-xs">
+            <p className="text-center text-muted-foreground text-xs">
               Sign-in is not configured. Set the GitHub App variables on the
               API, or enable DEV_LOGIN in development.
             </p>

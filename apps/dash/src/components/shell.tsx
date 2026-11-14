@@ -12,8 +12,6 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@airship/ui/components/dropdown-menu";
@@ -401,16 +399,6 @@ function Sidebar({
           ))}
         </nav>
 
-        <a
-          className="flex h-8 items-center gap-2.5 rounded-md px-2 text-sidebar-foreground text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:group-data-[state=collapsed]/sidebar:justify-center"
-          href={DOCS_URL}
-          rel="noopener"
-          target="_blank"
-          title="Documentation"
-        >
-          <BookOpen aria-hidden="true" className="size-4 shrink-0" />
-          <span className={cn("truncate", RAIL_HIDDEN)}>Documentation</span>
-        </a>
         <div className="border-sidebar-border border-t pt-2">
           <UserMenu me={me} />
         </div>
@@ -611,17 +599,44 @@ function UserMenu({ me }: { me: Me }) {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuLabel>Theme</DropdownMenuLabel>
-          <DropdownMenuRadioGroup onValueChange={setTheme} value={theme}>
-            {themes.map(({ icon: Icon, label, value }) => (
-              <DropdownMenuRadioItem key={value} value={value}>
-                <Icon aria-hidden="true" />
-                {label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <span className="font-medium text-muted-foreground text-xs">
+              Theme
+            </span>
+            <fieldset
+              aria-label="Theme"
+              className="flex gap-0.5 rounded-md border p-0.5"
+            >
+              {themes.map(({ icon: Icon, label, value }) => (
+                <label
+                  className={cn(
+                    "grid size-7 cursor-pointer place-items-center rounded-[5px] text-muted-foreground transition-colors hover:text-foreground has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-ring",
+                    theme === value && "bg-muted text-foreground shadow-sm"
+                  )}
+                  key={value}
+                  title={label}
+                >
+                  <input
+                    checked={theme === value}
+                    className="sr-only"
+                    name="theme"
+                    onChange={() => setTheme(value)}
+                    type="radio"
+                    value={value}
+                  />
+                  <Icon aria-hidden="true" className="size-3.5" />
+                </label>
+              ))}
+            </fieldset>
+          </div>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => window.open(DOCS_URL, "_blank", "noopener")}
+        >
+          <BookOpen aria-hidden="true" />
+          Documentation
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={signOut}>
           <LogOut aria-hidden="true" />
           Sign out
